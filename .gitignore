@@ -1,17 +1,13 @@
 # GAS/clasp settings
-
-.clasp.json
+.clasp*.json
 node_modules/
 
 # OS files
-
 .DS_Store
 Thumbs.db
 
 # Build files
-
 dist/
 
 # Local env files
-
 .env
