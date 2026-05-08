@@ -68,12 +68,13 @@ let parsedData = null;
 // Toast helpers
 // =============================================================================
 
-/** @param {string} message */
-function showToast(message) {
-  // テキストノードだけ差し替える（アイコン・閉じるボタンは残す）
+/** @param {string} message @param {'error'|'success'} [type='error'] */
+function showToast(message, type = 'error') {
   toast.childNodes.forEach(node => {
     if (node.nodeType === Node.TEXT_NODE) node.textContent = ' ' + message + ' ';
   });
+  toast.classList.remove('hidden', 'toast--error', 'toast--success');
+  toast.classList.add(`toast--${type}`);
   toast.classList.remove('hidden');
 }
 
@@ -382,3 +383,83 @@ function renderErrors(errors, fileName) {
   }
 }
 
+// =============================================================================
+// Submit: GAS バックエンドへの送信処理
+// =============================================================================
+
+/** 送信ボタンのデフォルトラベル（リセット時に使用） */
+const SUBMIT_DEFAULT_HTML = '確認画面へ進む <i class="fa-solid fa-chevron-right"></i>';
+
+/** 送信中 UI に切り替える */
+function setSubmitLoading() {
+  btnSubmit.disabled = true;
+  btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送信中...';
+}
+
+/** 送信ボタンを通常状態に戻す */
+function resetSubmitButton() {
+  btnSubmit.disabled = false;
+  btnSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
+}
+
+/**
+ * 画面全体を初期状態にリセットする（送信成功後に呼ぶ）
+ */
+function resetPage() {
+  rawCsv     = null;
+  parsedData = null;
+  resetDropZone();
+  alertList.innerHTML = '';
+  errorCard.classList.add('hidden');
+  btnSubmit.disabled = true;
+  btnSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
+  hideToast();
+}
+
+btnSubmit.addEventListener('click', () => {
+  // 送信可能なデータが揃っているか念のため確認
+  if (!parsedData || !rawCsv) {
+    showToast('送信できるデータがありません。CSVを再度選択してください。', 'error');
+    return;
+  }
+
+  // ── 送信開始: UI をローディング状態に ─────────────────────────────────────
+  setSubmitLoading();
+  hideToast();
+
+  // ── GAS バックエンドへ送信 ────────────────────────────────────────────────
+  // google.script.run は GAS Webアプリ環境でのみ有効。
+  // ローカル Live Server で動作確認する場合は下部の「ローカル確認用フォールバック」が使われる。
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(onSubmitSuccess)
+      .withFailureHandler(onSubmitFailure)
+      .sendInvoiceData(parsedData, rawCsv);
+  } else {
+    // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
+    console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
+    console.log('[submit] jsonData:', parsedData);
+    console.log('[submit] csvContent (先頭200文字):', rawCsv.slice(0, 200));
+    setTimeout(() => onSubmitSuccess({ status: 'success', data: '(mock)' }), 800);
+  }
+});
+
+/**
+ * 送信成功ハンドラ
+ * @param {{ status: string, data: * }} result - server.js の _success() が返すオブジェクト
+ */
+function onSubmitSuccess(result) {
+  console.log('[submit] success:', result);
+  showToast('送信が完了しました', 'success');
+  resetPage();
+}
+
+/**
+ * 送信失敗ハンドラ
+ * @param {Error} error
+ */
+function onSubmitFailure(error) {
+  console.error('[submit] failure:', error);
+  showToast('送信に失敗しました: ' + (error.message || error), 'error');
+  resetSubmitButton(); // 再送信できるようにボタンを戻す
+}

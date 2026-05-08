@@ -119,6 +119,12 @@ button { cursor: pointer; font-family: inherit; }
   color: #c62828;
 }
 
+.toast--success {
+  background: #f1f8f1;
+  border: 1px solid #2e7d32;
+  color: #1b5e20;
+}
+
 .toast-close {
   position: absolute;
   right: 8px;
