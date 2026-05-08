@@ -34,6 +34,14 @@ function build() {
     fs.copyFileSync(backendSrc, path.join(distDir, 'server.js'));
   }
 
+  // GASの必須ファイル(appsscript.json)も dist にコピーする
+  const manifestSrc = path.join(__dirname, 'appsscript.json');
+  if (fs.existsSync(manifestSrc)) {
+    fs.copyFileSync(manifestSrc, path.join(distDir, 'appsscript.json'));
+  } else {
+    console.warn('⚠️ appsscript.json がプロジェクトルートに見つかりません！');
+  }
+
   console.log('✨ Build complete: dist/index.html and dist/server.js generated.');
 }
 
