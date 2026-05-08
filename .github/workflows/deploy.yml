@@ -1,0 +1,31 @@
+name: Deploy to Production GAS
+
+# mainブランチにpush（マージ）された時だけ実行する
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Node.jsのセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: claspのインストール
+        run: npm install -g @google/clasp
+
+      - name: 認証情報と設定ファイルの生成
+        # GitHubのSecretsに保存したトークンと本番環境のIDを書き出します
+        run: |
+          echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+          echo '{"scriptId":"${{ secrets.PROD_SCRIPT_ID }}","rootDir":"src"}' > .clasp.json
+
+      - name: 本番用GASへデプロイ
+        run: clasp push --force
