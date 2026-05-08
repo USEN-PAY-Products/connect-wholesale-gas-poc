@@ -1,0 +1,349 @@
+/* =====================================================
+   Utility
+   ===================================================== */
+.hidden { display: none !important; }
+
+/* =====================================================
+   Reset / Base
+   ===================================================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+  font-size: 14px;
+  background: #f0f2f5;
+  color: #333;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a { color: inherit; text-decoration: none; }
+ul { list-style: none; }
+button { cursor: pointer; font-family: inherit; }
+
+/* =====================================================
+   Layout wrapper
+   ===================================================== */
+.main-content {
+  flex: 1;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  position: relative;
+}
+
+/* =====================================================
+   Header
+   ===================================================== */
+.site-header {
+  background: #1a2b4a;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 52px;
+  gap: 16px;
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.header-logo {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.header-produced {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-template-dl {
+  background: #3a7bd5;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.btn-template-dl:hover { background: #2f6abf; }
+
+.header-store {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  border-left: 1px solid rgba(255,255,255,0.3);
+  padding-left: 16px;
+}
+
+/* =====================================================
+   Toast
+   ===================================================== */
+.toast {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 36px 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  z-index: 100;
+}
+
+.toast--error {
+  background: #fff0f0;
+  border: 1px solid #e53935;
+  color: #c62828;
+}
+
+.toast-close {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: inherit;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.toast-close:hover { opacity: 0.7; }
+
+.toast.hidden { display: none; }
+
+/* =====================================================
+   Page header
+   ===================================================== */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* =====================================================
+   Buttons (shared)
+   ===================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-back {
+  background: #1a2b4a;
+  color: #fff;
+  font-size: 13px;
+  padding: 7px 16px;
+  border-radius: 6px;
+}
+.btn-back:hover { background: #263d6b; }
+
+.btn-primary {
+  background: #3a7bd5;
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: #2f6abf; }
+.btn-primary:disabled {
+  background: #b0bec5;
+  color: #eceff1;
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  background: #fff;
+  color: #333;
+  border: 1.5px solid #bbb;
+}
+.btn-outline:hover { background: #f5f5f5; }
+
+/* =====================================================
+   Cards
+   ===================================================== */
+.card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px 28px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  margin-bottom: 16px;
+}
+
+/* =====================================================
+   Upload card
+   ===================================================== */
+.upload-card .card-label {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed #90a4c8;
+  border-radius: 8px;
+  background: #f8faff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  gap: 10px;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+
+.drop-zone.drag-over {
+  border-color: #3a7bd5;
+  background: #e8f0fe;
+}
+
+/* 成功状態 */
+.drop-zone.is-success {
+  border-color: #2e7d32;
+  border-style: solid;
+  background: #f1f8f1;
+}
+
+.drop-zone__icon--success {
+  font-size: 40px;
+  color: #2e7d32;
+}
+
+.drop-zone__text--success {
+  text-align: center;
+  color: #2e7d32;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.drop-zone__icon {
+  font-size: 40px;
+  color: #90a4ae;
+}
+
+.drop-zone__text {
+  text-align: center;
+  color: #78909c;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.btn-select-file {
+  background: #fff;
+  border: 1.5px solid #bbb;
+  border-radius: 6px;
+  padding: 7px 20px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #333;
+}
+.btn-select-file:hover { background: #f0f0f0; }
+
+/* Template download link */
+.link-template {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: #3a7bd5;
+  float: right;
+}
+.link-template:hover { text-decoration: underline; }
+
+/* =====================================================
+   Error card
+   ===================================================== */
+.error-card__title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.error-card__desc {
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+
+.alert-list { display: flex; flex-direction: column; gap: 8px; }
+
+.alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.alert-icon { flex-shrink: 0; margin-top: 2px; font-size: 10px; }
+
+.alert-item--error { color: #c62828; }
+.alert-item--error .alert-icon { color: #e53935; }
+
+.alert-item--warn { color: #e65100; }
+.alert-item--warn .alert-icon { color: #fb8c00; }
+
+/* =====================================================
+   Action buttons row
+   ===================================================== */
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.btn-submit { min-width: 220px; justify-content: center; }
+.btn-cancel { min-width: 160px; justify-content: center; }
+
+/* =====================================================
+   Footer
+   ===================================================== */
+.site-footer {
+  text-align: center;
+  padding: 14px;
+  font-size: 11px;
+  color: #999;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+}
