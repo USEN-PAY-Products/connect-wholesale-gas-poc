@@ -1,48 +1,67 @@
-const fs = require('fs');
+'use strict';
+
+const fs   = require('fs');
 const path = require('path');
 
+const SRC_DIR  = path.join(__dirname, 'src/frontend');
+const DIST_DIR = path.join(__dirname, 'dist');
+
+// ---------------------------------------------------------------------------
+// resolveIncludes: @@include <relPath> を再帰的に展開する
+// ---------------------------------------------------------------------------
+
 /**
- * src/frontend 内の index.html, style.css, app.js を
- * 1つのファイルに統合して dist/index.html に出力します。
+ * HTML 文字列内の `<!-- @@include <relPath> -->` を
+ * baseDir からの相対パスで読み込んで再帰的に展開する。
+ *
+ * @param {string} html     - 処理対象の HTML 文字列
+ * @param {string} baseDir  - include パスの基点ディレクトリ
+ * @returns {string}        - 展開後の HTML 文字列
  */
+function resolveIncludes(html, baseDir) {
+  const RE = /<!--\s*@@include\s+([\w/.\-]+)\s*-->/g;
+  return html.replace(RE, (_match, relPath) => {
+    const absPath = path.join(baseDir, relPath);
+    if (!fs.existsSync(absPath)) {
+      console.warn(`[build] WARNING: include target not found: ${absPath}`);
+      return `<!-- MISSING: ${relPath} -->`;
+    }
+    const included = fs.readFileSync(absPath, 'utf8');
+    // 展開されたファイルの include 基点はそのファイルのディレクトリ
+    return resolveIncludes(included, path.dirname(absPath));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// build
+// ---------------------------------------------------------------------------
 function build() {
-  const srcDir = path.join(__dirname, 'src/frontend');
-  const distDir = path.join(__dirname, 'dist');
+  if (!fs.existsSync(DIST_DIR)) fs.mkdirSync(DIST_DIR, { recursive: true });
 
-  // ディレクトリがない場合は作成
-  if (!fs.existsSync(distDir)) {
-    fs.mkdirSync(distDir);
-  }
+  // 1. index.html を読み込み、@@include を再帰展開
+  const rawHtml = fs.readFileSync(path.join(SRC_DIR, 'index.html'), 'utf8');
+  let   html    = resolveIncludes(rawHtml, SRC_DIR);
 
-  // 各ファイルの読み込み
-  let html = fs.readFileSync(path.join(srcDir, 'index.html'), 'utf8');
-  const css = fs.readFileSync(path.join(srcDir, 'css/style.css'), 'utf8');
-  const js = fs.readFileSync(path.join(srcDir, 'js/app.js'), 'utf8');
+  // 2. CSS をインライン化（<link rel="stylesheet" href="css/style.css"> を置換）
+  const cssPath = path.join(SRC_DIR, 'css/style.css');
+  const css     = fs.readFileSync(cssPath, 'utf8');
+  html = html.replace(
+    /<link[^>]+href="css\/style\.css"[^>]*\/?>/,
+    `<style>\n${css}\n</style>`
+  );
 
-  // HTMLの置換
-  // index.html内に <!-- CSS_PLACEHOLDER --> と <!-- JS_PLACEHOLDER --> を書いておくと綺麗に置換できます
-  // もしくは単純にタグの直前に挿入します
-  const finalHtml = html
-    .replace('</head>', `<style>\n${css}\n</style>\n</head>`)
-    .replace('</body>', `<script>\n${js}\n</script>\n</body>`);
+  // 3. app.js をインライン化（<script src="js/app.js"> を置換）
+  const jsPath = path.join(SRC_DIR, 'js/app.js');
+  const js     = fs.readFileSync(jsPath, 'utf8');
+  html = html.replace(
+    /<script\s+src="js\/app\.js"><\/script>/,
+    `<script>\n${js}\n</script>`
+  );
 
-  fs.writeFileSync(path.join(distDir, 'index.html'), finalHtml);
-  
-  // ついでにバックエンドのファイルも dist にコピー（名前を server.gs に変えるのが clasp のコツ）
-  const backendSrc = path.join(__dirname, 'src/backend/server.js');
-  if (fs.existsSync(backendSrc)) {
-    fs.copyFileSync(backendSrc, path.join(distDir, 'server.js'));
-  }
-
-  // GASの必須ファイル(appsscript.json)も dist にコピーする
-  const manifestSrc = path.join(__dirname, 'appsscript.json');
-  if (fs.existsSync(manifestSrc)) {
-    fs.copyFileSync(manifestSrc, path.join(distDir, 'appsscript.json'));
-  } else {
-    console.warn('⚠️ appsscript.json がプロジェクトルートに見つかりません！');
-  }
-
-  console.log('✨ Build complete: dist/index.html and dist/server.js generated.');
+  // 4. 出力
+  const outPath = path.join(DIST_DIR, 'index.html');
+  fs.writeFileSync(outPath, html, 'utf8');
+  console.log(`[build] Done -> ${outPath}  (${(fs.statSync(outPath).size / 1024).toFixed(1)} KB)`);
 }
 
 build();

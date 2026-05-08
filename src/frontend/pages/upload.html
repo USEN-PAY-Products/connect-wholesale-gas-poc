@@ -1,0 +1,64 @@
+<div id="pageUpload">
+
+  <main class="main-content">
+
+    <!-- Toast notification -->
+    <div class="toast toast--error hidden" id="toast" role="alert">
+      <i class="fa-solid fa-circle-exclamation"></i>
+      ファイルアップロードに失敗しました。
+      <button class="toast-close" id="toastClose" aria-label="閉じる">&times;</button>
+    </div>
+
+    <!-- Page header row -->
+    <div class="page-header">
+      <h1 class="page-title">請求内容の登録</h1>
+      <a href="#upload" class="btn btn-back">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </a>
+    </div>
+
+    <!-- Upload card -->
+    <section class="card upload-card">
+      <p class="card-label">請求CSVファイルを登録してください</p>
+
+      <!-- Drop zone -->
+      <div class="drop-zone" id="dropZone">
+        <i class="fa-regular fa-file-lines drop-zone__icon"></i>
+        <p class="drop-zone__text">ここにドラッグ＆ドロップ<br>または</p>
+        <button class="btn btn-select-file" id="btnSelectFile">
+          <i class="fa-regular fa-folder-open"></i> ファイルを選択
+        </button>
+        <input type="file" id="fileInput" accept=".csv" hidden />
+      </div>
+
+      <a href="#" class="link-template">
+        <i class="fa-solid fa-download"></i> 請求CSVテンプレートをダウンロードする
+      </a>
+    </section>
+
+    <!-- Error / Alert list -->
+    <section class="card error-card hidden" id="errorCard">
+      <h2 class="error-card__title">エラー／アラート一覧</h2>
+      <p class="error-card__desc">
+        下記のエラー／アラートが発生しています。確認の上、CSVファイルを修正し、再度アップロードしてください。
+      </p>
+      <ul class="alert-list" id="alertList"></ul>
+    </section>
+
+    <!-- Action buttons -->
+    <div class="action-buttons">
+      <button class="btn btn-primary btn-submit" id="btnSubmit" disabled>
+        確認画面へ進む <i class="fa-solid fa-chevron-right"></i>
+      </button>
+      <button class="btn btn-outline btn-cancel" id="btnCancel">
+        キャンセル
+      </button>
+    </div>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
+  </footer>
+
+</div><!-- /#pageUpload -->

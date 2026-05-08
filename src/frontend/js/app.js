@@ -1,6 +1,43 @@
 console.log('App initialized');
 
 // =============================================================================
+// Router: ハッシュベースの簡易 SPA ルーター
+// =============================================================================
+
+/**
+ * 登録済みページのマップ。
+ * key   : URL ハッシュ（'#upload' など）
+ * value : そのページのルート要素の id
+ */
+const ROUTES = {
+  '#upload': 'pageUpload',
+  // 例: '#confirm': 'pageConfirm',
+};
+
+/** デフォルトルート */
+const DEFAULT_ROUTE = '#upload';
+
+/**
+ * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
+ */
+function navigate() {
+  const hash    = location.hash || DEFAULT_ROUTE;
+  const targetId = ROUTES[hash] || ROUTES[DEFAULT_ROUTE];
+
+  Object.values(ROUTES).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', id !== targetId);
+  });
+
+  console.log(`[router] navigated to ${hash} -> #${targetId}`);
+}
+
+// ハッシュ変化時・初回ロード時にルーティング実行
+window.addEventListener('hashchange', navigate);
+window.addEventListener('DOMContentLoaded', navigate);
+
+
+// =============================================================================
 // DOM references
 // =============================================================================
 const dropZone    = document.getElementById('dropZone');
