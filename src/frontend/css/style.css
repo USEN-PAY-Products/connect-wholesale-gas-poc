@@ -9,11 +9,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+  font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif;
   font-size: 14px;
-  background: #f0f2f5;
+  background: #F8F8F9;
   color: #333;
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -27,10 +26,9 @@ button { cursor: pointer; font-family: inherit; }
    ===================================================== */
 .main-content {
   flex: 1;
-  max-width: 860px;
-  width: 100%;
+  width: 1080px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 24px 16px 0;
   position: relative;
 }
 
@@ -41,10 +39,13 @@ button { cursor: pointer; font-family: inherit; }
   background: #1a2b4a;
   color: #fff;
   display: flex;
-  align-items: center;
+  height: 80px;
+  min-width: 1280px;
+  padding: 12px 32px;
   justify-content: space-between;
-  padding: 0 24px;
-  height: 52px;
+  align-items: center;
+  flex-shrink: 0;
+  align-self: stretch;
   gap: 16px;
 }
 
@@ -55,14 +56,17 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .header-logo {
-  font-size: 17px;
+  font-size: 32px;
+  font-style: normal;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .header-produced {
-  font-size: 11px;
-  opacity: 0.7;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+  color: #B9BEC3;
 }
 
 .header-right {
@@ -72,27 +76,48 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .btn-template-dl {
-  background: #3a7bd5;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 14px;
-  font-size: 13px;
   display: flex;
+  height: 32px;
+  padding: 0 16px;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  border: none;
+  border-radius: 24px;
+  background: #00A7B8;
+  box-shadow: 0 0 8px 0 rgba(0, 0, 0, 0.10);
+  color: #fff;
+  font-size: 13px;
   white-space: nowrap;
+  cursor: pointer;
 }
-.btn-template-dl:hover { background: #2f6abf; }
+.btn-template-dl:hover { background: #0096a5; }
 
 .header-store {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
   line-height: 1.4;
   border-left: 1px solid rgba(255,255,255,0.3);
   padding-left: 16px;
+}
+
+.header-store img {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.header-store span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  flex: 1 0 0;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  overflow: hidden;
 }
 
 /* =====================================================
@@ -149,11 +174,14 @@ button { cursor: pointer; font-family: inherit; }
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
+  margin-right: -92px;
+  margin-left: -92px;
 }
 
 .page-title {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 28px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 /* =====================================================
@@ -168,15 +196,46 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 14px;
   font-weight: 600;
   border: none;
+  line-height: 1;
   transition: background 0.15s, opacity 0.15s;
+}
+
+/* ボタン内アイコンを文字と同じ基準線に揃える */
+.btn i {
+  font-size: 1em;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  top: -0.05em;
+}
+
+/* 一覧に戻る・確認画面へ進むのアイコンを24x24に固定 */
+.btn-back i,
+.btn-submit i {
+  font-size: 24px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .btn-back {
   background: #1a2b4a;
   color: #fff;
-  font-size: 13px;
-  padding: 7px 16px;
-  border-radius: 6px;
+  display: flex;
+  height: 48px;
+  padding: 16px 40px;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  border-radius: 24px;
+  line-height: 1;
 }
 .btn-back:hover { background: #263d6b; }
 
@@ -209,20 +268,35 @@ button { cursor: pointer; font-family: inherit; }
   margin-bottom: 16px;
 }
 
+/*
+ * メイン白カード:
+ * upload / error / buttons を1枚の白背景に縦積みする。
+ * 高さは中身に応じて自動で伸びる。
+ */
+.main-card {
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  gap: 24px;       /* 各子要素の間隔 */
+  overflow: hidden; /* float (link-template) を内包 */
+}
+
 /* =====================================================
-   Upload card
+   Upload section
    ===================================================== */
-.upload-card .card-label {
-  font-size: 15px;
-  font-weight: 600;
+.upload-card .card-label,
+.card-label {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
   margin-bottom: 16px;
 }
 
 /* Drop zone */
 .drop-zone {
-  border: 2px dashed #90a4c8;
+  border: 2px dashed #9C9C9C;
   border-radius: 8px;
-  background: #f8faff;
+  background: #EFEFEF;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -270,17 +344,23 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .btn-select-file {
-  background: #fff;
-  border: 1.5px solid #bbb;
-  border-radius: 6px;
-  padding: 7px 20px;
-  font-size: 13px;
   display: flex;
+  height: 36px;
+  padding: 8px 32px;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  border-radius: 40px;
+  border: 1px solid #D9D9D9;
+  background: #FFF;
+  box-shadow: 0 0 8px 0 rgba(0, 0, 0, 0.06);
   color: #333;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  cursor: pointer;
 }
-.btn-select-file:hover { background: #f0f0f0; }
+.btn-select-file:hover { background: #f5f5f5; }
 
 /* Template download link */
 .link-template {
@@ -288,8 +368,10 @@ button { cursor: pointer; font-family: inherit; }
   align-items: center;
   gap: 6px;
   margin-top: 14px;
-  font-size: 13px;
-  color: #3a7bd5;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #00A7B8;
   float: right;
 }
 .link-template:hover { text-decoration: underline; }
@@ -335,12 +417,32 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  margin-top: 8px;
 }
 
-.btn-submit { min-width: 220px; justify-content: center; }
-.btn-cancel { min-width: 160px; justify-content: center; }
+.btn-submit {
+  width: 230px;
+  height: 48px;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 400;
+  border-radius: 24px;
+}
+.btn-submit:disabled {
+  background: #C7C7C7;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  width: 230px;
+  height: 48px;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 400;
+  border-radius: 24px;
+}
 
 /* =====================================================
    Footer
@@ -348,8 +450,9 @@ button { cursor: pointer; font-family: inherit; }
 .site-footer {
   text-align: center;
   padding: 14px;
-  font-size: 11px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
   color: #999;
-  background: #fff;
-  border-top: 1px solid #e0e0e0;
+  background: #F8F8F9;
 }

@@ -58,7 +58,17 @@ function build() {
     `<script>\n${js}\n</script>`
   );
 
-  // 4. 出力
+  // 4. images/ をコピー
+  const srcImages  = path.join(SRC_DIR, 'images');
+  const distImages = path.join(DIST_DIR, 'images');
+  if (fs.existsSync(srcImages)) {
+    if (!fs.existsSync(distImages)) fs.mkdirSync(distImages, { recursive: true });
+    for (const file of fs.readdirSync(srcImages)) {
+      fs.copyFileSync(path.join(srcImages, file), path.join(distImages, file));
+    }
+  }
+
+  // 5. 出力
   const outPath = path.join(DIST_DIR, 'index.html');
   fs.writeFileSync(outPath, html, 'utf8');
   console.log(`[build] Done -> ${outPath}  (${(fs.statSync(outPath).size / 1024).toFixed(1)} KB)`);
