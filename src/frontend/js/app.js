@@ -41,15 +41,16 @@ window.addEventListener('DOMContentLoaded', navigate);
 // =============================================================================
 // DOM references
 // =============================================================================
-const dropZone      = document.getElementById('dropZone');
-const btnSelectFile = document.getElementById('btnSelectFile');
-const fileInput     = document.getElementById('fileInput');
-const btnToConfirm  = document.getElementById('btnToConfirm');
+const dropZone       = document.getElementById('dropZone');
+const btnSelectFile  = document.getElementById('btnSelectFile');
+const fileInput      = document.getElementById('fileInput');
+const btnToConfirm   = document.getElementById('btnToConfirm');
+const btnCancel      = document.getElementById('btnCancel');
 const btnFinalSubmit = document.getElementById('btnFinalSubmit');
-const errorCard     = document.getElementById('errorCard');
-const alertList     = document.getElementById('alertList');
-const toast         = document.getElementById('toast');
-const toastClose    = document.getElementById('toastClose');
+const errorCard      = document.getElementById('errorCard');
+const alertList      = document.getElementById('alertList');
+const toast          = document.getElementById('toast');
+const toastClose     = document.getElementById('toastClose');
 
 // =============================================================================
 // State: バックエンド送信用データ保持
@@ -430,6 +431,11 @@ btnToConfirm.addEventListener('click', () => {
     return;
   }
   location.hash = '#confirm';
+});
+
+// アップロードページ: キャンセルボタン → アップロード前の初期状態に戻す
+btnCancel.addEventListener('click', () => {
+  resetPage();
 });
 
 // 確認ページ: 登録内容を送信するボタン
