@@ -1,13 +1,4 @@
 // =============================================================================
-// Config: BackOffice API URLs (centrally managed)
-// =============================================================================
-var BACKOFFICE_API_POST_URL = 'https://httpbin.org/post';
-var BACKOFFICE_API_GET_URL  = 'https://httpbin.org/get';
-
-// Google Drive root folder ID for audit trail storage
-var DRIVE_ROOT_FOLDER_ID = '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro';
-
-// =============================================================================
 // Private utility helpers
 // =============================================================================
 
@@ -20,7 +11,11 @@ function _error(message, data) {
 }
 
 function _getWholesalerId() {
-  return Session.getActiveUser().getEmail();
+  var email = Session.getActiveUser().getEmail();
+  var atIndex = email.indexOf('@');
+  if (atIndex === -1) throw new Error('ユーザーのメールアドレスが取得できませんでした');
+  // ローカルパート（@より前）を卸IDとして使用し、個人メールアドレス全文の外部漏洩を避ける
+  return email.slice(0, atIndex);
 }
 
 function _getOrCreateSubFolder(parentFolder, name) {
@@ -63,11 +58,12 @@ function doGet(e) {
 
 function sendInvoiceData(jsonData, csvContent) {
   try {
+    var config = _getConfig();
     var wholesalerId = _getWholesalerId();
     var now = new Date();
 
     // Save CSV audit trail to Drive
-    var rootFolder      = DriveApp.getFolderById(DRIVE_ROOT_FOLDER_ID);
+    var rootFolder      = DriveApp.getFolderById(config.driveFolderId);
     var userFolder      = _getOrCreateSubFolder(rootFolder, wholesalerId);
     var monthFolder     = _getOrCreateSubFolder(userFolder, _formatYearMonth(now));
     var fileName        = _formatTimestamp(now) + '_original.csv';
@@ -75,10 +71,12 @@ function sendInvoiceData(jsonData, csvContent) {
     var originalFileUrl = csvFile.getUrl();
 
     // Build payload
-    var payload = Object.assign({}, jsonData, {
+    // jsonData は配列（parsedData）のため、専用キー rows に入れてマージする
+    var payload = {
       wholesaler_id:     wholesalerId,
-      original_file_url: originalFileUrl
-    });
+      original_file_url: originalFileUrl,
+      rows:              jsonData
+    };
 
     var options = {
       method:             'post',
@@ -87,7 +85,7 @@ function sendInvoiceData(jsonData, csvContent) {
       muteHttpExceptions: true
     };
 
-    var response     = UrlFetchApp.fetch(BACKOFFICE_API_POST_URL, options);
+    var response     = UrlFetchApp.fetch(config.postUrl, options);
     var responseCode = response.getResponseCode();
     var responseBody = JSON.parse(response.getContentText());
 
@@ -106,8 +104,9 @@ function sendInvoiceData(jsonData, csvContent) {
 
 function fetchInvoices() {
   try {
+    var config = _getConfig();
     var wholesalerId = _getWholesalerId();
-    var url = BACKOFFICE_API_GET_URL + '?wholesaler_id=' + encodeURIComponent(wholesalerId);
+    var url = config.getUrl + '?wholesaler_id=' + encodeURIComponent(wholesalerId);
 
     var response     = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
     var responseCode = response.getResponseCode();
@@ -128,9 +127,10 @@ function fetchInvoices() {
 
 function fetchInvoiceDetail(invoiceId) {
   try {
+    var config = _getConfig();
     var wholesalerId = _getWholesalerId();
     var url =
-      BACKOFFICE_API_GET_URL +
+      config.getUrl +
       '?invoice_id='    + encodeURIComponent(invoiceId) +
       '&wholesaler_id=' + encodeURIComponent(wholesalerId);
 
@@ -148,15 +148,17 @@ function fetchInvoiceDetail(invoiceId) {
 }
 
 
-// --- テスト用関数（動作確認が終わったら消してOK） ---
-function testSendInvoice() {
-  // フロントエンドから送られてくるであろう「仮のデータ」を用意
-  const dummyJson = { amount: 1000, memo: "テスト請求" };
-  const dummyCsv = "加盟店コード,金額\nA001,1000";
+// --- Script Propertiesセットアップヘルパー・テスト用関数は config.js に移動済み ---
 
-  // 先ほど作った関数を直接呼び出す
+// --- テスト用関数（動作確認が終わったら消してOK） ---
+// Script Property "ENV" が "development" のときのみ実行可能にする
+function testSendInvoice() {
+  var env = PropertiesService.getScriptProperties().getProperty('ENV');
+  if (env !== 'development') {
+    throw new Error('testSendInvoice() は development 環境でのみ実行できます (ENV=' + env + ')');
+  }
+  const dummyJson = { amount: 1000, memo: 'テスト請求' };
+  const dummyCsv = '加盟店コード,金額\nA001,1000';
   const result = sendInvoiceData(dummyJson, dummyCsv);
-  
-  // 結果をログに出力
-  console.log("テスト結果:", result);
+  console.log('テスト結果:', result);
 }

@@ -70,12 +70,9 @@ let parsedData = null;
 
 /** @param {string} message @param {'error'|'success'} [type='error'] */
 function showToast(message, type = 'error') {
-  toast.childNodes.forEach(node => {
-    if (node.nodeType === Node.TEXT_NODE) node.textContent = ' ' + message + ' ';
-  });
+  document.getElementById('toastMessage').textContent = message;
   toast.classList.remove('hidden', 'toast--error', 'toast--success');
   toast.classList.add(`toast--${type}`);
-  toast.classList.remove('hidden');
 }
 
 function hideToast() {
@@ -95,8 +92,14 @@ const DROP_ZONE_DEFAULT_HTML = dropZone.innerHTML;
 function resetDropZone() {
   dropZone.innerHTML = DROP_ZONE_DEFAULT_HTML;
   dropZone.classList.remove('is-success');
-  // ファイル選択ボタンのイベントは innerHTML 書き換えで消えるため再バインド
-  dropZone.querySelector('#btnSelectFile').addEventListener('click', () => fileInput.click());
+  // innerHTML 差し替え後に DOM 参照とイベントを再登録
+  const newBtn   = dropZone.querySelector('#btnSelectFile');
+  const newInput = dropZone.querySelector('#fileInput');
+  newBtn.addEventListener('click', () => newInput.click());
+  newInput.addEventListener('change', function () {
+    if (this.files[0]) handleFile(this.files[0]);
+    this.value = '';
+  });
 }
 
 /**
@@ -107,19 +110,21 @@ function setDropZoneSuccess(fileName) {
   dropZone.innerHTML = `
     <i class="fa-regular fa-circle-check drop-zone__icon drop-zone__icon--success"></i>
     <p class="drop-zone__text drop-zone__text--success">
-      📄 <strong>${fileName}</strong> を読み込みました
+      📄 <strong id="dropZoneFileName"></strong> を読み込みました
     </p>
     <button class="btn btn-select-file" id="btnSelectFile">
       <i class="fa-regular fa-folder-open"></i> 別のファイルを選択
     </button>
     <input type="file" id="fileInput" accept=".csv" hidden />
   `;
+  // XSS対策: ファイル名は textContent で挿入
+  dropZone.querySelector('#dropZoneFileName').textContent = fileName;
   dropZone.classList.add('is-success');
   // 再バインド
-  dropZone.querySelector('#btnSelectFile').addEventListener('click', () =>
-    dropZone.querySelector('#fileInput').click()
-  );
-  dropZone.querySelector('#fileInput').addEventListener('change', function () {
+  const newBtn   = dropZone.querySelector('#btnSelectFile');
+  const newInput = dropZone.querySelector('#fileInput');
+  newBtn.addEventListener('click', () => newInput.click());
+  newInput.addEventListener('change', function () {
     if (this.files[0]) handleFile(this.files[0]);
     this.value = '';
   });
@@ -388,7 +393,7 @@ function renderErrors(errors, fileName) {
 // =============================================================================
 
 /** 送信ボタンのデフォルトラベル（リセット時に使用） */
-const SUBMIT_DEFAULT_HTML = '確認画面へ進む <i class="fa-solid fa-chevron-right"></i>';
+const SUBMIT_DEFAULT_HTML = '送信する <i class="fa-solid fa-chevron-right"></i>';
 
 /** 送信中 UI に切り替える */
 function setSubmitLoading() {
@@ -450,6 +455,12 @@ btnSubmit.addEventListener('click', () => {
  */
 function onSubmitSuccess(result) {
   console.log('[submit] success:', result);
+  if (result && result.status === 'error') {
+    // GAS 側が _error() を返した場合（SuccessHandler に流れるがエラー扱い）
+    showToast('送信に失敗しました: ' + (result.message || '不明なエラー'), 'error');
+    resetSubmitButton();
+    return;
+  }
   showToast('送信が完了しました', 'success');
   resetPage();
 }

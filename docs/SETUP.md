@@ -48,3 +48,34 @@ clasp open でブラウザのエディタを開き、実行ログやデプロイ
 PR作成: 動作OKならGitHubへプッシュし、プルリクエストを作成します。
 
 マージ・自動反映: レビュー後、main ブランチにマージされると、GitHub Actionsが自動で「本番用GAS」にコードをデプロイします。
+
+## 3. Script Properties の設定（初回必須）
+
+バックエンドの設定値（API URL / Drive フォルダID）はコードにハードコードせず、GAS の **Script Properties** で管理しています。
+初回デプロイ後に以下の手順で一度だけ設定してください。
+
+### 方法A: セットアップ関数を実行する（推奨）
+
+1. GASエディタ（[script.google.com](https://script.google.com)）を開く
+2. `config.gs` を開く
+3. 関数のドロップダウンから **`setupScriptProperties`** を選択して ▶ 実行
+4. コンソールに「Script Properties を設定しました。」と表示されれば完了
+
+> ⚠️ `config.js` 内の初期値はテスト用（`httpbin.org`）です。本番環境では実行前に値を書き換えてください。
+
+### 方法B: GASエディタのUIから直接入力する
+
+「プロジェクトの設定 → スクリプトプロパティ」から以下を登録します。
+
+| プロパティ名 | 説明 |
+|---|---|
+| `BACKOFFICE_API_POST_URL` | 請求データ送信先エンドポイントURL |
+| `BACKOFFICE_API_GET_URL` | 請求一覧・詳細取得エンドポイントURL |
+| `DRIVE_ROOT_FOLDER_ID` | 監査証跡CSV保存先のDriveフォルダID |
+
+### wholesaler_id について
+
+`_getWholesalerId()` はログインユーザーのメールアドレスの **@より前の部分**（ローカルパート）を卸IDとして使用します。
+例: `taro.yamada@example.com` → `taro.yamada`
+
+これによりフォルダ名や外部APIのペイロードへの個人メールアドレス全文の漏洩を防いでいます。
