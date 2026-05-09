@@ -124,9 +124,9 @@ button { cursor: pointer; font-family: inherit; }
    Toast
    ===================================================== */
 .toast {
-  position: absolute;
-  top: 24px;
-  right: 0;
+  position: fixed;
+  top: 96px;
+  right: 32px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -428,7 +428,10 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 18px;
   font-weight: 400;
   border-radius: 24px;
+  background: #1a2b4a;
+  color: #fff;
 }
+.btn-submit:hover:not(:disabled) { background: #263d6b; }
 .btn-submit:disabled {
   background: #C7C7C7;
   color: #fff;

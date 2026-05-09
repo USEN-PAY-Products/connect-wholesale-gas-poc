@@ -2,17 +2,10 @@
 
   <main class="main-content">
 
-    <!-- Toast notification -->
-    <div class="toast toast--error hidden" id="toast" role="alert">
-      <i class="fa-solid fa-circle-exclamation"></i>
-      <span id="toastMessage">ファイルアップロードに失敗しました。</span>
-      <button class="toast-close" id="toastClose" aria-label="閉じる">&times;</button>
-    </div>
-
     <!-- Page header row -->
     <div class="page-header">
       <h1 class="page-title">請求内容の登録</h1>
-      <a href="#upload" class="btn btn-back">
+      <a href="#home" class="btn btn-back">
         <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
       </a>
     </div>
@@ -34,7 +27,7 @@
           <input type="file" id="fileInput" accept=".csv" hidden />
         </div>
 
-        <a href="#" class="link-template">
+        <a href="#" class="link-template" id="btnTemplateDlPage">
           <i class="fa-solid fa-download"></i> 請求CSVテンプレートをダウンロードする
         </a>
       </div>
@@ -50,8 +43,8 @@
 
       <!-- Action buttons -->
       <div class="action-buttons">
-        <button class="btn btn-primary btn-submit" id="btnSubmit" disabled>
-          送信する <i class="fa-solid fa-chevron-right"></i>
+        <button class="btn btn-primary btn-submit" id="btnToConfirm" disabled>
+          確認画面へ進む <i class="fa-solid fa-chevron-right"></i>
         </button>
         <button class="btn btn-outline btn-cancel" id="btnCancel">
           キャンセル

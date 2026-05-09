@@ -10,12 +10,13 @@ console.log('App initialized');
  * value : そのページのルート要素の id
  */
 const ROUTES = {
-  '#upload': 'pageUpload',
-  // 例: '#confirm': 'pageConfirm',
+  '#home':    'pageHome',
+  '#upload':  'pageUpload',
+  '#confirm': 'pageConfirm',
 };
 
 /** デフォルトルート */
-const DEFAULT_ROUTE = '#upload';
+const DEFAULT_ROUTE = '#home';
 
 /**
  * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
@@ -40,14 +41,15 @@ window.addEventListener('DOMContentLoaded', navigate);
 // =============================================================================
 // DOM references
 // =============================================================================
-const dropZone    = document.getElementById('dropZone');
+const dropZone      = document.getElementById('dropZone');
 const btnSelectFile = document.getElementById('btnSelectFile');
-const fileInput   = document.getElementById('fileInput');
-const btnSubmit   = document.getElementById('btnSubmit');
-const errorCard   = document.getElementById('errorCard');
-const alertList   = document.getElementById('alertList');
-const toast       = document.getElementById('toast');
-const toastClose  = document.getElementById('toastClose');
+const fileInput     = document.getElementById('fileInput');
+const btnToConfirm  = document.getElementById('btnToConfirm');
+const btnFinalSubmit = document.getElementById('btnFinalSubmit');
+const errorCard     = document.getElementById('errorCard');
+const alertList     = document.getElementById('alertList');
+const toast         = document.getElementById('toast');
+const toastClose    = document.getElementById('toastClose');
 
 // =============================================================================
 // State: バックエンド送信用データ保持
@@ -379,12 +381,12 @@ function renderErrors(errors, fileName) {
       alertList.appendChild(li);
     });
     errorCard.classList.remove('hidden');
-    btnSubmit.disabled = true;
+    btnToConfirm.disabled = true;
   } else {
     // エラーなし → dropZone を成功表示に → errorCard 非表示 → 送信ボタン活性
     setDropZoneSuccess(fileName || '');
     errorCard.classList.add('hidden');
-    btnSubmit.disabled = false;
+    btnToConfirm.disabled = false;
   }
 }
 
@@ -392,19 +394,19 @@ function renderErrors(errors, fileName) {
 // Submit: GAS バックエンドへの送信処理
 // =============================================================================
 
-/** 送信ボタンのデフォルトラベル（リセット時に使用） */
-const SUBMIT_DEFAULT_HTML = '送信する <i class="fa-solid fa-chevron-right"></i>';
+/** 確認ページ送信ボタンのデフォルトラベル（リセット時に使用） */
+const SUBMIT_DEFAULT_HTML = '登録内容を送信する <i class="fa-solid fa-chevron-right"></i>';
 
 /** 送信中 UI に切り替える */
 function setSubmitLoading() {
-  btnSubmit.disabled = true;
-  btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送信中...';
+  btnFinalSubmit.disabled = true;
+  btnFinalSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送信中...';
 }
 
 /** 送信ボタンを通常状態に戻す */
 function resetSubmitButton() {
-  btnSubmit.disabled = false;
-  btnSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
+  btnFinalSubmit.disabled = false;
+  btnFinalSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
 }
 
 /**
@@ -416,15 +418,26 @@ function resetPage() {
   resetDropZone();
   alertList.innerHTML = '';
   errorCard.classList.add('hidden');
-  btnSubmit.disabled = true;
-  btnSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
+  btnToConfirm.disabled = true;
+  btnToConfirm.innerHTML = '確認画面へ進む <i class="fa-solid fa-chevron-right"></i>';
   hideToast();
 }
 
-btnSubmit.addEventListener('click', () => {
-  // 送信可能なデータが揃っているか念のため確認
+// アップロードページ: 確認画面へ進むボタン
+btnToConfirm.addEventListener('click', () => {
   if (!parsedData || !rawCsv) {
     showToast('送信できるデータがありません。CSVを再度選択してください。', 'error');
+    return;
+  }
+  location.hash = '#confirm';
+});
+
+// 確認ページ: 登録内容を送信するボタン
+btnFinalSubmit.addEventListener('click', () => {
+  // 送信可能なデータが揃っているか念のため確認
+  if (!parsedData || !rawCsv) {
+    showToast('送信できるデータがありません。アップロードページからやり直してください。', 'error');
+    location.hash = '#upload';
     return;
   }
 
@@ -461,8 +474,9 @@ function onSubmitSuccess(result) {
     resetSubmitButton();
     return;
   }
-  showToast('送信が完了しました', 'success');
   resetPage();
+  location.hash = '#home';
+  showToast('送信が完了しました', 'success');
 }
 
 /**
@@ -474,3 +488,40 @@ function onSubmitFailure(error) {
   showToast('送信に失敗しました: ' + (error.message || error), 'error');
   resetSubmitButton(); // 再送信できるようにボタンを戻す
 }
+
+// =============================================================================
+// CSV テンプレートダウンロード
+// =============================================================================
+
+/** BOM 付き UTF-8 CSV テンプレートをダウンロードする */
+function downloadCsvTemplate() {
+  const HEADERS = [
+    '加盟店コード',
+    '日付',
+    '品目',
+    '数量',
+    '単価',
+    '税率区分(%)',
+    '請求金額（税抜）',
+    '消費税',
+    '備考',
+  ];
+  const csvContent = HEADERS.map(h => `"${h}"`).join(',') + '\r\n';
+
+  // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = '請求CSVテンプレート.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('btnTemplateDlHeader').addEventListener('click', downloadCsvTemplate);
+document.getElementById('btnTemplateDlPage').addEventListener('click', e => {
+  e.preventDefault();
+  downloadCsvTemplate();
+});

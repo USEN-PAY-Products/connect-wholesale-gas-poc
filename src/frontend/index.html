@@ -18,7 +18,18 @@
 
   <!-- @@include components/header.html -->
 
+  <!-- グローバル Toast: 全ページ共通 -->
+  <div class="toast toast--error hidden" id="toast" role="alert">
+    <i class="fa-solid fa-circle-exclamation"></i>
+    <span id="toastMessage"></span>
+    <button class="toast-close" id="toastClose" aria-label="閉じる">&times;</button>
+  </div>
+
+  <!-- @@include pages/home.html -->
+
   <!-- @@include pages/upload.html -->
+
+  <!-- @@include pages/confirm.html -->
 
   <script src="js/app.js"></script>
 </body>
