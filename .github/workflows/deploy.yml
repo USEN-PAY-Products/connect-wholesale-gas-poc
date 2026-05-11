@@ -1,14 +1,18 @@
-name: Deploy to Production GAS
+name: Deploy GAS API
 
-# mainブランチにpush（マージ）された時だけ実行する
 on:
   push:
     branches:
       - main
+      - develop
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    # ブランチ名に応じて、GitHubのEnvironmentを動的に切り替える
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+
     steps:
       - name: コードのチェックアウト
         uses: actions/checkout@v4
@@ -21,11 +25,15 @@ jobs:
       - name: claspのインストール
         run: npm install -g @google/clasp
 
-      - name: 認証情報と設定ファイルの生成
-        # GitHubのSecretsに保存したトークンと本番環境のIDを書き出します
+      - name: 認証情報とGASプロジェクトの紐付け
+        # 選択されたEnvironmentのSecretsが自動で注入されます
         run: |
           echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
-          echo '{"scriptId":"${{ secrets.PROD_SCRIPT_ID }}","rootDir":"src"}' > .clasp.json
+          echo '{"scriptId":"${{ secrets.SCRIPT_ID }}","rootDir":"src"}' > .clasp.json
 
-      - name: 本番用GASへデプロイ
+      - name: GASへコードを送信 (エディタの更新)
         run: clasp push --force
+
+      - name: ウェブアプリとしてデプロイ (APIの更新)
+        # 既存のデプロイメントIDを指定して上書き更新します
+        run: clasp deploy -i ${{ secrets.DEPLOYMENT_ID }} -d "Auto deployed via GitHub Actions"
