@@ -9,23 +9,36 @@ wholesaler-system/
 ├── .clasp.json                # claspの設定ファイル（push先は dist/ を指定）
 ├── appsscript.json            # GASのタイムゾーンやスコープ設定
 ├── package.json               # Node.jsパッケージ（ビルドスクリプト管理用）
+├── build.js                   # ビルドスクリプト（@@include展開 / CSS・JS インライン化）
 ├── docs/                      # ドキュメント群
 │   ├── DESIGN.md              # 画面デザイン・スタイル定義
-│   └── wholesaler_req.md      # システム要件定義書
+│   ├── SETUP.md               # 環境構築・開発マニュアル
+│   ├── 01_directory_structure.md
+│   ├── 02_system_requirements.md
+│   └── CODING_RULES.md
 ├── src/                       # 🛠️ 開発用ディレクトリ（ここで作業する）
 │   ├── backend/               # GASバックエンド（BE）
-│   │   └── server.js          # doGetやBackOffice連携APIプロキシ
+│   │   ├── config.js          # Script Properties 取得・初期設定ヘルパー
+│   │   └── server.js          # doGet / BackOffice API プロキシ / Drive保存ロジック
 │   └── frontend/              # 画面フロントエンド（FE）
-│       ├── index.html         # メインHTML（ガワ）
+│       ├── index.html         # SPAシェル（@@include でコンポーネントを結合）
+│       ├── components/
+│       │   └── header.html    # ヘッダーコンポーネント
+│       ├── pages/
+│       │   ├── home.html      # ホーム画面
+│       │   ├── upload.html    # CSVアップロード画面
+│       │   └── confirm.html   # 確認画面
 │       ├── css/
-│       │   └── style.css      # ピュアなCSS
+│       │   └── style.css      # スタイルシート
+│       ├── images/
+│       │   └── icon-company.svg  # 企業アイコン（インラインSVGとしてHTMLに埋め込み）
 │       └── js/
-│           ├── app.js         # 画面の表示切り替え、イベント制御
-│           ├── csvParser.js   # CSV読み込み・パースロジック
-│           └── api.js         # BE(google.script.run)との通信ラップ
+│           └── app.js         # SPAルーター / CSV バリデーション / GAS送信処理
 └── dist/                      # 🚀 デプロイ用ディレクトリ（GASにpushされる）
-    ├── index.html             # FEのhtml, css, jsが1つに結合されたファイル
-    └── server.js              # BEのコード（push時に.gsとしてGASにアップされる）
+    ├── appsscript.json        # ルートからコピー
+    ├── index.html             # FEのHTML・CSS・JSが1つに結合されたファイル
+    ├── config.js              # src/backend/config.js のコピー
+    └── server.js              # src/backend/server.js のコピー
 ```
 
 ## 2. 開発フロー（The Vibe Coding Way）
@@ -36,7 +49,13 @@ Copilotの補完がフルに効き、VSCodeの Live Server 機能を使ってブ
 
 ### Step 2: ファイルの結合（ビルド）
 開発が一段落し、GAS上で動かしたくなったら `dist/` ディレクトリへ統合します。
-`src/frontend/` の内容を1つの `dist/index.html` にまとめ、`src/backend/server.js` を `dist/server.js` にコピーします。
+`node build.js`（または `npm run build`）を実行すると、以下が自動で行われます。
+
+1. `src/frontend/index.html` の `<!-- @@include -->` ディレクティブを再帰展開
+2. `css/style.css` を `<style>` タグとしてインライン化
+3. `js/app.js` を `<script>` タグとしてインライン化 → `dist/index.html` を出力
+4. `appsscript.json` を `dist/appsscript.json` にコピー
+5. `src/backend/` の `.js` ファイルすべてを `dist/` 直下にコピー（GASはフラット構成のため）
 
 ### Step 3: clasp push
 `.clasp.json` の `rootDir` を `"dist"` に設定しておきます。

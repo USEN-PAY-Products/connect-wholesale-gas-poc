@@ -1,0 +1,461 @@
+/* =====================================================
+   Utility
+   ===================================================== */
+.hidden { display: none !important; }
+
+/* =====================================================
+   Reset / Base
+   ===================================================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif;
+  font-size: 14px;
+  background: #F8F8F9;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+}
+
+a { color: inherit; text-decoration: none; }
+ul { list-style: none; }
+button { cursor: pointer; font-family: inherit; }
+
+/* =====================================================
+   Layout wrapper
+   ===================================================== */
+.main-content {
+  flex: 1;
+  width: 1080px;
+  margin: 0 auto;
+  padding: 24px 16px 0;
+  position: relative;
+}
+
+/* =====================================================
+   Header
+   ===================================================== */
+.site-header {
+  background: #1a2b4a;
+  color: #fff;
+  display: flex;
+  height: 80px;
+  min-width: 1280px;
+  padding: 12px 32px;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  align-self: stretch;
+  gap: 16px;
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.header-logo {
+  font-size: 32px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.header-produced {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+  color: #B9BEC3;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-template-dl {
+  display: flex;
+  height: 32px;
+  padding: 0 16px;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 24px;
+  background: #00A7B8;
+  box-shadow: 0 0 8px 0 rgba(0, 0, 0, 0.10);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn-template-dl:hover { background: #0096a5; }
+
+.header-store {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+  border-left: 1px solid rgba(255,255,255,0.3);
+  padding-left: 16px;
+}
+
+.header-store img {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.header-store span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  flex: 1 0 0;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  overflow: hidden;
+}
+
+/* =====================================================
+   Toast
+   ===================================================== */
+.toast {
+  position: fixed;
+  top: 96px;
+  right: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 36px 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  z-index: 100;
+}
+
+.toast--error {
+  background: #fff0f0;
+  border: 1px solid #e53935;
+  color: #c62828;
+}
+
+.toast--success {
+  background: #f1f8f1;
+  border: 1px solid #2e7d32;
+  color: #1b5e20;
+}
+
+.toast-close {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: inherit;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.toast-close:hover { opacity: 0.7; }
+
+.toast.hidden { display: none; }
+
+/* =====================================================
+   Page header
+   ===================================================== */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  margin-right: -92px;
+  margin-left: -92px;
+}
+
+.page-title {
+  font-size: 28px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* =====================================================
+   Buttons (shared)
+   ===================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  line-height: 1;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+/* ボタン内アイコンを文字と同じ基準線に揃える */
+.btn i {
+  font-size: 1em;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  top: -0.05em;
+}
+
+/* 一覧に戻る・確認画面へ進むのアイコンを24x24に固定 */
+.btn-back i,
+.btn-submit i {
+  font-size: 24px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.btn-back {
+  background: #1a2b4a;
+  color: #fff;
+  display: flex;
+  height: 48px;
+  padding: 16px 40px;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  border-radius: 24px;
+  line-height: 1;
+}
+.btn-back:hover { background: #263d6b; }
+
+.btn-primary {
+  background: #3a7bd5;
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: #2f6abf; }
+.btn-primary:disabled {
+  background: #b0bec5;
+  color: #eceff1;
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  background: #fff;
+  color: #333;
+  border: 1.5px solid #bbb;
+}
+.btn-outline:hover { background: #f5f5f5; }
+
+/* =====================================================
+   Cards
+   ===================================================== */
+.card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px 28px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  margin-bottom: 16px;
+}
+
+/*
+ * メイン白カード:
+ * upload / error / buttons を1枚の白背景に縦積みする。
+ * 高さは中身に応じて自動で伸びる。
+ */
+.main-card {
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  gap: 24px;       /* 各子要素の間隔 */
+  overflow: hidden; /* float (link-template) を内包 */
+}
+
+/* =====================================================
+   Upload section
+   ===================================================== */
+.upload-card .card-label,
+.card-label {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed #9C9C9C;
+  border-radius: 8px;
+  background: #EFEFEF;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  gap: 10px;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+
+.drop-zone.drag-over {
+  border-color: #3a7bd5;
+  background: #e8f0fe;
+}
+
+/* 成功状態 */
+.drop-zone.is-success {
+  border-color: #2e7d32;
+  border-style: solid;
+  background: #f1f8f1;
+}
+
+.drop-zone__icon--success {
+  font-size: 40px;
+  color: #2e7d32;
+}
+
+.drop-zone__text--success {
+  text-align: center;
+  color: #2e7d32;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.drop-zone__icon {
+  font-size: 40px;
+  color: #90a4ae;
+}
+
+.drop-zone__text {
+  text-align: center;
+  color: #78909c;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.btn-select-file {
+  display: flex;
+  height: 36px;
+  padding: 8px 32px;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  border-radius: 40px;
+  border: 1px solid #D9D9D9;
+  background: #FFF;
+  box-shadow: 0 0 8px 0 rgba(0, 0, 0, 0.06);
+  color: #333;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  cursor: pointer;
+}
+.btn-select-file:hover { background: #f5f5f5; }
+
+/* Template download link */
+.link-template {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #00A7B8;
+  float: right;
+}
+.link-template:hover { text-decoration: underline; }
+
+/* =====================================================
+   Error card
+   ===================================================== */
+.error-card__title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.error-card__desc {
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+
+.alert-list { display: flex; flex-direction: column; gap: 8px; }
+
+.alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.alert-icon { flex-shrink: 0; margin-top: 2px; font-size: 10px; }
+
+.alert-item--error { color: #c62828; }
+.alert-item--error .alert-icon { color: #e53935; }
+
+.alert-item--warn { color: #e65100; }
+.alert-item--warn .alert-icon { color: #fb8c00; }
+
+/* =====================================================
+   Action buttons row
+   ===================================================== */
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.btn-submit {
+  width: 230px;
+  height: 48px;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 400;
+  border-radius: 24px;
+  background: #1a2b4a;
+  color: #fff;
+}
+.btn-submit:hover:not(:disabled) { background: #263d6b; }
+.btn-submit:disabled {
+  background: #C7C7C7;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  width: 230px;
+  height: 48px;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 400;
+  border-radius: 24px;
+}
+
+/* =====================================================
+   Footer
+   ===================================================== */
+.site-footer {
+  text-align: center;
+  padding: 14px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  color: #999;
+  background: #F8F8F9;
+}

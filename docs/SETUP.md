@@ -48,3 +48,69 @@ clasp open でブラウザのエディタを開き、実行ログやデプロイ
 PR作成: 動作OKならGitHubへプッシュし、プルリクエストを作成します。
 
 マージ・自動反映: レビュー後、main ブランチにマージされると、GitHub Actionsが自動で「本番用GAS」にコードをデプロイします。
+
+## 3. Script Properties の設定（初回必須）
+
+バックエンドの設定値（API URL / Drive フォルダID）はコードにハードコードせず、GAS の **Script Properties** で管理しています。
+初回デプロイ後に以下の手順で一度だけ設定してください。
+
+### 方法A: セットアップ関数を実行する（推奨）
+
+> ⚠️ `config.js` 内の初期値はテスト用（`httpbin.org`）です。本番環境では実行前に値を書き換えてください。
+
+**手順：**
+
+1. GASエディタ（[script.google.com](https://script.google.com)）を開く
+2. 左側のファイル一覧から **`config.js`** を開く（GAS上では **`config.gs`** と表示される場合があります）
+3. 関数のドロップダウン（▶ ボタンの左隣）から **`setupScriptProperties`** を選択
+4. ▶ 実行ボタンをクリック
+5. 画面下部の「実行ログ」に「Script Properties を設定しました。」と表示されれば完了
+
+**すでに設定済みで値を上書きしたい場合・設定値の間違いや不足を修正したい場合：**
+
+ 以下のようなエラーが出た場合や、設定値（URL / フォルダID）を変更したい場合は、`config.js`（GAS上では `config.gs` と表示される場合があります）の「設定値の書き込み」ブロック内の値を先に修正してから、以下の一時関数を追記して実行し、完了後に削除してください：
+
+```
+Error: [setupScriptProperties] Script Properties はすでに設定済みです（上書きをスキップしました）。
+```
+
+```javascript
+function resetScriptProperties() {
+  setupScriptProperties(true); // true を渡すことで既存値を強制上書き
+}
+```
+
+1. `config.gs` の設定値（URL / フォルダID）を修正
+2. 上記の一時関数を `config.gs` に追記して保存（Ctrl+S / Cmd+S）
+3. ドロップダウンから **`resetScriptProperties`** を選択して ▶ 実行
+4. 完了後にその関数は削除する
+
+**設定内容の確認方法：**
+
+現在の設定値を確認したい場合は、以下の一時関数を同様に追記・実行・削除してください：
+
+```javascript
+function checkScriptProperties() {
+  const p = PropertiesService.getScriptProperties().getProperties();
+  console.log(JSON.stringify(p, null, 2));
+}
+```
+
+実行後、画面下部の「実行ログ」に設定済みのプロパティ一覧が表示されます。
+
+### 方法B: GASエディタのUIから直接入力する
+
+「プロジェクトの設定 → スクリプトプロパティ」から以下を登録します。
+
+| プロパティ名 | 説明 |
+|---|---|
+| `BACKOFFICE_API_POST_URL` | 請求データ送信先エンドポイントURL |
+| `BACKOFFICE_API_GET_URL` | 請求一覧・詳細取得エンドポイントURL |
+| `DRIVE_ROOT_FOLDER_ID` | 監査証跡CSV保存先のDriveフォルダID |
+
+### wholesaler_id について
+
+`_getWholesalerId()` はログインユーザーのメールアドレスの **@より前の部分**（ローカルパート）を卸IDとして使用します。
+例: `taro.yamada@example.com` → `taro.yamada`
+
+これによりフォルダ名や外部APIのペイロードへの個人メールアドレス全文の漏洩を防いでいます。
