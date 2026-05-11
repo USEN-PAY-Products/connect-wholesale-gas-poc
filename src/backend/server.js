@@ -166,6 +166,82 @@ function fetchInvoiceDetail(invoiceId) {
 }
 
 
+// =============================================================================
+// 5. getMockScheduleData  ── BackOffice API 実装前のモック
+// =============================================================================
+
+function getMockScheduleData() {
+  return [
+    { date: '2026-05-13', title: '請求確定', type: 'billing' },
+    { date: '2026-05-27', title: '口座振替', type: 'payment' },
+  ];
+}
+
+// =============================================================================
+// 6. getMockBillingHistory  ── BackOffice API 実装前のモック
+// =============================================================================
+
+function getMockBillingHistory() {
+  return [
+    {
+      id: 'b001',
+      monthLabel: '4月',
+      billingAmount: 99999999,
+      subtotalExTax: 90000000,
+      taxAmount: 9999999,
+      breakdown: [
+        { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
+        { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+      ],
+      fee: 9999999,
+      transferAmount: 990000000,
+      status: '支払完了',
+    },
+    {
+      id: 'b002',
+      monthLabel: '3月',
+      billingAmount: 99999999,
+      subtotalExTax: 90000000,
+      taxAmount: 9999999,
+      breakdown: [
+        { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
+        { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+      ],
+      fee: 9999999,
+      transferAmount: 990000000,
+      status: '支払完了',
+    },
+    {
+      id: 'b003',
+      monthLabel: '2月',
+      billingAmount: 99999999,
+      subtotalExTax: 90000000,
+      taxAmount: 9999999,
+      breakdown: [
+        { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
+        { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+      ],
+      fee: 9999999,
+      transferAmount: 990000000,
+      status: '支払完了',
+    },
+    {
+      id: 'b004',
+      monthLabel: '1月',
+      billingAmount: 99999999,
+      subtotalExTax: 90000000,
+      taxAmount: 9999999,
+      breakdown: [
+        { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
+        { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+      ],
+      fee: 9999999,
+      transferAmount: 990000000,
+      status: '支払完了',
+    },
+  ];
+}
+
 // --- Script Propertiesセットアップヘルパー・テスト用関数は config.js に移動済み ---
 
 // --- テスト用関数（動作確認が終わったら消してOK） ---

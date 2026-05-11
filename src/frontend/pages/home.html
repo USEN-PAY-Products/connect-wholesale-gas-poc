@@ -1,18 +1,53 @@
 <div id="pageHome">
 
-  <main class="main-content">
+  <main class="main-content home-content">
 
-    <div class="page-header">
-      <h1 class="page-title">請求書一覧</h1>
-    </div>
+    <!-- ================================================================
+         請求／支払いスケジュール
+         ================================================================ -->
+    <section class="home-section">
+      <h2 class="home-section-title">請求／支払いスケジュール</h2>
 
-    <div class="card main-card">
-      <p style="color: #9C9C9C; text-align: center; padding: 48px 0;">（このページは現在実装中です）</p>
-      <div style="display: flex; justify-content: flex-end; padding: 0 0 24px;">
-        <a href="#upload" class="btn btn-back">
-          新規請求を登録する <i class="fa-solid fa-plus"></i>
-        </a>
+      <div class="card calendar-card">
+        <!-- カレンダーヘッダー -->
+        <div class="calendar-header">
+          <button class="calendar-nav" id="calPrev" aria-label="前の月">&#8592;</button>
+          <span class="calendar-month-label" id="calMonthLabel"></span>
+          <button class="calendar-nav" id="calNext" aria-label="次の月">&#8594;</button>
+        </div>
+
+        <!-- 曜日ヘッダー -->
+        <div class="calendar-weekdays">
+          <span class="calendar-weekday calendar-weekday--sun">SUN</span>
+          <span class="calendar-weekday">MON</span>
+          <span class="calendar-weekday">TUE</span>
+          <span class="calendar-weekday">WED</span>
+          <span class="calendar-weekday">THU</span>
+          <span class="calendar-weekday">FRI</span>
+          <span class="calendar-weekday calendar-weekday--sat">SAT</span>
+        </div>
+
+        <!-- 日付グリッド（JS で生成） -->
+        <div class="calendar-grid" id="calGrid"></div>
       </div>
+    </section>
+
+    <!-- ================================================================
+         請求履歴
+         ================================================================ -->
+    <section class="home-section">
+      <h2 class="home-section-title">請求履歴</h2>
+
+      <div class="billing-history-list" id="billingHistoryList">
+        <!-- JS で動的生成 -->
+      </div>
+    </section>
+
+    <!-- 新規請求登録 FAB -->
+    <div class="home-fab-area">
+      <a href="#upload" class="btn btn-fab">
+        新規請求を登録する <span class="btn-fab__plus">＋</span>
+      </a>
     </div>
 
   </main>
