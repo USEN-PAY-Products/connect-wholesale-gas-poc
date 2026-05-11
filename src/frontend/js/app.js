@@ -46,9 +46,10 @@ window.addEventListener('DOMContentLoaded', navigate);
 // Home page: カレンダー状態
 // =============================================================================
 
-/** 現在表示中の年月 */
-let calYear  = 2026;
-let calMonth = 4; // 0始まり (4 = 5月)
+/** 現在表示中の年月（初期値は実行時の当月） */
+const _today = new Date();
+let calYear  = _today.getFullYear();
+let calMonth = _today.getMonth(); // 0始まり
 
 /** スケジュールデータのキャッシュ（日付文字列 → オブジェクト配列） */
 let scheduleMap = {};
@@ -99,6 +100,7 @@ function initHomePage() {
       })
       .withFailureHandler(function(err) {
         console.error('[home] getMockBillingHistory failed:', err);
+        renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
       })
       .getMockBillingHistory();
   } else {
@@ -158,8 +160,8 @@ function renderCalendar() {
   const grid  = document.getElementById('calGrid');
   if (!label || !grid) return;
 
-  label.textContent = `${calYear}年${calMonth + 1}月`;
-  grid.innerHTML    = '';
+  label.innerHTML = `<span class="cal-label__year">${calYear}</span><span class="cal-label__month">${MONTH_NAMES_EN[calMonth]}</span>`;
+  grid.innerHTML  = '';
 
   // 月の初日の曜日（0=日, 6=土）
   const firstDay  = new Date(calYear, calMonth, 1).getDay();
@@ -217,7 +219,18 @@ function renderCalendar() {
 // =============================================================================
 
 /**
- * @param {Array<{id:string, month:string, confirmedDate:string, amount:number, status:string}>} items
+ * 請求履歴リストを描画する
+ * @param {Array<{
+ *   id: string,
+ *   monthLabel: string,
+ *   billingAmount: number,
+ *   subtotalExTax: number,
+ *   taxAmount: number,
+ *   breakdown: Array<{rate: number, subtotalExTax: number, taxAmount: number}>,
+ *   fee: number,
+ *   transferAmount: number,
+ *   status: string
+ * }>} items
  */
 function renderBillingHistory(items) {
   const list = document.getElementById('billingHistoryList');
