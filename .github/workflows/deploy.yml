@@ -30,9 +30,6 @@ jobs:
       - name: 依存パッケージのインストール
         run: npm install
 
-      - name: claspのインストール
-        run: npm install -g @google/clasp
-
       - name: ビルド (dist/ を生成)
         run: npm run build
 
@@ -43,8 +40,8 @@ jobs:
           printf '%s' '{"scriptId":"${{ secrets.SCRIPT_ID }}","rootDir":"./dist"}' > .clasp.json
 
       - name: GASへコードを送信 (エディタの更新)
-        run: clasp push --force
+        run: npx clasp push --force
 
       - name: ウェブアプリとしてデプロイ (APIの更新)
         # 既存のデプロイメントIDを指定して上書き更新します
-        run: clasp deploy -i ${{ secrets.DEPLOYMENT_ID }} -d "Auto deployed via GitHub Actions"
+        run: npx clasp deploy -i ${{ secrets.DEPLOYMENT_ID }} -d "Auto deployed via GitHub Actions"
