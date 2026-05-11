@@ -19,15 +19,29 @@ const ROUTES = {
 /** デフォルトルート */
 const DEFAULT_ROUTE = '#home';
 
-/** 詳細画面に渡す選択中の請求ID */
-let selectedInvoiceId = null;
+/**
+ * location.hash から { baseHash, params } を取り出す。
+ * 例: '#detail?invoiceId=b001' → { baseHash: '#detail', params: URLSearchParams }
+ * @returns {{ baseHash: string, params: URLSearchParams }}
+ */
+function parseHash() {
+  const raw = location.hash || DEFAULT_ROUTE;
+  const sepIdx = raw.indexOf('?');
+  if (sepIdx === -1) {
+    return { baseHash: raw, params: new URLSearchParams() };
+  }
+  return {
+    baseHash: raw.slice(0, sepIdx),
+    params:   new URLSearchParams(raw.slice(sepIdx + 1)),
+  };
+}
 
 /**
  * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
  */
 function navigate() {
-  const hash    = location.hash || DEFAULT_ROUTE;
-  const targetId = ROUTES[hash] || ROUTES[DEFAULT_ROUTE];
+  const { baseHash, params } = parseHash();
+  const targetId = ROUTES[baseHash] || ROUTES[DEFAULT_ROUTE];
 
   Object.values(ROUTES).forEach(id => {
     const el = document.getElementById(id);
@@ -39,10 +53,12 @@ function navigate() {
   }
 
   if (targetId === 'pageDetail') {
-    console.log('[router] 詳細画面: selectedInvoiceId =', selectedInvoiceId);
+    const invoiceId = params.get('invoiceId') || null;
+    console.log('[router] 詳細画面: invoiceId =', invoiceId);
+    // TODO: initDetailPage(invoiceId) を呼ぶ
   }
 
-  console.log(`[router] navigated to ${hash} -> #${targetId}`);
+  console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
 }
 
 // ハッシュ変化時・初回ロード時にルーティング実行
@@ -112,11 +128,14 @@ function initHomePage() {
       .getMockBillingHistory();
   } else {
     // ローカル確認用フォールバック
+    // NOTE: 以下のデータは server.js の MOCK_SCHEDULE_ / MOCK_BILLING_BASE_ / MOCK_BILLING_ENTRIES_
+    //       と同一形式を維持すること。BackOffice API 実装後は両方まとめて削除する。
     console.warn('[home] google.script.run が利用できません。モックデータを使用します。');
     const mockSchedule = [
       { date: '2026-05-13', title: '請求確定', type: 'billing' },
       { date: '2026-05-27', title: '口座振替', type: 'payment' },
     ];
+    /** server.js MOCK_BILLING_BASE_ と同一 */
     const billingBase = {
       billingAmount: 99999999, subtotalExTax: 90000000, taxAmount: 9999999,
       breakdown: [
@@ -125,12 +144,13 @@ function initHomePage() {
       ],
       fee: 9999999, transferAmount: 990000000, status: '支払完了',
     };
+    /** server.js MOCK_BILLING_ENTRIES_ と同一 */
     const mockBilling = [
-      { id: 'b001', monthLabel: '4月', ...billingBase },
-      { id: 'b002', monthLabel: '3月', ...billingBase },
-      { id: 'b003', monthLabel: '2月', ...billingBase },
-      { id: 'b004', monthLabel: '1月', ...billingBase },
-    ];
+      { id: 'b001', monthLabel: '4月' },
+      { id: 'b002', monthLabel: '3月' },
+      { id: 'b003', monthLabel: '2月' },
+      { id: 'b004', monthLabel: '1月' },
+    ].map(entry => Object.assign({}, billingBase, entry));
     buildScheduleMap(mockSchedule);
     renderCalendar();
     renderBillingHistory(mockBilling);
@@ -157,17 +177,12 @@ function buildScheduleMap(items) {
 // Home page: カレンダー描画
 // =============================================================================
 
-const MONTH_NAMES_EN = [
-  'January','February','March','April','May','June',
-  'July','August','September','October','November','December'
-];
-
 function renderCalendar() {
   const label = document.getElementById('calMonthLabel');
   const grid  = document.getElementById('calGrid');
   if (!label || !grid) return;
 
-  label.innerHTML = `<span class="cal-label__year">${calYear}</span><span class="cal-label__month">${MONTH_NAMES_EN[calMonth]}</span>`;
+  label.innerHTML = `<span class="cal-label__year">${calYear}年</span><span class="cal-label__month">${calMonth + 1}月</span>`;
   grid.innerHTML  = '';
 
   // 月の初日の曜日（0=日, 6=土）
@@ -294,10 +309,9 @@ function renderBillingHistory(items) {
       <button type="button" class="bc-detail-link" data-id="${escapeHtml(item.id)}">詳細を見る &gt;</button>
     `;
 
-    // 詳細リンク: クリック時に選択IDを保存してから #detail へ遷移
+    // 詳細リンク: invoiceId をハッシュクエリに含めて #detail へ遷移
     card.querySelector('.bc-detail-link').addEventListener('click', function() {
-      selectedInvoiceId = this.dataset.id;
-      location.hash = '#detail';
+      location.hash = '#detail?invoiceId=' + encodeURIComponent(this.dataset.id);
     });
 
     list.appendChild(card);

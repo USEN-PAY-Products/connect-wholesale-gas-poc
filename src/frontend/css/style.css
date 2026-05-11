@@ -482,7 +482,8 @@ button { cursor: pointer; font-family: inherit; }
    Home: カレンダー
    ===================================================== */
 .calendar-card {
-  width: 426px;
+  width: 100%;
+  max-width: 426px;
   padding: 20px 24px 24px;
   margin: 0 auto;
   overflow: hidden;
