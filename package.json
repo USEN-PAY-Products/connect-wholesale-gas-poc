@@ -11,6 +11,9 @@
     "push:prod": "cp .clasp-prod.json .clasp.json && clasp push",
     "build": "node build.js"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "devDependencies": {
     "@google/clasp": "3.3.0",
     "@types/google-apps-script": "^1.0.83"
