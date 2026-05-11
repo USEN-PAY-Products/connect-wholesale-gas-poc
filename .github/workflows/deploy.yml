@@ -40,7 +40,9 @@ jobs:
           printf '%s' '{"scriptId":"${{ secrets.SCRIPT_ID }}","rootDir":"./dist"}' > .clasp.json
 
       - name: GASへコードを送信 (エディタの更新)
-        run: npx clasp push --force
+        run: |
+          rm -f .gitignore
+          npx clasp push --force
 
       - name: ウェブアプリとしてデプロイ (APIの更新)
         # 既存のデプロイメントIDを指定して上書き更新します
