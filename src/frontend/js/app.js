@@ -19,6 +19,9 @@ const ROUTES = {
 /** デフォルトルート */
 const DEFAULT_ROUTE = '#home';
 
+/** 詳細画面に渡す選択中の請求ID */
+let selectedInvoiceId = null;
+
 /**
  * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
  */
@@ -33,6 +36,10 @@ function navigate() {
 
   if (targetId === 'pageHome') {
     initHomePage();
+  }
+
+  if (targetId === 'pageDetail') {
+    console.log('[router] 詳細画面: selectedInvoiceId =', selectedInvoiceId);
   }
 
   console.log(`[router] navigated to ${hash} -> #${targetId}`);
@@ -83,8 +90,8 @@ function initHomePage() {
   if (typeof google !== 'undefined' && google.script && google.script.run) {
     // スケジュールデータ取得
     google.script.run
-      .withSuccessHandler(function(data) {
-        buildScheduleMap(data);
+      .withSuccessHandler(function(result) {
+        buildScheduleMap(result && result.data ? result.data : []);
         renderCalendar();
       })
       .withFailureHandler(function(err) {
@@ -95,8 +102,8 @@ function initHomePage() {
 
     // 請求履歴取得
     google.script.run
-      .withSuccessHandler(function(data) {
-        renderBillingHistory(data);
+      .withSuccessHandler(function(result) {
+        renderBillingHistory(result && result.data ? result.data : []);
       })
       .withFailureHandler(function(err) {
         console.error('[home] getMockBillingHistory failed:', err);
@@ -284,26 +291,17 @@ function renderBillingHistory(items) {
         <div class="bc-fee__row">振込金額<span>${fmt(item.transferAmount)}円</span></div>
       </div>
 
-      <a href="#detail" class="bc-detail-link" data-id="${escapeHtml(item.id)}">詳細を見る &gt;</a>
+      <button type="button" class="bc-detail-link" data-id="${escapeHtml(item.id)}">詳細を見る &gt;</button>
     `;
+
+    // 詳細リンク: クリック時に選択IDを保存してから #detail へ遷移
+    card.querySelector('.bc-detail-link').addEventListener('click', function() {
+      selectedInvoiceId = this.dataset.id;
+      location.hash = '#detail';
+    });
 
     list.appendChild(card);
   });
-}
-
-/**
- * ステータス文字列から CSS クラスキーを返す
- * @param {string} status
- * @returns {string}
- */
-function getStatusClass(status) {
-  const map = {
-    '支払完了': 'done',
-    '確定済み': 'confirmed',
-    '差戻':     'rejected',
-    '処理中':   'pending',
-  };
-  return map[status] || 'default';
 }
 
 /**

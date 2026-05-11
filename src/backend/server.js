@@ -172,10 +172,10 @@ function fetchInvoiceDetail(invoiceId) {
 
 function getMockScheduleData() {
   try {
-    return [
+    return success_([
       { date: '2026-05-13', title: '請求確定', type: 'billing' },
       { date: '2026-05-27', title: '口座振替', type: 'payment' },
-    ];
+    ]);
   } catch (err) {
     throw new Error('getMockScheduleData failed: ' + err.message);
   }
@@ -187,7 +187,7 @@ function getMockScheduleData() {
 
 function getMockBillingHistory() {
   try {
-    return [
+    return success_([
       {
         id: 'b001',
         monthLabel: '4月',
@@ -244,7 +244,7 @@ function getMockBillingHistory() {
         transferAmount: 990000000,
         status: '支払完了',
       },
-    ];
+    ]);
   } catch (err) {
     throw new Error('getMockBillingHistory failed: ' + err.message);
   }

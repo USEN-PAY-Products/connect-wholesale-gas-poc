@@ -799,6 +799,10 @@ button { cursor: pointer; font-family: inherit; }
   padding-left: 12px;
   align-self: center;
   transition: opacity 0.15s;
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
 }
 .bc-detail-link:hover { opacity: 0.7; text-decoration: underline; }
 
