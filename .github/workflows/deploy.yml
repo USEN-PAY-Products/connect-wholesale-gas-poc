@@ -28,7 +28,7 @@ jobs:
           node-version: '20'
 
       - name: 依存パッケージのインストール
-        run: npm install
+        run: npm ci
 
       - name: ビルド (dist/ を生成)
         run: npm run build
