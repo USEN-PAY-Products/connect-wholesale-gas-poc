@@ -25,7 +25,9 @@ wholesaler-system/
 │       ├── components/
 │       │   └── header.html    # ヘッダーコンポーネント
 │       ├── pages/
-│       │   └── upload.html    # CSVアップロード画面
+│       │   ├── home.html      # ホーム画面
+│       │   ├── upload.html    # CSVアップロード画面
+│       │   └── confirm.html   # 確認画面
 │       ├── css/
 │       │   └── style.css      # スタイルシート
 │       ├── images/

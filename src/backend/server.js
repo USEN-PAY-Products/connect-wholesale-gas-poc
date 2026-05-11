@@ -96,11 +96,11 @@ function sendInvoiceData(jsonData, csvContent) {
     }
 
     if (responseCode < 200 || responseCode >= 300) {
-      return error_('BackOffice API error (HTTP ' + responseCode + ')', responseBody);
+      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
     }
     return success_(responseBody);
   } catch (err) {
-    return error_('sendInvoiceData failed: ' + err.message);
+    throw new Error('sendInvoiceData failed: ' + err.message);
   }
 }
 
@@ -125,11 +125,11 @@ function fetchInvoices() {
     }
 
     if (responseCode < 200 || responseCode >= 300) {
-      return error_('BackOffice API error (HTTP ' + responseCode + ')', responseBody);
+      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
     }
     return success_(responseBody);
   } catch (err) {
-    return error_('fetchInvoices failed: ' + err.message);
+    throw new Error('fetchInvoices failed: ' + err.message);
   }
 }
 
@@ -157,11 +157,11 @@ function fetchInvoiceDetail(invoiceId) {
     }
 
     if (responseCode < 200 || responseCode >= 300) {
-      return error_('BackOffice API error (HTTP ' + responseCode + ')', responseBody);
+      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
     }
     return success_(responseBody);
   } catch (err) {
-    return error_('fetchInvoiceDetail failed: ' + err.message);
+    throw new Error('fetchInvoiceDetail failed: ' + err.message);
   }
 }
 
@@ -170,13 +170,27 @@ function fetchInvoiceDetail(invoiceId) {
 
 // --- テスト用関数（動作確認が終わったら消してOK） ---
 // Script Property "ENV" が "development" のときのみ実行可能にする
-function testSendInvoice() {
-  var env = PropertiesService.getScriptProperties().getProperty('ENV');
+function testSendInvoice_() {
+  const env = PropertiesService.getScriptProperties().getProperty('ENV');
   if (env !== 'development') {
-    throw new Error('testSendInvoice() は development 環境でのみ実行できます (ENV=' + env + ')');
+    throw new Error('testSendInvoice_() は development 環境でのみ実行できます (ENV=' + env + ')');
   }
-  const dummyJson = { amount: 1000, memo: 'テスト請求' };
-  const dummyCsv = '加盟店コード,金額\nA001,1000';
+  const dummyJson = [
+    {
+      storeCode:   'A001',
+      date:        '2026-05-01',
+      item:        'テスト品目',
+      qty:         2,
+      unitPrice:   500,
+      taxRate:     10,
+      amountExTax: 1000,
+      tax:         100,
+      note:        'テスト備考',
+    },
+  ];
+  const dummyCsv =
+    '加盟店コード,日付,品目,数量,単価,税率区分(%),請求金額（税抜）,消費税,備考\r\n' +
+    'A001,2026-05-01,テスト品目,2,500,10,1000,100,テスト備考\r\n';
   const result = sendInvoiceData(dummyJson, dummyCsv);
   console.log('テスト結果:', result);
 }

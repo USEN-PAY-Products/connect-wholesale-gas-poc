@@ -276,6 +276,27 @@ function validateCsv(csvText) {
     .split('\n')
     .filter(line => line.trim() !== '');
 
+  // ── ヘッダー行チェック ──────────────────────────────────────────────────
+  const EXPECTED_HEADERS = [
+    '加盟店コード', '日付', '品目', '数量', '単価',
+    '税率区分(%)', '請求金額（税抜）', '消費税', '備考',
+  ];
+  const headerCols = parseCsvLine(lines[0]);
+  if (headerCols.length !== EXPECTED_COLS) {
+    errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${EXPECTED_COLS}列）`);
+    return { errors, rows };
+  }
+  const headerErrors = EXPECTED_HEADERS
+    .map((name, idx) => headerCols[idx] !== name
+      ? `ヘッダー行 ${idx + 1}列目: "${name}" が期待されますが "${headerCols[idx]}" になっています`
+      : null
+    )
+    .filter(Boolean);
+  if (headerErrors.length > 0) {
+    errors.push(...headerErrors);
+    return { errors, rows };
+  }
+
   // ヘッダー含めて1行しかない（データなし）場合
   if (lines.length <= 1) {
     errors.push('CSVにデータ行が1件もありません');
@@ -421,6 +442,7 @@ function resetPage() {
   errorCard.classList.add('hidden');
   btnToConfirm.disabled = true;
   btnToConfirm.innerHTML = '確認画面へ進む <i class="fa-solid fa-chevron-right"></i>';
+  resetSubmitButton();
   hideToast();
 }
 
@@ -470,7 +492,8 @@ btnFinalSubmit.addEventListener('click', () => {
 
 /**
  * 送信成功ハンドラ
- * @param {{ status: string, data: * }} result - server.js の _success() が返すオブジェクト
+ * @param {{ status: string, data: * }} result - server.js の success_() が返すオブジェクト
+ *   エラー時は error_() が返したオブジェクトが SuccessHandler に流れる場合がある
  */
 function onSubmitSuccess(result) {
   console.log('[submit] success:', result);
