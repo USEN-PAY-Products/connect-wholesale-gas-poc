@@ -30,6 +30,8 @@ function navigate() {
     if (el) el.classList.toggle('hidden', id !== targetId);
   });
 
+  if (hash === '#confirm') renderConfirmPage();
+
   console.log(`[router] navigated to ${hash} -> #${targetId}`);
 }
 
@@ -516,6 +518,143 @@ function onSubmitFailure(error) {
   console.error('[submit] failure:', error);
   showToast('送信に失敗しました: ' + (error.message || error), 'error');
   resetSubmitButton(); // 再送信できるようにボタンを戻す
+}
+
+// 確認ページ: チェックボックスで送信ボタンの活性/非活性を切り替える
+document.getElementById('checkConfirm').addEventListener('change', function () {
+  btnFinalSubmit.disabled = !this.checked;
+});
+
+// =============================================================================
+// Confirm page: render
+// =============================================================================
+
+/**
+ * HTML エスケープユーティリティ
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * 確認画面を parsedData を元に描画する。
+ * navigate() が '#confirm' に切り替えるたびに呼ばれる。
+ */
+function renderConfirmPage() {
+  // データがなければアップロード画面へ戻す
+  if (!parsedData || parsedData.length === 0) {
+    location.hash = '#upload';
+    return;
+  }
+
+  // チェックボックス・送信ボタンをリセット
+  const checkConfirm = document.getElementById('checkConfirm');
+  if (checkConfirm) checkConfirm.checked = false;
+  btnFinalSubmit.disabled = true;
+
+  // ── サマリー計算 ────────────────────────────────────────────────────────
+  const storeCodes       = new Set(parsedData.map(r => r.storeCode));
+  const totalAmountExTax = parsedData.reduce((s, r) => s + r.amountExTax, 0);
+  const totalTax         = parsedData.reduce((s, r) => s + r.tax, 0);
+  const totalAmountInTax = totalAmountExTax + totalTax;
+
+  // 税率別内訳
+  const rows10 = parsedData.filter(r => r.taxRate === 10);
+  const rows8  = parsedData.filter(r => r.taxRate === 8);
+  const exTax10 = rows10.reduce((s, r) => s + r.amountExTax, 0);
+  const tax10   = rows10.reduce((s, r) => s + r.tax, 0);
+  const exTax8  = rows8.reduce((s, r) => s + r.amountExTax, 0);
+  const tax8    = rows8.reduce((s, r) => s + r.tax, 0);
+
+  /** @param {number} n */
+  const fmt = n => n.toLocaleString('ja-JP') + '円';
+
+  document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
+  document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
+  document.getElementById('summaryTax').textContent         = fmt(totalTax);
+
+  const fee      = Math.floor(totalAmountInTax * 0.05);
+  const transfer = totalAmountInTax - fee;
+  document.getElementById('summaryFee').textContent      = fmt(fee);
+  document.getElementById('summaryTransfer').textContent = fmt(transfer);
+
+  document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
+  document.getElementById('summaryTax10').textContent       = fmt(tax10);
+  document.getElementById('summaryExTax8').textContent      = fmt(exTax8);
+  document.getElementById('summaryTax8').textContent        = fmt(tax8);
+
+  // ── 加盟店ごとにグルーピング ─────────────────────────────────────────────
+  /** @type {Map<string, typeof parsedData>} */
+  const groups = new Map();
+  parsedData.forEach(row => {
+    if (!groups.has(row.storeCode)) groups.set(row.storeCode, []);
+    groups.get(row.storeCode).push(row);
+  });
+
+  // ── 加盟店別リストを描画 ──────────────────────────────────────────────────
+  const list = document.getElementById('confirmStoreList');
+  list.innerHTML = '';
+
+  groups.forEach((rows, storeCode) => {
+    const storeAmountExTax = rows.reduce((s, r) => s + r.amountExTax, 0);
+    const storeTax         = rows.reduce((s, r) => s + r.tax, 0);
+    const storeTotal       = storeAmountExTax + storeTax;
+
+    // アコーディオンカード
+    const card = document.createElement('div');
+    card.className = 'store-accordion';
+
+    // ヘッダー行
+    const header = document.createElement('div');
+    header.className = 'store-accordion__header';
+    header.innerHTML =
+      `<span class="store-accordion__code">${escapeHtml(storeCode)}</span>` +
+      `<span class="store-accordion__summary">${rows.length} 件 &nbsp;/&nbsp; 合計（税込）${fmt(storeTotal)}</span>` +
+      `<i class="fa-solid fa-chevron-down store-accordion__icon"></i>`;
+
+    // ボディ（明細テーブル）
+    const body = document.createElement('div');
+    body.className = 'store-accordion__body';
+
+    const table = document.createElement('table');
+    table.className = 'detail-table';
+    table.innerHTML =
+      `<thead><tr>` +
+        `<th>日付</th><th>品目</th><th>数量</th><th>単価</th>` +
+        `<th>税率</th><th>金額（税抜）</th><th>消費税</th><th>備考</th>` +
+      `</tr></thead>`;
+
+    const tbody = document.createElement('tbody');
+    rows.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td>${escapeHtml(row.date)}</td>` +
+        `<td>${escapeHtml(row.item)}</td>` +
+        `<td class="num">${row.qty.toLocaleString('ja-JP')}</td>` +
+        `<td class="num">${row.unitPrice.toLocaleString('ja-JP')}円</td>` +
+        `<td class="num">${row.taxRate}%</td>` +
+        `<td class="num">${row.amountExTax.toLocaleString('ja-JP')}円</td>` +
+        `<td class="num">${row.tax.toLocaleString('ja-JP')}円</td>` +
+        `<td>${escapeHtml(row.note)}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    body.appendChild(table);
+    card.appendChild(header);
+    card.appendChild(body);
+    list.appendChild(card);
+
+    // アコーディオン開閉トグル
+    header.addEventListener('click', () => card.classList.toggle('is-open'));
+  });
 }
 
 // =============================================================================

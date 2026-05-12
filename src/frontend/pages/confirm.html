@@ -1,19 +1,85 @@
-<div id="pageConfirm">
+<div id="pageConfirm" class="hidden">
 
   <main class="main-content">
 
     <div class="page-header">
       <h1 class="page-title">請求内容の確認</h1>
       <a href="#upload" class="btn btn-back">
-        <i class="fa-solid fa-chevron-left"></i> 戻る
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
       </a>
     </div>
 
-    <div class="card main-card">
-      <p style="color: #9C9C9C; text-align: center; padding: 48px 0;">（このページは現在実装中です）</p>
+    <!-- 請求概要 -->
+    <div class="card summary-card">
+      <h2 class="card-label">請求概要</h2>
+      <div class="summary-table">
 
+        <!-- 左ブロック：請求金額 -->
+        <div class="summary-block summary-block--left">
+          <div class="summary-block__row summary-block__row--main">
+            <span class="summary-block__label">請求金額</span>
+            <span class="summary-block__value summary-block__value--main" id="summaryAmountInTax">--</span>
+          </div>
+          <div class="summary-block__divider"></div>
+          <div class="summary-block__row">
+            <span class="summary-block__label">小計（税抜）</span>
+            <span class="summary-block__value" id="summaryAmountExTax">--</span>
+          </div>
+          <div class="summary-block__row">
+            <span class="summary-block__label">税額</span>
+            <span class="summary-block__value" id="summaryTax">--</span>
+          </div>
+        </div>
+
+        <!-- 中ブロック：内訳 -->
+        <div class="summary-block summary-block--mid">
+          <div class="summary-block__row summary-block__row--head">
+            <span class="summary-block__label">内訳</span>
+            <span class="summary-block__col-label">小計（税抜）</span>
+            <span class="summary-block__col-label">税額</span>
+          </div>
+          <div class="summary-block__row">
+            <span class="summary-block__tax-rate" id="summaryRate10">10%</span>
+            <span class="summary-block__value" id="summaryExTax10">--</span>
+            <span class="summary-block__value" id="summaryTax10">--</span>
+          </div>
+          <div class="summary-block__row">
+            <span class="summary-block__tax-rate" id="summaryRate8">8%</span>
+            <span class="summary-block__value" id="summaryExTax8">--</span>
+            <span class="summary-block__value" id="summaryTax8">--</span>
+          </div>
+        </div>
+
+        <!-- 右ブロック：振込金額 -->
+        <div class="summary-block summary-block--right">
+          <div class="summary-block__row">
+            <span class="summary-block__label">手数料（5%）</span>
+            <span class="summary-block__value" id="summaryFee">--</span>
+          </div>
+          <div class="summary-block__divider"></div>
+          <div class="summary-block__row">
+            <span class="summary-block__label">振込金額</span>
+            <span class="summary-block__value summary-block__value--transfer" id="summaryTransfer">--</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 加盟店別明細 -->
+    <div class="card">
+      <h2 class="card-label">加盟店別詳細</h2>
+      <div id="confirmStoreList"></div>
+    </div>
+
+    <!-- 最終確認・送信 -->
+    <div class="card confirm-submit-card">
+      <label class="confirm-check-label">
+        <input type="checkbox" id="checkConfirm" class="confirm-checkbox" />
+        <span>私は入力データが正確であることを制約します。不備による遅延は自社で責任を負います。</span>
+      </label>
       <div class="action-buttons">
-        <button class="btn btn-back" id="btnFinalSubmit">
+        <button class="btn btn-submit" id="btnFinalSubmit" disabled>
           登録内容を送信する <i class="fa-solid fa-chevron-right"></i>
         </button>
       </div>

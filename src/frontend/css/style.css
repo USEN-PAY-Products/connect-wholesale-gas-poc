@@ -448,6 +448,208 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* =====================================================
+   Confirm page: summary table
+   ===================================================== */
+.summary-card { padding: 20px 24px; }
+
+.summary-table {
+  display: flex;
+  border: 1px solid #D9D9D9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* --- 各ブロック共通 --- */
+.summary-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  padding: 16px 20px;
+}
+
+.summary-block--left  { flex: 0 0 260px; border-right: 1px solid #D9D9D9; }
+.summary-block--mid   { flex: 1; border-right: 1px solid #D9D9D9; }
+.summary-block--right { flex: 0 0 220px; background: #F9F9F9; }
+
+/* --- 行 --- */
+.summary-block__row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.summary-block__row--main {
+  padding-bottom: 8px;
+}
+
+.summary-block__row--head {
+  padding-bottom: 6px;
+}
+
+/* 左ブロックの区切り線 */
+.summary-block__divider {
+  border-top: 1px solid #E0E0E0;
+  margin: 6px 0;
+}
+
+/* --- テキスト --- */
+.summary-block__label {
+  font-size: 13px;
+  color: #555;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.summary-block__col-label {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+  flex: 1;
+  text-align: right;
+}
+
+.summary-block__tax-rate {
+  font-size: 13px;
+  color: #555;
+  flex-shrink: 0;
+  width: 32px;
+}
+
+.summary-block__value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a2b4a;
+  white-space: nowrap;
+  margin-left: auto;
+  text-align: right;
+}
+
+.summary-block__value--main {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.summary-block__value--transfer {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* =====================================================
+   Confirm page: store accordion
+   ===================================================== */
+.store-accordion {
+  border: 1px solid #E0E0E0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.store-accordion__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #F3F4F6;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.store-accordion__header:hover { background: #E9EAED; }
+
+.store-accordion__code {
+  font-weight: 700;
+  font-size: 14px;
+  flex: 1;
+}
+
+.store-accordion__summary {
+  font-size: 13px;
+  color: #555;
+}
+
+.store-accordion__icon {
+  font-size: 14px;
+  color: #888;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.store-accordion.is-open .store-accordion__icon {
+  transform: rotate(180deg);
+}
+
+.store-accordion__body {
+  display: none;
+  overflow-x: auto;
+  padding: 0 4px 4px;
+}
+.store-accordion.is-open .store-accordion__body { display: block; }
+
+/* =====================================================
+   Confirm page: detail table
+   ===================================================== */
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.detail-table th,
+.detail-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #EBEBEB;
+  white-space: nowrap;
+}
+
+.detail-table th {
+  background: #FAFAFA;
+  font-weight: 600;
+  color: #555;
+  font-size: 12px;
+}
+
+.detail-table tr:last-child td { border-bottom: none; }
+.detail-table tr:hover td { background: #F9FBFF; }
+
+.detail-table td.num,
+.detail-table th.num {
+  text-align: right;
+}
+
+/* =====================================================
+   Confirm page: submit area
+   ===================================================== */
+.confirm-submit-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.confirm-check-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.confirm-checkbox {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: #1a2b4a;
+  transform: scale(1.2);
+  transform-origin: center;
+}
+
+/* =====================================================
    Footer
    ===================================================== */
 .site-footer {
