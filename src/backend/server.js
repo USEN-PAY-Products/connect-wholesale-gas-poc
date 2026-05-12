@@ -166,6 +166,69 @@ function fetchInvoiceDetail(invoiceId) {
 }
 
 
+// =============================================================================
+// 5 & 6. モックデータ定数  ── BackOffice API 実装後に削除する
+//   ※ フロント側フォールバック (app.js) と同一のデータ形式を維持すること
+// =============================================================================
+
+/** @type {Array<{date:string, title:string, type:string}>} */
+var MOCK_SCHEDULE_ = [
+  { date: '2026-05-13', title: '請求確定', type: 'billing' },
+  { date: '2026-05-27', title: '口座振替', type: 'payment' },
+];
+
+/**
+ * 請求履歴1件分の共通フィールド。
+ * id / monthLabel は各エントリで上書きする。
+ */
+var MOCK_BILLING_BASE_ = {
+  billingAmount: 99999999,
+  subtotalExTax: 90000000,
+  taxAmount:     9999999,
+  breakdown: [
+    { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
+    { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+  ],
+  fee:            9999999,
+  transferAmount: 990000000,
+  status:        '支払完了',
+};
+
+/** @type {Array<{id:string, monthLabel:string}>} 月ラベルとIDのみ列挙 */
+var MOCK_BILLING_ENTRIES_ = [
+  { id: 'b001', monthLabel: '4月' },
+  { id: 'b002', monthLabel: '3月' },
+  { id: 'b003', monthLabel: '2月' },
+  { id: 'b004', monthLabel: '1月' },
+];
+
+// =============================================================================
+// 5. getMockScheduleData
+// =============================================================================
+
+function getMockScheduleData() {
+  try {
+    return success_(MOCK_SCHEDULE_);
+  } catch (err) {
+    throw new Error('getMockScheduleData failed: ' + err.message);
+  }
+}
+
+// =============================================================================
+// 6. getMockBillingHistory
+// =============================================================================
+
+function getMockBillingHistory() {
+  try {
+    var items = MOCK_BILLING_ENTRIES_.map(function(entry) {
+      return Object.assign({}, MOCK_BILLING_BASE_, entry);
+    });
+    return success_(items);
+  } catch (err) {
+    throw new Error('getMockBillingHistory failed: ' + err.message);
+  }
+}
+
 // --- Script Propertiesセットアップヘルパー・テスト用関数は config.js に移動済み ---
 
 // --- テスト用関数（動作確認が終わったら消してOK） ---
