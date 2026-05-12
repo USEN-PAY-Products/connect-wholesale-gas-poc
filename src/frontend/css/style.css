@@ -661,3 +661,393 @@ button { cursor: pointer; font-family: inherit; }
   color: #999;
   background: #F8F8F9;
 }
+
+/* =====================================================
+   Home: レイアウト
+   ===================================================== */
+.home-content {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-bottom: 100px; /* FABと被らないよう余白 */
+}
+
+.home-section-title {
+  font-size: 24px;
+  font-style: normal;
+  font-weight: 400;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+/* =====================================================
+   Home: カレンダー
+   ===================================================== */
+.calendar-card {
+  width: 100%;
+  max-width: 426px;
+  padding: 20px 24px 24px;
+  margin: 0 auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.calendar-month-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.cal-label__year {
+  font-size: 13px;
+  font-weight: 400;
+  color: #888;
+}
+
+.cal-label__month {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a2b4a;
+  letter-spacing: 0.02em;
+}
+
+.calendar-nav {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #3a7bd5;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.calendar-nav:hover { background: #e8f0fe; }
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  padding: 4px 0;
+}
+.calendar-weekday--sun { color: #e53935; }
+.calendar-weekday--sat { color: #3a7bd5; }
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 48px;
+  gap: 2px;
+}
+
+.cal-cell {
+  padding: 4px 4px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+  position: relative;
+  transition: background 0.1s;
+}
+
+.cal-cell--empty {
+  pointer-events: none;
+}
+
+.cal-cell__num {
+  font-size: 13px;
+  font-weight: 400;
+  color: #333;
+  line-height: 1.4;
+  min-width: 22px;
+  text-align: center;
+  border-radius: 50%;
+  padding: 1px;
+}
+
+/* 今日の日付 */
+.cal-cell--today .cal-cell__num {
+  background: #3a7bd5;
+  color: #fff;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+/* イベントあり */
+.cal-cell--has-event {
+  background: #f5f7ff;
+}
+
+/* スケジュールバッジ */
+.cal-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 10px;
+  white-space: nowrap;
+  line-height: 1.5;
+  width: 100%;
+  text-align: center;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 請求確定: 赤系 */
+.cal-badge--billing {
+  background: linear-gradient(135deg, #ff5252, #ff9800);
+  color: #fff;
+}
+
+/* 口座振替: 青系 */
+.cal-badge--payment {
+  background: linear-gradient(135deg, #3a7bd5, #00A7B8);
+  color: #fff;
+}
+
+/* =====================================================
+   Home: 請求履歴
+   ===================================================== */
+.billing-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* カード全体: 均等幅グリッドで各ブロックを並べる */
+.billing-card {
+  background: #EFEFEF;
+  border-radius: 6px;
+  padding: 10px 16px;
+  display: grid;
+  grid-template-columns: 40px 1fr 1px 1fr 1px 1fr auto;
+  align-items: start;
+  gap: 0;
+  font-size: 12px;
+  color: #333;
+  min-height: 60px;
+}
+
+/* ── 月ラベル ── */
+.bc-month {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  text-align: center;
+  padding-right: 8px;
+  align-self: center;
+}
+
+/* ── 請求金額ブロック ── */
+.bc-billing {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto auto;
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 0;
+  padding: 0 16px;
+}
+
+.bc-billing__label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  white-space: nowrap;
+  line-height: 1.8;
+}
+
+.bc-billing__amount {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  white-space: nowrap;
+  text-align: right;
+  line-height: 1.8;
+}
+
+.bc-billing__sub {
+  grid-column: 1 / -1;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.8;
+}
+
+.bc-billing__sub span {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #333;
+}
+
+/* ── 縦区切り線 ── */
+.bc-divider {
+  width: 1px;
+  align-self: stretch;
+  background: #ccc;
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+/* ── 内訳ブロック ── */
+.bc-breakdown {
+  padding: 0 14px;
+  overflow: hidden;
+}
+
+/* 3列グリッド: [内訳/税率] [小計] [税額] */
+.bc-breakdown__grid {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 2px 12px;
+  align-items: baseline;
+}
+
+.bc-breakdown__cell {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+
+.bc-breakdown__title {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  line-height: 1.8;
+}
+
+.bc-breakdown__col-label {
+  color: #777;
+  text-align: center;
+}
+
+.bc-breakdown__rate {
+  color: #555;
+}
+
+.bc-breakdown__col-val {
+  color: #333;
+  text-align: center;
+}
+
+/* ── 手数料・振込金額ブロック ── */
+.bc-fee {
+  padding: 0 14px;
+  align-self: center;
+}
+
+.bc-fee__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+
+.bc-fee__row span {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #333;
+}
+
+/* ── 詳細リンク ── */
+.bc-detail-link {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  white-space: nowrap;
+  text-decoration: none;
+  flex-shrink: 0;
+  padding-left: 12px;
+  align-self: center;
+  transition: opacity 0.15s;
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+.bc-detail-link:hover { opacity: 0.7; text-decoration: underline; }
+
+.billing-empty {
+  color: #9C9C9C;
+  text-align: center;
+  padding: 48px 0;
+  font-size: 14px;
+}
+
+/* =====================================================
+   Home: FAB（新規請求登録ボタン）
+   ===================================================== */
+.home-fab-area {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 0 32px;
+}
+
+.btn-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 28px;
+  background: #1a2b4a;
+  color: #fff;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  border-radius: 26px;
+  box-shadow: 0 4px 16px rgba(26,43,74,0.28);
+  text-decoration: none;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.btn-fab:hover {
+  background: #263d6b;
+  box-shadow: 0 6px 20px rgba(26,43,74,0.36);
+}
+
+.btn-fab__plus {
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+}
