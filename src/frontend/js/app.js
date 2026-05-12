@@ -513,8 +513,12 @@ function handleFile(file) {
       // エラー: 保持データをクリア
       rawCsv     = null;
       parsedData = null;
-      sessionStorage.removeItem('shiire_parsedData');
-      sessionStorage.removeItem('shiire_rawCsv');
+      try {
+        sessionStorage.removeItem('shiire_parsedData');
+        sessionStorage.removeItem('shiire_rawCsv');
+      } catch (e) {
+        console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+      }
     }
 
     renderErrors(errors, file.name);
@@ -757,8 +761,12 @@ function resetSubmitButton() {
 function resetPage() {
   rawCsv     = null;
   parsedData = null;
-  sessionStorage.removeItem('shiire_parsedData');
-  sessionStorage.removeItem('shiire_rawCsv');
+  try {
+    sessionStorage.removeItem('shiire_parsedData');
+    sessionStorage.removeItem('shiire_rawCsv');
+  } catch (e) {
+    console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+  }
   resetDropZone();
   alertList.innerHTML = '';
   errorCard.classList.add('hidden');
@@ -877,7 +885,11 @@ document.getElementById('checkConfirm').addEventListener('change', function () {
  */
 function renderConfirmPage() {
   // データがなければアップロード画面へ戻す
-  if (!parsedData || parsedData.length === 0) {
+  if (!parsedData || parsedData.length === 0 || !rawCsv) {
+    if (parsedData && parsedData.length > 0 && !rawCsv) {
+      // CSVテキストのみ復元できなかったケース（送信不可）
+      showToast('送信に必要なデータが復元できませんでした。CSVを再度アップロードしてください。', 'error');
+    }
     location.hash = '#upload';
     return;
   }
@@ -888,7 +900,6 @@ function renderConfirmPage() {
   btnFinalSubmit.disabled = true;
 
   // ── サマリー計算 ────────────────────────────────────────────────────────
-  const storeCodes       = new Set(parsedData.map(r => r.storeCode));
   const totalAmountExTax = parsedData.reduce((s, r) => s + r.amountExTax, 0);
   const totalTax         = parsedData.reduce((s, r) => s + r.tax, 0);
   const totalAmountInTax = totalAmountExTax + totalTax;
