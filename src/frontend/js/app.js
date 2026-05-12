@@ -374,6 +374,22 @@ try {
   const _raw   = sessionStorage.getItem('shiire_rawCsv');
   if (_saved) parsedData = JSON.parse(_saved);
   if (_raw)   rawCsv    = _raw;
+
+  // 型バリデーション: 想定外の値は捨ててセッションをクリア
+  const isValidRow = r =>
+    r !== null && typeof r === 'object' &&
+    typeof r.storeCode   === 'string' &&
+    typeof r.amountExTax === 'number' &&
+    typeof r.tax         === 'number' &&
+    typeof r.taxRate     === 'number';
+
+  if (parsedData !== null && (!Array.isArray(parsedData) || !parsedData.every(isValidRow))) {
+    console.warn('[state] sessionStorage の parsedData が不正な形式です。破棄します。');
+    parsedData = null;
+    rawCsv     = null;
+    sessionStorage.removeItem('shiire_parsedData');
+    sessionStorage.removeItem('shiire_rawCsv');
+  }
 } catch (e) {
   console.warn('[state] sessionStorage の復元に失敗しました:', e);
 }
@@ -749,9 +765,10 @@ function setSubmitLoading() {
   btnFinalSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送信中...';
 }
 
-/** 送信ボタンを通常状態に戻す */
+/** 送信ボタンを通常状態に戻す（チェックボックスの状態に追従する） */
 function resetSubmitButton() {
-  btnFinalSubmit.disabled = false;
+  const checked = document.getElementById('checkConfirm')?.checked ?? false;
+  btnFinalSubmit.disabled = !checked;
   btnFinalSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
 }
 
@@ -1032,6 +1049,9 @@ function renderConfirmPage() {
     // ヘッダー行
     const header = document.createElement('div');
     header.className = 'store-accordion__header';
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
     header.innerHTML =
       `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(storeCode)}</span>` +
       `<span class="slh-col slh-col--amount">${fmt(storeTotal)}</span>` +
@@ -1040,6 +1060,20 @@ function renderConfirmPage() {
       `<span class="slh-col slh-col--tax8"><span class="store-tax-val">${storeTax8.toLocaleString('ja-JP')}円</span></span>` +
       `<span class="slh-col slh-col--tax10"><span class="store-tax-val">${storeTax10.toLocaleString('ja-JP')}円</span></span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
+
+    /** アコーディオン開閉ヘルパー（aria-expanded も同期） */
+    const toggleAccordion = () => {
+      const isOpen = card.classList.toggle('is-open');
+      header.setAttribute('aria-expanded', String(isOpen));
+    };
+
+    header.addEventListener('click', toggleAccordion);
+    header.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleAccordion();
+      }
+    });
 
     // ボディ（明細カード一覧）
     const body = document.createElement('div');
@@ -1080,9 +1114,6 @@ function renderConfirmPage() {
     card.appendChild(header);
     card.appendChild(body);
     list.appendChild(card);
-
-    // アコーディオン開閉トグル
-    header.addEventListener('click', () => card.classList.toggle('is-open'));
   });
 }
 
