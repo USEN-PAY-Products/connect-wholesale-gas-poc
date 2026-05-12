@@ -606,9 +606,10 @@ button { cursor: pointer; font-family: inherit; }
   transform: rotate(180deg);
 }
 
-/* 消費税内訳インプット風表示 */
-.store-tax-input {
-  width: 88px;
+/* 消費税内訳 表示専用スパン */
+.store-tax-val {
+  display: inline-block;
+  width: 100px;
   border: 1px solid #D9D9D9;
   border-radius: 4px;
   padding: 4px 8px;
@@ -616,13 +617,6 @@ button { cursor: pointer; font-family: inherit; }
   text-align: right;
   color: #333;
   background: #fff;
-  outline: none;
-  cursor: default;
-}
-.store-tax-unit {
-  font-size: 13px;
-  color: #333;
-  margin-left: 4px;
 }
 
 .store-accordion__body {
@@ -1201,6 +1195,13 @@ button { cursor: pointer; font-family: inherit; }
   flex-direction: column;
   align-items: center;
   gap: 24px;
+}
+
+.modal__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #333;
+  margin: 0;
 }
 
 .modal__message {

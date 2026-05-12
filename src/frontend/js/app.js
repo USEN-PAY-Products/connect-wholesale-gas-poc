@@ -790,26 +790,82 @@ btnCancel.addEventListener('click', () => {
   resetPage();
 });
 
+// =============================================================================
+// Cancel modal: open / close helpers（フォーカス管理・トラップ・Esc 対応）
+// =============================================================================
+
+/** モーダルを開く直前にフォーカスしていた要素を記憶する */
+let _modalTrigger = null;
+
+/** フォーカス可能なセレクタ */
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * キャンセル確認モーダルを開く
+ * @param {HTMLElement} [trigger] - 開くきっかけになった要素（閉じ後にフォーカスを戻す）
+ */
+function openCancelModal(trigger) {
+  const modal = document.getElementById('cancelModal');
+  _modalTrigger = trigger || document.activeElement;
+  modal.classList.remove('hidden');
+  // 最初のフォーカス可能要素へ移動
+  const first = modal.querySelector(FOCUSABLE);
+  if (first) first.focus();
+}
+
+/** キャンセル確認モーダルを閉じる */
+function closeCancelModal() {
+  const modal = document.getElementById('cancelModal');
+  modal.classList.add('hidden');
+  // フォーカスをトリガー要素に戻す
+  if (_modalTrigger && typeof _modalTrigger.focus === 'function') {
+    _modalTrigger.focus();
+  }
+  _modalTrigger = null;
+}
+
 // 確認ページ: キャンセルボタン → モーダルを表示
-document.getElementById('btnConfirmCancel').addEventListener('click', () => {
-  document.getElementById('cancelModal').classList.remove('hidden');
+document.getElementById('btnConfirmCancel').addEventListener('click', function () {
+  openCancelModal(this);
 });
 
 // モーダル: キャンセル（閉じるだけ）
 document.getElementById('cancelModalClose').addEventListener('click', () => {
-  document.getElementById('cancelModal').classList.add('hidden');
+  closeCancelModal();
 });
 
 // モーダル: OK → データをリセットしアップロード画面へ
 document.getElementById('cancelModalOk').addEventListener('click', () => {
-  document.getElementById('cancelModal').classList.add('hidden');
+  closeCancelModal();
   resetPage();
   location.hash = '#upload';
 });
 
 // モーダル: オーバーレイクリックで閉じる
 document.getElementById('cancelModal').addEventListener('click', function (e) {
-  if (e.target === this) this.classList.add('hidden');
+  if (e.target === this) closeCancelModal();
+});
+
+// モーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  const modal = document.getElementById('cancelModal');
+  if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+    closeCancelModal();
+  }
+});
+
+// モーダル: フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+document.getElementById('cancelModal').addEventListener('keydown', function (e) {
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(this.querySelectorAll(FOCUSABLE));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last  = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+  }
 });
 
 // 確認ページ: 登録内容を送信するボタン
@@ -899,18 +955,19 @@ function renderConfirmPage() {
   if (checkConfirm) checkConfirm.checked = false;
   btnFinalSubmit.disabled = true;
 
-  // ── サマリー計算 ────────────────────────────────────────────────────────
-  const totalAmountExTax = parsedData.reduce((s, r) => s + r.amountExTax, 0);
-  const totalTax         = parsedData.reduce((s, r) => s + r.tax, 0);
-  const totalAmountInTax = totalAmountExTax + totalTax;
+  // ── サマリー計算（1パスで全集計）────────────────────────────────────────
+  const totals = parsedData.reduce((acc, r) => {
+    acc.amountExTax += r.amountExTax;
+    acc.tax         += r.tax;
+    if (r.taxRate === 10) { acc.exTax10 += r.amountExTax; acc.tax10 += r.tax; }
+    else                  { acc.exTax8  += r.amountExTax; acc.tax8  += r.tax; }
+    return acc;
+  }, { amountExTax: 0, tax: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 });
 
-  // 税率別内訳
-  const rows10 = parsedData.filter(r => r.taxRate === 10);
-  const rows8  = parsedData.filter(r => r.taxRate === 8);
-  const exTax10 = rows10.reduce((s, r) => s + r.amountExTax, 0);
-  const tax10   = rows10.reduce((s, r) => s + r.tax, 0);
-  const exTax8  = rows8.reduce((s, r) => s + r.amountExTax, 0);
-  const tax8    = rows8.reduce((s, r) => s + r.tax, 0);
+  const totalAmountExTax = totals.amountExTax;
+  const totalTax         = totals.tax;
+  const totalAmountInTax = totalAmountExTax + totalTax;
+  const { exTax10, tax10, exTax8, tax8 } = totals;
 
   /** @param {number} n */
   const fmt = n => n.toLocaleString('ja-JP') + '円';
@@ -955,11 +1012,18 @@ function renderConfirmPage() {
   list.appendChild(colHeader);
 
   groups.forEach((rows, storeCode) => {
-    const storeAmountExTax = rows.reduce((s, r) => s + r.amountExTax, 0);
-    const storeTax         = rows.reduce((s, r) => s + r.tax, 0);
+    const st = rows.reduce((acc, r) => {
+      acc.amountExTax += r.amountExTax;
+      acc.tax         += r.tax;
+      if (r.taxRate === 10) acc.tax10 += r.tax;
+      else                  acc.tax8  += r.tax;
+      return acc;
+    }, { amountExTax: 0, tax: 0, tax8: 0, tax10: 0 });
+    const storeAmountExTax = st.amountExTax;
+    const storeTax         = st.tax;
     const storeTotal       = storeAmountExTax + storeTax;
-    const storeTax8        = rows.filter(r => r.taxRate === 8).reduce((s, r) => s + r.tax, 0);
-    const storeTax10       = rows.filter(r => r.taxRate === 10).reduce((s, r) => s + r.tax, 0);
+    const storeTax8        = st.tax8;
+    const storeTax10       = st.tax10;
 
     // アコーディオンカード
     const card = document.createElement('div');
@@ -973,8 +1037,8 @@ function renderConfirmPage() {
       `<span class="slh-col slh-col--amount">${fmt(storeTotal)}</span>` +
       `<span class="slh-col slh-col--extax">${fmt(storeAmountExTax)}</span>` +
       `<span class="slh-col slh-col--tax">${fmt(storeTax)}</span>` +
-      `<span class="slh-col slh-col--tax8"><input type="text" class="store-tax-input" value="${storeTax8.toLocaleString('ja-JP')}" readonly /><span class="store-tax-unit">円</span></span>` +
-      `<span class="slh-col slh-col--tax10"><input type="text" class="store-tax-input" value="${storeTax10.toLocaleString('ja-JP')}" readonly /><span class="store-tax-unit">円</span></span>` +
+      `<span class="slh-col slh-col--tax8"><span class="store-tax-val">${storeTax8.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--tax10"><span class="store-tax-val">${storeTax10.toLocaleString('ja-JP')}円</span></span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
     // ボディ（明細カード一覧）

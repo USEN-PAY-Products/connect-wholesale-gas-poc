@@ -74,9 +74,15 @@
     </div>
 
     <!-- キャンセル確認モーダル -->
-    <div class="modal-overlay hidden" id="cancelModal">
+    <div class="modal-overlay hidden"
+         id="cancelModal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="cancelModalTitle"
+         aria-describedby="cancelModalDesc">
       <div class="modal">
-        <p class="modal__message">アップロードした内容は削除されます。<br>よろしいですか？</p>
+        <h2 class="modal__title" id="cancelModalTitle">キャンセルの確認</h2>
+        <p class="modal__message" id="cancelModalDesc">アップロードした内容は削除されます。<br>よろしいですか？</p>
         <div class="modal__actions">
           <button class="btn btn-danger modal__btn" id="cancelModalOk">OK</button>
           <button class="btn btn-outline modal__btn" id="cancelModalClose">キャンセル</button>
