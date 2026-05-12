@@ -33,7 +33,11 @@ wholesaler-system/
 │       ├── images/
 │       │   └── icon-company.svg  # 企業アイコン（インラインSVGとしてHTMLに埋め込み）
 │       └── js/
-│           └── app.js         # SPAルーター / CSV バリデーション / GAS送信処理
+│           ├── utils.js       # 共通ユーティリティ（escapeHtml など）
+│           ├── home.js        # ホーム画面（カレンダー・請求履歴描画）
+│           ├── upload.js      # アップロード画面（CSV読み込み・バリデーション・状態管理）
+│           ├── confirm.js     # 確認画面（モーダル・送信処理・テーブル描画）
+│           └── router.js      # SPA ルーター（ハッシュ変化の検知・ページ切替）
 └── dist/                      # 🚀 デプロイ用ディレクトリ（GASにpushされる）
     ├── appsscript.json        # ルートからコピー
     ├── index.html             # FEのHTML・CSS・JSが1つに結合されたファイル
@@ -53,7 +57,7 @@ Copilotの補完がフルに効き、VSCodeの Live Server 機能を使ってブ
 
 1. `src/frontend/index.html` の `<!-- @@include -->` ディレクティブを再帰展開
 2. `css/style.css` を `<style>` タグとしてインライン化
-3. `js/app.js` を `<script>` タグとしてインライン化 → `dist/index.html` を出力
+3. `js/` 配下の JS ファイルを依存順（`utils → home → upload → confirm → router`）で結合し、`<script>` タグとしてインライン化 → `dist/index.html` を出力
 4. `appsscript.json` を `dist/appsscript.json` にコピー
 5. `src/backend/` の `.js` ファイルすべてを `dist/` 直下にコピー（GASはフラット構成のため）
 
