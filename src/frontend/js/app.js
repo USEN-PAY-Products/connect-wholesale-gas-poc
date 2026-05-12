@@ -48,13 +48,12 @@ function navigate() {
     if (el) el.classList.toggle('hidden', id !== targetId);
   });
 
-<<<<<<< feature/MYP-3309-pleview-csv
-  if (hash === '#confirm') renderConfirmPage();
-
-  console.log(`[router] navigated to ${hash} -> #${targetId}`);
-=======
   if (targetId === 'pageHome') {
     initHomePage();
+  }
+
+  if (targetId === 'pageConfirm') {
+    renderConfirmPage();
   }
 
   if (targetId === 'pageDetail') {
@@ -64,7 +63,6 @@ function navigate() {
   }
 
   console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
->>>>>>> develop
 }
 
 // ハッシュ変化時・初回ロード時にルーティング実行
@@ -370,6 +368,16 @@ let rawCsv = null;
  */
 let parsedData = null;
 
+// sessionStorage からリロード時に復元（GAS セッションタイムアウト対策）
+try {
+  const _saved = sessionStorage.getItem('shiire_parsedData');
+  const _raw   = sessionStorage.getItem('shiire_rawCsv');
+  if (_saved) parsedData = JSON.parse(_saved);
+  if (_raw)   rawCsv    = _raw;
+} catch (e) {
+  console.warn('[state] sessionStorage の復元に失敗しました:', e);
+}
+
 // =============================================================================
 // Toast helpers
 // =============================================================================
@@ -492,12 +500,21 @@ function handleFile(file) {
 
     if (errors.length === 0) {
       // 成功: グローバル変数に保持
-      rawCsv    = text;
+      rawCsv     = text;
       parsedData = rows;
+      // リロード対策: sessionStorage に保存
+      try {
+        sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows));
+        sessionStorage.setItem('shiire_rawCsv', text);
+      } catch (e) {
+        console.warn('[state] sessionStorage への保存に失敗しました:', e);
+      }
     } else {
       // エラー: 保持データをクリア
-      rawCsv    = null;
+      rawCsv     = null;
       parsedData = null;
+      sessionStorage.removeItem('shiire_parsedData');
+      sessionStorage.removeItem('shiire_rawCsv');
     }
 
     renderErrors(errors, file.name);
@@ -740,6 +757,8 @@ function resetSubmitButton() {
 function resetPage() {
   rawCsv     = null;
   parsedData = null;
+  sessionStorage.removeItem('shiire_parsedData');
+  sessionStorage.removeItem('shiire_rawCsv');
   resetDropZone();
   alertList.innerHTML = '';
   errorCard.classList.add('hidden');
@@ -761,6 +780,28 @@ btnToConfirm.addEventListener('click', () => {
 // アップロードページ: キャンセルボタン → アップロード前の初期状態に戻す
 btnCancel.addEventListener('click', () => {
   resetPage();
+});
+
+// 確認ページ: キャンセルボタン → モーダルを表示
+document.getElementById('btnConfirmCancel').addEventListener('click', () => {
+  document.getElementById('cancelModal').classList.remove('hidden');
+});
+
+// モーダル: キャンセル（閉じるだけ）
+document.getElementById('cancelModalClose').addEventListener('click', () => {
+  document.getElementById('cancelModal').classList.add('hidden');
+});
+
+// モーダル: OK → データをリセットしアップロード画面へ
+document.getElementById('cancelModalOk').addEventListener('click', () => {
+  document.getElementById('cancelModal').classList.add('hidden');
+  resetPage();
+  location.hash = '#upload';
+});
+
+// モーダル: オーバーレイクリックで閉じる
+document.getElementById('cancelModal').addEventListener('click', function (e) {
+  if (e.target === this) this.classList.add('hidden');
 });
 
 // 確認ページ: 登録内容を送信するボタン
@@ -831,20 +872,6 @@ document.getElementById('checkConfirm').addEventListener('change', function () {
 // =============================================================================
 
 /**
- * HTML エスケープユーティリティ
- * @param {string} str
- * @returns {string}
- */
-function escapeHtml(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/**
  * 確認画面を parsedData を元に描画する。
  * navigate() が '#confirm' に切り替えるたびに呼ばれる。
  */
@@ -903,10 +930,25 @@ function renderConfirmPage() {
   const list = document.getElementById('confirmStoreList');
   list.innerHTML = '';
 
+  // 列ヘッダー行
+  const colHeader = document.createElement('div');
+  colHeader.className = 'store-list-header';
+  colHeader.innerHTML =
+    `<span class="slh-col slh-col--name">加盟店名</span>` +
+    `<span class="slh-col slh-col--amount">請求金額</span>` +
+    `<span class="slh-col slh-col--extax">小計（税抜）</span>` +
+    `<span class="slh-col slh-col--tax">消費税</span>` +
+    `<span class="slh-col slh-col--tax8">消費税内訳（8%）</span>` +
+    `<span class="slh-col slh-col--tax10">消費税内訳（10%）</span>` +
+    `<span class="slh-col slh-col--toggle"></span>`;
+  list.appendChild(colHeader);
+
   groups.forEach((rows, storeCode) => {
     const storeAmountExTax = rows.reduce((s, r) => s + r.amountExTax, 0);
     const storeTax         = rows.reduce((s, r) => s + r.tax, 0);
     const storeTotal       = storeAmountExTax + storeTax;
+    const storeTax8        = rows.filter(r => r.taxRate === 8).reduce((s, r) => s + r.tax, 0);
+    const storeTax10       = rows.filter(r => r.taxRate === 10).reduce((s, r) => s + r.tax, 0);
 
     // アコーディオンカード
     const card = document.createElement('div');
@@ -916,39 +958,50 @@ function renderConfirmPage() {
     const header = document.createElement('div');
     header.className = 'store-accordion__header';
     header.innerHTML =
-      `<span class="store-accordion__code">${escapeHtml(storeCode)}</span>` +
-      `<span class="store-accordion__summary">${rows.length} 件 &nbsp;/&nbsp; 合計（税込）${fmt(storeTotal)}</span>` +
-      `<i class="fa-solid fa-chevron-down store-accordion__icon"></i>`;
+      `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(storeCode)}</span>` +
+      `<span class="slh-col slh-col--amount">${fmt(storeTotal)}</span>` +
+      `<span class="slh-col slh-col--extax">${fmt(storeAmountExTax)}</span>` +
+      `<span class="slh-col slh-col--tax">${fmt(storeTax)}</span>` +
+      `<span class="slh-col slh-col--tax8"><input type="text" class="store-tax-input" value="${storeTax8.toLocaleString('ja-JP')}" readonly /><span class="store-tax-unit">円</span></span>` +
+      `<span class="slh-col slh-col--tax10"><input type="text" class="store-tax-input" value="${storeTax10.toLocaleString('ja-JP')}" readonly /><span class="store-tax-unit">円</span></span>` +
+      `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
-    // ボディ（明細テーブル）
+    // ボディ（明細カード一覧）
     const body = document.createElement('div');
     body.className = 'store-accordion__body';
 
-    const table = document.createElement('table');
-    table.className = 'detail-table';
-    table.innerHTML =
-      `<thead><tr>` +
-        `<th>日付</th><th>品目</th><th>数量</th><th>単価</th>` +
-        `<th>税率</th><th>金額（税抜）</th><th>消費税</th><th>備考</th>` +
-      `</tr></thead>`;
-
-    const tbody = document.createElement('tbody');
     rows.forEach(row => {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        `<td>${escapeHtml(row.date)}</td>` +
-        `<td>${escapeHtml(row.item)}</td>` +
-        `<td class="num">${row.qty.toLocaleString('ja-JP')}</td>` +
-        `<td class="num">${row.unitPrice.toLocaleString('ja-JP')}円</td>` +
-        `<td class="num">${row.taxRate}%</td>` +
-        `<td class="num">${row.amountExTax.toLocaleString('ja-JP')}円</td>` +
-        `<td class="num">${row.tax.toLocaleString('ja-JP')}円</td>` +
-        `<td>${escapeHtml(row.note)}</td>`;
-      tbody.appendChild(tr);
-    });
+      const item = document.createElement('div');
+      item.className = 'detail-row';
 
-    table.appendChild(tbody);
-    body.appendChild(table);
+      const fields = [
+        { label: '取引日',   value: escapeHtml(row.date.replace(/-/g, '/')) },
+        { label: '概要',     value: escapeHtml(row.item) },
+        { label: '数量',     value: row.qty.toLocaleString('ja-JP') },
+        { label: '単価',     value: row.unitPrice.toLocaleString('ja-JP') + '円' },
+        { label: '明細金額', value: row.amountExTax.toLocaleString('ja-JP') + '円' },
+        { label: '税率',     value: row.taxRate + '%' },
+        { label: '消費税',   value: row.tax.toLocaleString('ja-JP') + '円' },
+      ];
+
+      const mainRow = document.createElement('div');
+      mainRow.className = 'detail-row__main';
+      mainRow.innerHTML = fields.map(f =>
+        `<span class="detail-row__field">`+
+          `<span class="detail-row__label">${f.label}</span>`+
+          `<span class="detail-row__sep">|</span>`+
+          `<span class="detail-row__value">${f.value}</span>`+
+        `</span>`
+      ).join('');
+      item.appendChild(mainRow);
+
+      const noteRow = document.createElement('div');
+      noteRow.className = 'detail-row__note';
+      noteRow.innerHTML = `<span class="detail-row__note-label">備考：</span>${row.note ? escapeHtml(row.note) : '<span class="detail-row__note-empty">なし</span>'}`;
+      item.appendChild(noteRow);
+
+      body.appendChild(item);
+    });
     card.appendChild(header);
     card.appendChild(body);
     list.appendChild(card);

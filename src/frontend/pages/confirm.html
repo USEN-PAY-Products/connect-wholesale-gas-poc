@@ -4,13 +4,13 @@
 
     <div class="page-header">
       <h1 class="page-title">請求内容の確認</h1>
-      <a href="#upload" class="btn btn-back">
+      <a href="#home" class="btn btn-back">
         <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
       </a>
     </div>
 
     <!-- 請求概要 -->
-    <div class="card summary-card">
+    <div class="summary-card">
       <h2 class="card-label">請求概要</h2>
       <div class="summary-table">
 
@@ -66,14 +66,32 @@
       </div>
     </div>
 
+    <!-- キャンセルボタン -->
+    <div class="confirm-cancel-row">
+      <button class="btn btn-cancel-confirm" id="btnConfirmCancel">
+        キャンセル
+      </button>
+    </div>
+
+    <!-- キャンセル確認モーダル -->
+    <div class="modal-overlay hidden" id="cancelModal">
+      <div class="modal">
+        <p class="modal__message">アップロードした内容は削除されます。<br>よろしいですか？</p>
+        <div class="modal__actions">
+          <button class="btn btn-danger modal__btn" id="cancelModalOk">OK</button>
+          <button class="btn btn-outline modal__btn" id="cancelModalClose">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 加盟店別明細 -->
-    <div class="card">
+    <div class="store-list-section">
       <h2 class="card-label">加盟店別詳細</h2>
-      <div id="confirmStoreList"></div>
+      <div id="confirmStoreList" class="store-list-wrap"></div>
     </div>
 
     <!-- 最終確認・送信 -->
-    <div class="card confirm-submit-card">
+    <div class="confirm-submit-card">
       <label class="confirm-check-label">
         <input type="checkbox" id="checkConfirm" class="confirm-checkbox" />
         <span>私は入力データが正確であることを制約します。不備による遅延は自社で責任を負います。</span>
