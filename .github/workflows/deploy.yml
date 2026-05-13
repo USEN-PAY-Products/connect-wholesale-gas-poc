@@ -27,12 +27,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: 依存パッケージのインストール
-        run: npm ci
-
-      - name: ビルド (dist/ を生成)
-        run: npm run build
-
       - name: 認証情報とGASプロジェクトの紐付け
         # 選択されたEnvironmentのSecretsが自動で注入されます
         run: |
