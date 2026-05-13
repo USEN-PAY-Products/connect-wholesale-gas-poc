@@ -1,0 +1,3891 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>仕入れコネクト Portal Site</title>
+    <style>
+/* =====================================================
+   Utility
+   ===================================================== */
+.hidden { display: none !important; }
+
+/* =====================================================
+   Reset / Base
+   ===================================================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif;
+  font-size: 14px;
+  background: #F8F8F9;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+}
+
+a { color: inherit; text-decoration: none; }
+ul { list-style: none; }
+button { cursor: pointer; font-family: inherit; }
+
+/* =====================================================
+   Layout wrapper
+   ===================================================== */
+.main-content {
+  flex: 1;
+  width: 1080px;
+  margin: 0 auto;
+  padding: 24px 16px 0;
+  position: relative;
+}
+
+/* =====================================================
+   Header
+   ===================================================== */
+.site-header {
+  background: #1a2b4a;
+  color: #fff;
+  display: flex;
+  height: 80px;
+  min-width: 1280px;
+  padding: 12px 32px;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  align-self: stretch;
+  gap: 16px;
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.header-logo {
+  font-size: 32px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.header-produced {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+  color: #B9BEC3;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-template-dl {
+  display: flex;
+  height: 32px;
+  padding: 0 16px;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 24px;
+  background: #00A7B8;
+  box-shadow: 0 0 8px 0 rgba(0, 0, 0, 0.10);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn-template-dl:hover { background: #0096a5; }
+
+.header-store {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+  border-left: 1px solid rgba(255,255,255,0.3);
+  padding-left: 16px;
+}
+
+.header-store img {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.header-store span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  flex: 1 0 0;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  overflow: hidden;
+}
+
+/* =====================================================
+   Toast
+   ===================================================== */
+.toast {
+  position: fixed;
+  top: 96px;
+  right: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 36px 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  z-index: 100;
+}
+
+.toast--error {
+  background: #fff0f0;
+  border: 1px solid #e53935;
+  color: #c62828;
+}
+
+.toast--success {
+  background: #f1f8f1;
+  border: 1px solid #2e7d32;
+  color: #1b5e20;
+}
+
+.toast-close {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: inherit;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.toast-close:hover { opacity: 0.7; }
+
+.toast.hidden { display: none; }
+
+/* =====================================================
+   Page header
+   ===================================================== */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  margin-right: -92px;
+  margin-left: -92px;
+}
+
+.page-title {
+  font-size: 28px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* =====================================================
+   Buttons (shared)
+   ===================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  line-height: 1;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+/* ボタン内アイコンを文字と同じ基準線に揃える */
+.btn i {
+  font-size: 1em;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  top: -0.05em;
+}
+
+/* 一覧に戻る・確認画面へ進むのアイコンを24x24に固定 */
+.btn-back i,
+.btn-submit i {
+  font-size: 24px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.btn-back {
+  background: #1a2b4a;
+  color: #fff;
+  display: flex;
+  height: 48px;
+  padding: 16px 40px;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  border-radius: 24px;
+  line-height: 1;
+}
+.btn-back:hover { background: #263d6b; }
+
+.btn-primary {
+  background: #3a7bd5;
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: #2f6abf; }
+.btn-primary:disabled {
+  background: #b0bec5;
+  color: #eceff1;
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  background: #fff;
+  color: #333;
+  border: 1.5px solid #bbb;
+}
+.btn-outline:hover { background: #f5f5f5; }
+
+/* =====================================================
+   Cards
+   ===================================================== */
+.card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px 28px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  margin-bottom: 16px;
+}
+
+/*
+ * メイン白カード:
+ * upload / error / buttons を1枚の白背景に縦積みする。
+ * 高さは中身に応じて自動で伸びる。
+ */
+.main-card {
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  gap: 24px;       /* 各子要素の間隔 */
+  overflow: hidden; /* float (link-template) を内包 */
+}
+
+/* =====================================================
+   Upload section
+   ===================================================== */
+.upload-card .card-label,
+.card-label {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+/* 確認画面の見出し */
+#pageConfirm .card-label {
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  padding: 0;
+  margin-bottom: 12px;
+}
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed #9C9C9C;
+  border-radius: 8px;
+  background: #EFEFEF;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  gap: 10px;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+
+.drop-zone.drag-over {
+  border-color: #3a7bd5;
+  background: #e8f0fe;
+}
+
+/* 成功状態 */
+.drop-zone.is-success {
+  border-color: #2e7d32;
+  border-style: solid;
+  background: #f1f8f1;
+}
+
+.drop-zone__icon--success {
+  font-size: 40px;
+  color: #2e7d32;
+}
+
+.drop-zone__text--success {
+  text-align: center;
+  color: #2e7d32;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.drop-zone__icon {
+  font-size: 40px;
+  color: #90a4ae;
+}
+
+.drop-zone__text {
+  text-align: center;
+  color: #78909c;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.btn-select-file {
+  display: flex;
+  height: 36px;
+  padding: 8px 32px;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  border-radius: 40px;
+  border: 1px solid #D9D9D9;
+  background: #FFF;
+  box-shadow: 0 0 8px 0 rgba(0, 0, 0, 0.06);
+  color: #333;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  cursor: pointer;
+}
+.btn-select-file:hover { background: #f5f5f5; }
+
+/* Template download link */
+.link-template {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #00A7B8;
+  float: right;
+}
+.link-template:hover { text-decoration: underline; }
+
+/* =====================================================
+   Error card
+   ===================================================== */
+.error-card__title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.error-card__desc {
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+
+.alert-list { display: flex; flex-direction: column; gap: 8px; }
+
+.alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.alert-icon { flex-shrink: 0; margin-top: 2px; font-size: 10px; }
+
+.alert-item--error { color: #c62828; }
+.alert-item--error .alert-icon { color: #e53935; }
+
+.alert-item--warn { color: #e65100; }
+.alert-item--warn .alert-icon { color: #fb8c00; }
+
+/* =====================================================
+   Action buttons row
+   ===================================================== */
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.btn-submit {
+  width: 230px;
+  height: 48px;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 400;
+  border-radius: 24px;
+  background: #1a2b4a;
+  color: #fff;
+}
+.btn-submit:hover:not(:disabled) { background: #263d6b; }
+.btn-submit:disabled {
+  background: #C7C7C7;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  width: 230px;
+  height: 48px;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 400;
+  border-radius: 24px;
+}
+
+/* =====================================================
+   Confirm page: summary table
+   ===================================================== */
+.summary-card {
+  margin-bottom: 16px;
+}
+
+.summary-table {
+  display: flex;
+  border: 1px solid #D9D9D9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* --- 各ブロック共通 --- */
+.summary-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  padding: 16px 20px;
+}
+
+.summary-block--left  { flex: 0 0 260px; border-right: 1px solid #D9D9D9; }
+.summary-block--mid   { flex: 1; border-right: 1px solid #D9D9D9; }
+.summary-block--right { flex: 0 0 220px; background: #F9F9F9; }
+
+/* --- 行 --- */
+.summary-block__row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.summary-block__row--main {
+  padding-bottom: 8px;
+}
+
+.summary-block__row--head {
+  padding-bottom: 6px;
+}
+
+/* 左ブロックの区切り線 */
+.summary-block__divider {
+  border-top: 1px solid #E0E0E0;
+  margin: 6px 0;
+}
+
+/* --- テキスト --- */
+.summary-block__label {
+  font-size: 13px;
+  color: #555;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.summary-block__col-label {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+  flex: 1;
+  text-align: right;
+}
+
+.summary-block__tax-rate {
+  font-size: 13px;
+  color: #555;
+  flex-shrink: 0;
+  width: 32px;
+}
+
+.summary-block__value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a2b4a;
+  white-space: nowrap;
+  margin-left: auto;
+  text-align: right;
+}
+
+.summary-block__value--main {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.summary-block__value--transfer {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* =====================================================
+   Confirm page: store accordion
+   ===================================================== */
+
+/* 列幅定義（ヘッダー行・各アコーディオン行で共有） */
+.slh-col           { font-size: 13px; padding: 0 12px; flex-shrink: 0; }
+.slh-col--name     { flex: 1 1 160px; min-width: 0; padding-left: 0; }
+.slh-col--amount   { width: 120px; text-align: right; }
+.slh-col--extax    { width: 120px; text-align: right; }
+.slh-col--tax      { width: 100px; text-align: right; }
+.slh-col--tax8     { width: 160px; text-align: right; }
+.slh-col--tax10    { width: 160px; text-align: right; }
+.slh-col--toggle   { width: 36px;  text-align: center; flex-shrink: 0; padding: 0; }
+
+/* 列ヘッダー行 */
+.store-list-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 18px;
+  background: #fff;
+  border-bottom: 1px solid #D9D9D9;
+  font-size: 12px;
+  color: #888;
+  font-weight: 400;
+}
+
+.store-accordion {
+  border-bottom: 1px solid #E0E0E0;
+}
+.store-accordion:last-child { border-bottom: none; }
+
+.store-accordion__header {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  background: #fff;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.store-accordion__header:hover { background: #F9FBFF; }
+
+.store-accordion__code {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-accordion__icon {
+  font-size: 13px;
+  color: #888;
+  transition: transform 0.2s;
+}
+.store-accordion.is-open .store-accordion__icon {
+  transform: rotate(180deg);
+}
+
+/* 消費税内訳 表示専用スパン */
+.store-tax-val {
+  display: inline-block;
+  width: 100px;
+  border: 1px solid #D9D9D9;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  text-align: right;
+  color: #333;
+  background: #fff;
+}
+
+.store-accordion__body {
+  display: none;
+  border-top: 1px solid #EBEBEB;
+  background: #FAFAFA;
+}
+.store-accordion.is-open .store-accordion__body { display: block; }
+
+
+/* 加盟店リスト外枠 */
+.store-list-wrap {
+  border: 1px solid #D9D9D9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* =====================================================
+   Confirm page: detail row cards
+   ===================================================== */
+.detail-row {
+  border-bottom: 1px solid #EBEBEB;
+  padding: 10px 16px;
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-row:hover { background: #F9FBFF; }
+
+.detail-row__main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  align-items: baseline;
+}
+
+.detail-row__field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 0 0;
+  border-right: 1px solid #D0D0D0;
+  margin-right: 16px;
+  white-space: nowrap;
+}
+.detail-row__field:last-child {
+  border-right: none;
+  margin-right: 0;
+}
+
+/* 概要列は少し幅を広げる */
+.detail-row__field:nth-child(2) {
+  flex: 1 1 auto;
+  white-space: normal;
+}
+
+.detail-row__label {
+  font-size: 13px;
+  color: #555;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.detail-row__sep {
+  color: #BBBBBB;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.detail-row__value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a2b4a;
+}
+
+.detail-row__note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #555;
+  line-height: 1.6;
+  padding-left: 2px;
+}
+
+.detail-row__note-label {
+  font-weight: 600;
+  color: #888;
+  margin-right: 4px;
+}
+
+.detail-row__note-empty {
+  color: #bbb;
+}
+
+/* =====================================================
+   Confirm page: submit area
+   ===================================================== */
+.confirm-submit-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  margin-top: 32px;
+}
+
+.confirm-check-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.confirm-checkbox {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: #1a2b4a;
+  transform: scale(1.2);
+  transform-origin: center;
+}
+
+/* =====================================================
+   Footer
+   ===================================================== */
+.site-footer {
+  text-align: center;
+  padding: 14px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  color: #999;
+  background: #F8F8F9;
+}
+
+/* =====================================================
+   Home: レイアウト
+   ===================================================== */
+.home-content {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-bottom: 100px; /* FABと被らないよう余白 */
+}
+
+.home-section-title {
+  font-size: 24px;
+  font-style: normal;
+  font-weight: 400;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+/* =====================================================
+   Home: カレンダー
+   ===================================================== */
+.calendar-card {
+  width: 100%;
+  max-width: 426px;
+  padding: 20px 24px 24px;
+  margin: 0 auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.calendar-month-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.cal-label__year {
+  font-size: 13px;
+  font-weight: 400;
+  color: #888;
+}
+
+.cal-label__month {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a2b4a;
+  letter-spacing: 0.02em;
+}
+
+.calendar-nav {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #3a7bd5;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.calendar-nav:hover { background: #e8f0fe; }
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  padding: 4px 0;
+}
+.calendar-weekday--sun { color: #e53935; }
+.calendar-weekday--sat { color: #3a7bd5; }
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 48px;
+  gap: 2px;
+}
+
+.cal-cell {
+  padding: 4px 4px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+  position: relative;
+  transition: background 0.1s;
+}
+
+.cal-cell--empty {
+  pointer-events: none;
+}
+
+.cal-cell__num {
+  font-size: 13px;
+  font-weight: 400;
+  color: #333;
+  line-height: 1.4;
+  min-width: 22px;
+  text-align: center;
+  border-radius: 50%;
+  padding: 1px;
+}
+
+/* 今日の日付 */
+.cal-cell--today .cal-cell__num {
+  background: #3a7bd5;
+  color: #fff;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+/* イベントあり */
+.cal-cell--has-event {
+  background: #f5f7ff;
+}
+
+/* スケジュールバッジ */
+.cal-badge {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 10px;
+  white-space: nowrap;
+  line-height: 1.5;
+  width: 100%;
+  text-align: center;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 請求確定: 赤系 */
+.cal-badge--billing {
+  background: linear-gradient(135deg, #ff5252, #ff9800);
+  color: #fff;
+}
+
+/* 口座振替: 青系 */
+.cal-badge--payment {
+  background: linear-gradient(135deg, #3a7bd5, #00A7B8);
+  color: #fff;
+}
+
+/* =====================================================
+   Home: 請求履歴
+   ===================================================== */
+.billing-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* カード全体: 均等幅グリッドで各ブロックを並べる */
+.billing-card {
+  background: #EFEFEF;
+  border-radius: 6px;
+  padding: 10px 16px;
+  display: grid;
+  grid-template-columns: 40px 1fr 1px 1fr 1px 1fr auto;
+  align-items: start;
+  gap: 0;
+  font-size: 12px;
+  color: #333;
+  min-height: 60px;
+}
+
+/* ── 月ラベル ── */
+.bc-month {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  text-align: center;
+  padding-right: 8px;
+  align-self: center;
+}
+
+/* ── 請求金額ブロック ── */
+.bc-billing {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto auto;
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 0;
+  padding: 0 16px;
+}
+
+.bc-billing__label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  white-space: nowrap;
+  line-height: 1.8;
+}
+
+.bc-billing__amount {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  white-space: nowrap;
+  text-align: right;
+  line-height: 1.8;
+}
+
+.bc-billing__sub {
+  grid-column: 1 / -1;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  line-height: 1.8;
+}
+
+.bc-billing__sub span {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #333;
+}
+
+/* ── 縦区切り線 ── */
+.bc-divider {
+  width: 1px;
+  align-self: stretch;
+  background: #ccc;
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+/* ── 内訳ブロック ── */
+.bc-breakdown {
+  padding: 0 14px;
+  overflow: hidden;
+}
+
+/* 3列グリッド: [内訳/税率] [小計] [税額] */
+.bc-breakdown__grid {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 2px 12px;
+  align-items: baseline;
+}
+
+.bc-breakdown__cell {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+
+.bc-breakdown__title {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  line-height: 1.8;
+}
+
+.bc-breakdown__col-label {
+  color: #777;
+  text-align: center;
+}
+
+.bc-breakdown__rate {
+  color: #555;
+}
+
+.bc-breakdown__col-val {
+  color: #333;
+  text-align: center;
+}
+
+/* ── 手数料・振込金額ブロック ── */
+.bc-fee {
+  padding: 0 14px;
+  align-self: center;
+}
+
+.bc-fee__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+
+.bc-fee__row span {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  color: #333;
+}
+
+/* ── 詳細リンク ── */
+.bc-detail-link {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  color: #555;
+  white-space: nowrap;
+  text-decoration: none;
+  flex-shrink: 0;
+  padding-left: 12px;
+  align-self: center;
+  transition: opacity 0.15s;
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+.bc-detail-link:hover { opacity: 0.7; text-decoration: underline; }
+
+.billing-empty {
+  color: #9C9C9C;
+  text-align: center;
+  padding: 48px 0;
+  font-size: 14px;
+}
+
+/* =====================================================
+   Home: FAB（新規請求登録ボタン）
+   ===================================================== */
+.home-fab-area {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 0 32px;
+}
+
+.btn-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 28px;
+  background: #1a2b4a;
+  color: #fff;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  border-radius: 26px;
+  box-shadow: 0 4px 16px rgba(26,43,74,0.28);
+  text-decoration: none;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.btn-fab:hover {
+  background: #263d6b;
+  box-shadow: 0 6px 20px rgba(26,43,74,0.36);
+}
+
+.btn-fab__plus {
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+/* =====================================================
+   Confirm page: cancel button row
+   ===================================================== */
+.confirm-cancel-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+  margin-right: -92px;
+  margin-left: -92px;
+}
+
+.btn-cancel-confirm {
+  background: transparent;
+  color: #e53935;
+  border: 1.5px solid #e53935;
+  border-radius: 24px;
+  height: 48px;
+  padding: 0 40px;
+  font-size: 18px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-cancel-confirm:hover { background: #fff5f5; }
+
+/* =====================================================
+   Confirm page: cancel modal
+   ===================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.modal-overlay.hidden { display: none; }
+
+.modal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 36px 40px 28px;
+  min-width: 320px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.modal__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #333;
+  margin: 0;
+}
+
+.modal__message {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  text-align: center;
+}
+
+.modal__actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.modal__btn {
+  min-width: 100px;
+  height: 40px;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 6px;
+}
+
+.btn-danger {
+  background: #e53935;
+  color: #fff;
+  border: none;
+}
+.btn-danger:hover { background: #c62828; }
+
+</style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap" />
+  <!-- Font Awesome -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+        crossorigin="anonymous" />
+</head>
+<body>
+  
+  <header class="site-header">
+  <div class="header-left">
+    <span class="header-logo">仕入れコネクト Portal Site</span>
+    <span class="header-produced">produced by USEN PAY</span>
+  </div>
+  <div class="header-right">
+    <button class="btn-template-dl" id="btnTemplateDlHeader">
+      <i class="fa-solid fa-download"></i> 請求CSVテンプレートDL
+    </button>
+    <div class="header-store">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M14.0004 8.16667V5.83333C14.0004 4.55 12.9504 3.5 11.6671 3.5H4.66707C3.38374 3.5 2.33374 4.55 2.33374 5.83333V22.1667C2.33374 23.45 3.38374 24.5 4.66707 24.5H23.3337C24.6171 24.5 25.6671 23.45 25.6671 22.1667V10.5C25.6671 9.21667 24.6171 8.16667 23.3337 8.16667H14.0004ZM7.00041 22.1667H4.66707V19.8333H7.00041V22.1667ZM7.00041 17.5H4.66707V15.1667H7.00041V17.5ZM7.00041 12.8333H4.66707V10.5H7.00041V12.8333ZM7.00041 8.16667H4.66707V5.83333H7.00041V8.16667ZM11.6671 22.1667H9.33374V19.8333H11.6671V22.1667ZM11.6671 17.5H9.33374V15.1667H11.6671V17.5ZM11.6671 12.8333H9.33374V10.5H11.6671V12.8333ZM11.6671 8.16667H9.33374V5.83333H11.6671V8.16667ZM22.1671 22.1667H14.0004V19.8333H16.3337V17.5H14.0004V15.1667H16.3337V12.8333H14.0004V10.5H22.1671C22.8087 10.5 23.3337 11.025 23.3337 11.6667V21C23.3337 21.6417 22.8087 22.1667 22.1671 22.1667ZM21.0004 12.8333H18.6671V15.1667H21.0004V12.8333ZM21.0004 17.5H18.6671V19.8333H21.0004V17.5Z" fill="white"/>
+      </svg>
+      <span>メグロウーセンほげほげ商店セントラルスクエア<br>1行目支店</span>
+    </div>
+  </div>
+</header>
+
+
+  <!-- グローバル Toast: 全ページ共通 -->
+  <div class="toast toast--error hidden" id="toast" role="alert">
+    <i class="fa-solid fa-circle-exclamation"></i>
+    <span id="toastMessage"></span>
+    <button class="toast-close" id="toastClose" aria-label="閉じる">&times;</button>
+  </div>
+
+  <div id="pageHome">
+
+  <main class="main-content home-content">
+
+    <!-- ================================================================
+         請求／支払いスケジュール
+         ================================================================ -->
+    <section class="home-section">
+      <h2 class="home-section-title">請求／支払いスケジュール</h2>
+
+      <div class="card calendar-card">
+        <!-- カレンダーヘッダー -->
+        <div class="calendar-header">
+          <button class="calendar-nav" id="calPrev" aria-label="前の月">&#8592;</button>
+          <span class="calendar-month-label" id="calMonthLabel"></span>
+          <button class="calendar-nav" id="calNext" aria-label="次の月">&#8594;</button>
+        </div>
+
+        <!-- 曜日ヘッダー -->
+        <div class="calendar-weekdays">
+          <span class="calendar-weekday calendar-weekday--sun">SUN</span>
+          <span class="calendar-weekday">MON</span>
+          <span class="calendar-weekday">TUE</span>
+          <span class="calendar-weekday">WED</span>
+          <span class="calendar-weekday">THU</span>
+          <span class="calendar-weekday">FRI</span>
+          <span class="calendar-weekday calendar-weekday--sat">SAT</span>
+        </div>
+
+        <!-- 日付グリッド（JS で生成） -->
+        <div class="calendar-grid" id="calGrid"></div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         請求履歴
+         ================================================================ -->
+    <section class="home-section">
+      <h2 class="home-section-title">請求履歴</h2>
+
+      <div class="billing-history-list" id="billingHistoryList">
+        <!-- JS で動的生成 -->
+      </div>
+    </section>
+
+    <!-- 新規請求登録 FAB -->
+    <div class="home-fab-area">
+      <a href="#upload" class="btn btn-fab">
+        新規請求を登録する <span class="btn-fab__plus">＋</span>
+      </a>
+    </div>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
+  </footer>
+
+</div>
+
+  <div id="pageUpload">
+
+  <main class="main-content">
+
+    <!-- Page header row -->
+    <div class="page-header">
+      <h1 class="page-title">請求内容の登録</h1>
+      <a href="#home" class="btn btn-back">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </a>
+    </div>
+
+    <!-- アップロード・エラー・ボタンを一つの白カードにまとめる -->
+    <div class="card main-card">
+
+      <!-- Upload section -->
+      <div class="upload-section">
+        <p class="card-label">請求CSVファイルを登録してください</p>
+
+        <!-- Drop zone -->
+        <div class="drop-zone" id="dropZone">
+          <i class="fa-regular fa-file-lines drop-zone__icon"></i>
+          <p class="drop-zone__text">ここにドラッグ＆ドロップ<br>または</p>
+          <button class="btn btn-select-file" id="btnSelectFile">
+            <i class="fa-regular fa-folder-open"></i> ファイルを選択
+          </button>
+          <input type="file" id="fileInput" accept=".csv" hidden />
+        </div>
+
+        <a href="#" class="link-template" id="btnTemplateDlPage">
+          <i class="fa-solid fa-download"></i> 請求CSVテンプレートをダウンロードする
+        </a>
+      </div>
+
+      <!-- Error / Alert list -->
+      <div class="error-card hidden" id="errorCard">
+        <h2 class="error-card__title">エラー／アラート一覧</h2>
+        <p class="error-card__desc">
+          下記のエラー／アラートが発生しています。確認の上、CSVファイルを修正し、再度アップロードしてください。
+        </p>
+        <ul class="alert-list" id="alertList"></ul>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="action-buttons">
+        <button class="btn btn-primary btn-submit" id="btnToConfirm" disabled>
+          確認画面へ進む <i class="fa-solid fa-chevron-right"></i>
+        </button>
+        <button class="btn btn-outline btn-cancel" id="btnCancel">
+          キャンセル
+        </button>
+      </div>
+
+    </div><!-- /.main-card -->
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
+  </footer>
+
+</div><!-- /#pageUpload -->
+
+  <div id="pageConfirm" class="hidden">
+
+  <main class="main-content">
+
+    <div class="page-header">
+      <h1 class="page-title">請求内容の確認</h1>
+      <a href="#home" class="btn btn-back">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </a>
+    </div>
+
+    <!-- 請求概要 -->
+    <div class="summary-card">
+      <h2 class="card-label">請求概要</h2>
+      <div class="summary-table">
+
+        <!-- 左ブロック：請求金額 -->
+        <div class="summary-block summary-block--left">
+          <div class="summary-block__row summary-block__row--main">
+            <span class="summary-block__label">請求金額</span>
+            <span class="summary-block__value summary-block__value--main" id="summaryAmountInTax">--</span>
+          </div>
+          <div class="summary-block__divider"></div>
+          <div class="summary-block__row">
+            <span class="summary-block__label">小計（税抜）</span>
+            <span class="summary-block__value" id="summaryAmountExTax">--</span>
+          </div>
+          <div class="summary-block__row">
+            <span class="summary-block__label">税額</span>
+            <span class="summary-block__value" id="summaryTax">--</span>
+          </div>
+        </div>
+
+        <!-- 中ブロック：内訳 -->
+        <div class="summary-block summary-block--mid">
+          <div class="summary-block__row summary-block__row--head">
+            <span class="summary-block__label">内訳</span>
+            <span class="summary-block__col-label">小計（税抜）</span>
+            <span class="summary-block__col-label">税額</span>
+          </div>
+          <div class="summary-block__row">
+            <span class="summary-block__tax-rate" id="summaryRate10">10%</span>
+            <span class="summary-block__value" id="summaryExTax10">--</span>
+            <span class="summary-block__value" id="summaryTax10">--</span>
+          </div>
+          <div class="summary-block__row">
+            <span class="summary-block__tax-rate" id="summaryRate8">8%</span>
+            <span class="summary-block__value" id="summaryExTax8">--</span>
+            <span class="summary-block__value" id="summaryTax8">--</span>
+          </div>
+        </div>
+
+        <!-- 右ブロック：振込金額 -->
+        <div class="summary-block summary-block--right">
+          <div class="summary-block__row">
+            <span class="summary-block__label">手数料（5%）</span>
+            <span class="summary-block__value" id="summaryFee">--</span>
+          </div>
+          <div class="summary-block__divider"></div>
+          <div class="summary-block__row">
+            <span class="summary-block__label">振込金額</span>
+            <span class="summary-block__value summary-block__value--transfer" id="summaryTransfer">--</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- キャンセルボタン -->
+    <div class="confirm-cancel-row">
+      <button class="btn btn-cancel-confirm" id="btnConfirmCancel">
+        キャンセル
+      </button>
+    </div>
+
+    <!-- キャンセル確認モーダル -->
+    <div class="modal-overlay hidden"
+         id="cancelModal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="cancelModalTitle"
+         aria-describedby="cancelModalDesc">
+      <div class="modal">
+        <h2 class="modal__title" id="cancelModalTitle">キャンセルの確認</h2>
+        <p class="modal__message" id="cancelModalDesc">アップロードした内容は削除されます。<br>よろしいですか？</p>
+        <div class="modal__actions">
+          <button class="btn btn-danger modal__btn" id="cancelModalOk">OK</button>
+          <button class="btn btn-outline modal__btn" id="cancelModalClose">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 加盟店別明細 -->
+    <div class="store-list-section">
+      <h2 class="card-label">加盟店別詳細</h2>
+      <div id="confirmStoreList" class="store-list-wrap"></div>
+    </div>
+
+    <!-- 最終確認・送信 -->
+    <div class="confirm-submit-card">
+      <label class="confirm-check-label">
+        <input type="checkbox" id="checkConfirm" class="confirm-checkbox" />
+        <span>私は入力データが正確であることを誓約します。不備による遅延は自社で責任を負います。</span>
+      </label>
+      <div class="action-buttons">
+        <button class="btn btn-submit" id="btnFinalSubmit" disabled>
+          登録内容を送信する <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
+  </footer>
+
+</div><!-- /#pageConfirm -->
+
+  <div id="pageDetail">
+
+  <main class="main-content">
+
+    <div class="page-header">
+      <h1 class="page-title">請求詳細</h1>
+      <a href="#home" class="btn btn-back">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </a>
+    </div>
+
+    <div class="card main-card">
+      <p style="color: #9C9C9C; text-align: center; padding: 48px 0;">（このページは現在実装中です）</p>
+    </div>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
+  </footer>
+
+</div>
+
+
+  <script>
+// ---- js/utils.js ----
+// =============================================================================
+// Utils: 共通ユーティリティ
+// =============================================================================
+
+/**
+ * XSS 対策: HTML 特殊文字をエスケープする
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+
+// ---- js/home.js ----
+// =============================================================================
+// Home page: カレンダー状態
+// =============================================================================
+
+/** 現在表示中の年月（初期値は実行時の当月） */
+const _today = new Date();
+let calYear  = _today.getFullYear();
+let calMonth = _today.getMonth(); // 0始まり
+
+/** スケジュールデータのキャッシュ（日付文字列 → オブジェクト配列） */
+let scheduleMap = {};
+
+// =============================================================================
+// Home page: 初期化
+// =============================================================================
+
+/**
+ * ホーム画面表示時に GAS からデータを取得し、カレンダーと請求履歴を描画する。
+ * 既に描画済みの場合は再描画しない（フラグ管理）。
+ */
+let homeInitialized = false;
+
+function initHomePage() {
+  if (homeInitialized) return;
+  homeInitialized = true;
+
+  // カレンダーナビゲーションボタンのイベント登録
+  document.getElementById('calPrev').addEventListener('click', () => {
+    calMonth -= 1;
+    if (calMonth < 0) { calMonth = 11; calYear -= 1; }
+    renderCalendar();
+  });
+  document.getElementById('calNext').addEventListener('click', () => {
+    calMonth += 1;
+    if (calMonth > 11) { calMonth = 0; calYear += 1; }
+    renderCalendar();
+  });
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    // スケジュールデータ取得
+    google.script.run
+      .withSuccessHandler(function(result) {
+        buildScheduleMap(result && result.data ? result.data : []);
+        renderCalendar();
+      })
+      .withFailureHandler(function(err) {
+        console.error('[home] getMockScheduleData failed:', err);
+        renderCalendar(); // データなしでもカレンダーは表示
+      })
+      .getMockScheduleData();
+
+    // 請求履歴取得
+    google.script.run
+      .withSuccessHandler(function(result) {
+        renderBillingHistory(result && result.data ? result.data : []);
+      })
+      .withFailureHandler(function(err) {
+        console.error('[home] getMockBillingHistory failed:', err);
+        renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
+      })
+      .getMockBillingHistory();
+  } else {
+    // ローカル確認用フォールバック
+    // NOTE: 以下のデータは server.js の MOCK_SCHEDULE_ / MOCK_BILLING_BASE_ / MOCK_BILLING_ENTRIES_
+    //       と同一形式を維持すること。BackOffice API 実装後は両方まとめて削除する。
+    console.warn('[home] google.script.run が利用できません。モックデータを使用します。');
+    const mockSchedule = [
+      { date: '2026-05-13', title: '請求確定', type: 'billing' },
+      { date: '2026-05-27', title: '口座振替', type: 'payment' },
+    ];
+    /** server.js MOCK_BILLING_BASE_ と同一 */
+    const billingBase = {
+      billingAmount: 99999999, subtotalExTax: 90000000, taxAmount: 9999999,
+      breakdown: [
+        { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
+        { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+      ],
+      fee: 9999999, transferAmount: 990000000, status: '支払完了',
+    };
+    /** server.js MOCK_BILLING_ENTRIES_ と同一 */
+    const mockBilling = [
+      { id: 'b001', monthLabel: '4月' },
+      { id: 'b002', monthLabel: '3月' },
+      { id: 'b003', monthLabel: '2月' },
+      { id: 'b004', monthLabel: '1月' },
+    ].map(entry => Object.assign({}, billingBase, entry));
+    buildScheduleMap(mockSchedule);
+    renderCalendar();
+    renderBillingHistory(mockBilling);
+  }
+}
+
+// =============================================================================
+// Home page: スケジュールマップ構築
+// =============================================================================
+
+/**
+ * 配列 → { '2026-05-13': [{...}], ... } の形に変換してキャッシュ
+ * @param {Array<{date:string, title:string, type:string}>} items
+ */
+function buildScheduleMap(items) {
+  scheduleMap = {};
+  (items || []).forEach(item => {
+    if (!scheduleMap[item.date]) scheduleMap[item.date] = [];
+    scheduleMap[item.date].push(item);
+  });
+}
+
+// =============================================================================
+// Home page: カレンダー描画
+// =============================================================================
+
+function renderCalendar() {
+  const label = document.getElementById('calMonthLabel');
+  const grid  = document.getElementById('calGrid');
+  if (!label || !grid) return;
+
+  label.innerHTML = `<span class="cal-label__year">${calYear}年</span><span class="cal-label__month">${calMonth + 1}月</span>`;
+  grid.innerHTML  = '';
+
+  // 月の初日の曜日（0=日, 6=土）
+  const firstDay  = new Date(calYear, calMonth, 1).getDay();
+  // 月の末日
+  const lastDate  = new Date(calYear, calMonth + 1, 0).getDate();
+  // 今日
+  const today     = new Date();
+  const isThisMonth = today.getFullYear() === calYear && today.getMonth() === calMonth;
+
+  // 空白セル（月初前）
+  for (let i = 0; i < firstDay; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'cal-cell cal-cell--empty';
+    grid.appendChild(blank);
+  }
+
+  // 日付セル
+  for (let d = 1; d <= lastDate; d++) {
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell';
+
+    const mm   = String(calMonth + 1).padStart(2, '0');
+    const dd   = String(d).padStart(2, '0');
+    const key  = `${calYear}-${mm}-${dd}`;
+
+    if (isThisMonth && d === today.getDate()) {
+      cell.classList.add('cal-cell--today');
+    }
+
+    // 日付番号
+    const num = document.createElement('span');
+    num.className   = 'cal-cell__num';
+    num.textContent = String(d);
+    cell.appendChild(num);
+
+    // スケジュールバッジ
+    const events = scheduleMap[key] || [];
+    events.forEach(ev => {
+      const badge = document.createElement('div');
+      badge.className = `cal-badge cal-badge--${ev.type}`;
+      badge.textContent = ev.title;
+      cell.appendChild(badge);
+    });
+
+    if (events.length > 0) {
+      cell.classList.add('cal-cell--has-event');
+    }
+
+    grid.appendChild(cell);
+  }
+}
+
+// =============================================================================
+// Home page: 請求履歴描画
+// =============================================================================
+
+/**
+ * 請求履歴リストを描画する
+ * @param {Array<{
+ *   id: string,
+ *   monthLabel: string,
+ *   billingAmount: number,
+ *   subtotalExTax: number,
+ *   taxAmount: number,
+ *   breakdown: Array<{rate: number, subtotalExTax: number, taxAmount: number}>,
+ *   fee: number,
+ *   transferAmount: number,
+ *   status: string
+ * }>} items
+ */
+function renderBillingHistory(items) {
+  const list = document.getElementById('billingHistoryList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!items || items.length === 0) {
+    list.innerHTML = '<p class="billing-empty">請求履歴がありません。</p>';
+    return;
+  }
+
+  items.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'billing-card';
+
+    const fmt = n => Number(n).toLocaleString('ja-JP');
+
+    // 内訳：グリッド表形式（内訳 | 小計ラベル | 税額ラベル → 10% | 値 | 値 → 8% | 値 | 値）
+    const rateItems = (item.breakdown || []);
+    const breakdownDataRows = rateItems.map(b => `
+      <div class="bc-breakdown__cell bc-breakdown__rate">${escapeHtml(String(b.rate))}%</div>
+      <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.subtotalExTax)}円</div>
+      <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.taxAmount)}円</div>
+    `).join('');
+
+    card.innerHTML = `
+      <div class="bc-month">${escapeHtml(item.monthLabel)}</div>
+
+      <div class="bc-billing">
+        <div class="bc-billing__label">請求金額</div>
+        <div class="bc-billing__amount">${fmt(item.billingAmount)}円</div>
+        <div class="bc-billing__sub">小計（税抜）<span>${fmt(item.subtotalExTax)}円</span></div>
+        <div class="bc-billing__sub">税額<span>${fmt(item.taxAmount)}円</span></div>
+      </div>
+
+      <div class="bc-divider"></div>
+
+      <div class="bc-breakdown">
+        <div class="bc-breakdown__grid">
+          <div class="bc-breakdown__cell bc-breakdown__title">内訳</div>
+          <div class="bc-breakdown__cell bc-breakdown__col-label">小計（税抜）</div>
+          <div class="bc-breakdown__cell bc-breakdown__col-label">税額</div>
+          ${breakdownDataRows}
+        </div>
+      </div>
+
+      <div class="bc-divider"></div>
+
+      <div class="bc-fee">
+        <div class="bc-fee__row">手数料<span>${fmt(item.fee)}円</span></div>
+        <div class="bc-fee__row">振込金額<span>${fmt(item.transferAmount)}円</span></div>
+      </div>
+
+      <button type="button" class="bc-detail-link" data-id="${escapeHtml(item.id)}">詳細を見る &gt;</button>
+    `;
+
+    // 詳細リンク: invoiceId をハッシュクエリに含めて #detail へ遷移
+    card.querySelector('.bc-detail-link').addEventListener('click', function() {
+      location.hash = '#detail?invoiceId=' + encodeURIComponent(this.dataset.id);
+    });
+
+    list.appendChild(card);
+  });
+}
+
+
+// ---- js/upload.js ----
+// =============================================================================
+// Upload page: DOM references
+// =============================================================================
+
+const dropZone       = document.getElementById('dropZone');
+const btnSelectFile  = document.getElementById('btnSelectFile');
+const fileInput      = document.getElementById('fileInput');
+const btnToConfirm   = document.getElementById('btnToConfirm');
+const btnCancel      = document.getElementById('btnCancel');
+const btnFinalSubmit = document.getElementById('btnFinalSubmit');
+const errorCard      = document.getElementById('errorCard');
+const alertList      = document.getElementById('alertList');
+const toast          = document.getElementById('toast');
+const toastClose     = document.getElementById('toastClose');
+
+// =============================================================================
+// Upload page: State（バックエンド送信用データ保持）
+// =============================================================================
+
+/** 読み込んだCSVの生テキスト（sendInvoiceData に渡す） */
+let rawCsv = null;
+
+/**
+ * パース済みデータ行の配列。各要素はカラム名をキーとしたオブジェクト。
+ * @type {Array<{storeCode:string, date:string, item:string, qty:number,
+ *              unitPrice:number, taxRate:number, amountExTax:number,
+ *              tax:number, note:string}>}
+ */
+let parsedData = null;
+
+// sessionStorage からリロード時に復元（GAS セッションタイムアウト対策）
+try {
+  const _saved = sessionStorage.getItem('shiire_parsedData');
+  const _raw   = sessionStorage.getItem('shiire_rawCsv');
+  if (_saved) parsedData = JSON.parse(_saved);
+  if (_raw)   rawCsv    = _raw;
+
+  // 型バリデーション: 想定外の値は捨ててセッションをクリア
+  const isValidRow = r =>
+    r !== null && typeof r === 'object' &&
+    typeof r.storeCode   === 'string' &&
+    typeof r.amountExTax === 'number' &&
+    typeof r.tax         === 'number' &&
+    typeof r.taxRate     === 'number';
+
+  if (parsedData !== null && (!Array.isArray(parsedData) || !parsedData.every(isValidRow))) {
+    console.warn('[state] sessionStorage の parsedData が不正な形式です。破棄します。');
+    parsedData = null;
+    rawCsv     = null;
+    sessionStorage.removeItem('shiire_parsedData');
+    sessionStorage.removeItem('shiire_rawCsv');
+  }
+} catch (e) {
+  console.warn('[state] sessionStorage の復元に失敗しました:', e);
+}
+
+// =============================================================================
+// Upload page: Toast helpers
+// =============================================================================
+
+/** @param {string} message @param {'error'|'success'} [type='error'] */
+function showToast(message, type = 'error') {
+  document.getElementById('toastMessage').textContent = message;
+  toast.classList.remove('hidden', 'toast--error', 'toast--success');
+  toast.classList.add(`toast--${type}`);
+}
+
+function hideToast() {
+  toast.classList.add('hidden');
+}
+
+toastClose.addEventListener('click', hideToast);
+
+// =============================================================================
+// Upload page: Drop zone helpers
+// =============================================================================
+
+/** 初期状態の dropZone 内 HTML（リセット時に復元する） */
+const DROP_ZONE_DEFAULT_HTML = dropZone.innerHTML;
+
+/** dropZone を初期状態に戻す */
+function resetDropZone() {
+  dropZone.innerHTML = DROP_ZONE_DEFAULT_HTML;
+  dropZone.classList.remove('is-success');
+  // innerHTML 差し替え後に DOM 参照とイベントを再登録
+  const newBtn   = dropZone.querySelector('#btnSelectFile');
+  const newInput = dropZone.querySelector('#fileInput');
+  newBtn.addEventListener('click', () => newInput.click());
+  newInput.addEventListener('change', function () {
+    if (this.files[0]) handleFile(this.files[0]);
+    this.value = '';
+  });
+}
+
+/**
+ * dropZone を成功表示に切り替える
+ * @param {string} fileName
+ */
+function setDropZoneSuccess(fileName) {
+  dropZone.innerHTML = `
+    <i class="fa-regular fa-circle-check drop-zone__icon drop-zone__icon--success"></i>
+    <p class="drop-zone__text drop-zone__text--success">
+      📄 <strong id="dropZoneFileName"></strong> を読み込みました
+    </p>
+    <button class="btn btn-select-file" id="btnSelectFile">
+      <i class="fa-regular fa-folder-open"></i> 別のファイルを選択
+    </button>
+    <input type="file" id="fileInput" accept=".csv" hidden />
+  `;
+  // XSS対策: ファイル名は textContent で挿入
+  dropZone.querySelector('#dropZoneFileName').textContent = fileName;
+  dropZone.classList.add('is-success');
+  // 再バインド
+  const newBtn   = dropZone.querySelector('#btnSelectFile');
+  const newInput = dropZone.querySelector('#fileInput');
+  newBtn.addEventListener('click', () => newInput.click());
+  newInput.addEventListener('change', function () {
+    if (this.files[0]) handleFile(this.files[0]);
+    this.value = '';
+  });
+}
+
+// =============================================================================
+// Upload page: Drag & Drop
+// =============================================================================
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+['dragleave', 'dragend'].forEach(ev =>
+  dropZone.addEventListener(ev, () => dropZone.classList.remove('drag-over'))
+);
+
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+// =============================================================================
+// Upload page: Click to select file
+// =============================================================================
+
+btnSelectFile.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  // 同じファイルを再選択できるようリセット
+  fileInput.value = '';
+});
+
+// =============================================================================
+// Upload page: File handler
+// =============================================================================
+
+/** @param {File} file */
+function handleFile(file) {
+  // ── Step 2: ファイル形式チェック ──────────────────────────────────────────
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    showToast('CSVファイルを選択してください');
+    resetDropZone();
+    return;
+  }
+
+  hideToast();
+
+  // ── Step 3: CSVを読み込んでパース＆バリデーション ────────────────────────
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    const text = e.target.result;
+    const { errors, rows } = validateCsv(text);
+
+    if (errors.length === 0) {
+      // 成功: グローバル変数に保持
+      rawCsv     = text;
+      parsedData = rows;
+      // リロード対策: sessionStorage に保存
+      try {
+        sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows));
+        sessionStorage.setItem('shiire_rawCsv', text);
+      } catch (e) {
+        console.warn('[state] sessionStorage への保存に失敗しました:', e);
+      }
+    } else {
+      // エラー: 保持データをクリア
+      rawCsv     = null;
+      parsedData = null;
+      try {
+        sessionStorage.removeItem('shiire_parsedData');
+        sessionStorage.removeItem('shiire_rawCsv');
+      } catch (e) {
+        console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+      }
+    }
+
+    renderErrors(errors, file.name);
+  };
+
+  reader.onerror = () => {
+    showToast('ファイルの読み込みに失敗しました');
+    resetDropZone();
+  };
+
+  reader.readAsText(file, 'UTF-8');
+}
+
+// =============================================================================
+// Upload page: CSV parse & validate
+// =============================================================================
+
+/**
+ * ダブルクォーテーション対応の1行パーサ。
+ * 各フィールドを囲むダブルクォーテーションを除去して返す。
+ *
+ * @param {string} line - CSVの1行文字列
+ * @returns {string[]} フィールド値の配列
+ */
+function parseCsvLine(line) {
+  const result = [];
+  // RFC 4180 に準拠した簡易実装:
+  // - "..." → ... (クォーテーション除去)
+  // - "" 内のカンマは区切り文字扱いしない
+  const re = /("(?:[^"]|"")*"|[^,]*)/g;
+  let m;
+  while ((m = re.exec(line)) !== null) {
+    // re がマッチするたびに1フィールド + 後続カンマ分を進める
+    let val = m[1];
+    if (val.startsWith('"') && val.endsWith('"')) {
+      val = val.slice(1, -1).replace(/""/g, '"');
+    }
+    result.push(val.trim());
+    // カンマを読み飛ばす（末尾フィールドの場合は終了）
+    if (re.lastIndex < line.length && line[re.lastIndex] === ',') {
+      re.lastIndex += 1;
+    } else if (re.lastIndex < line.length) {
+      break; // 予期しない文字 → ループ抜け
+    } else {
+      break;
+    }
+  }
+  return result;
+}
+
+/**
+ * CSVテキストをパースし、バリデーションエラーメッセージの配列を返す。
+ * エラーがなければ空配列を返す。
+ *
+ * カラム構成（1行目はヘッダー、2行目以降がデータ）:
+ *   [0] 加盟店コード    (必須)
+ *   [1] 日付            (必須, YYYY-MM-DD)
+ *   [2] 品目            (必須)
+ *   [3] 数量            (必須, 数値)
+ *   [4] 単価            (必須, 数値)
+ *   [5] 税率区分(%)     (必須, "8" or "10")
+ *   [6] 請求金額（税抜）(必須, 数値)
+ *   [7] 消費税          (必須, 数値)
+ *   [8] 備考            (任意)
+ *
+ * @param {string} csvText
+ * @returns {{ errors: string[], rows: object[] }}
+ */
+function validateCsv(csvText) {
+  const errors = [];
+  const rows   = []; // パース済み行データ
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const EXPECTED_COLS = 9;
+
+  // 改行コードを統一してから分割、末尾の空行を除去
+  const lines = csvText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter(line => line.trim() !== '');
+
+  // ── ヘッダー行チェック ──────────────────────────────────────────────────
+  const EXPECTED_HEADERS = [
+    '加盟店コード', '日付', '品目', '数量', '単価',
+    '税率区分(%)', '請求金額（税抜）', '消費税', '備考',
+  ];
+  const headerCols = parseCsvLine(lines[0]);
+  if (headerCols.length !== EXPECTED_COLS) {
+    errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${EXPECTED_COLS}列）`);
+    return { errors, rows };
+  }
+  const headerErrors = EXPECTED_HEADERS
+    .map((name, idx) => headerCols[idx] !== name
+      ? `ヘッダー行 ${idx + 1}列目: "${name}" が期待されますが "${headerCols[idx]}" になっています`
+      : null
+    )
+    .filter(Boolean);
+  if (headerErrors.length > 0) {
+    errors.push(...headerErrors);
+    return { errors, rows };
+  }
+
+  // ヘッダー含めて1行しかない（データなし）場合
+  if (lines.length <= 1) {
+    errors.push('CSVにデータ行が1件もありません');
+    return { errors, rows };
+  }
+
+  // 2行目（index=1）以降がデータ行
+  // rowNum はヘッダーを1行目とした実際の行番号 (index + 1)
+  for (let i = 1; i < lines.length; i++) {
+    const rowNum = i + 1; // ヘッダー = 1行目なのでデータは2行目〜
+    const cols = parseCsvLine(lines[i]);
+    const rowErrors = [];
+
+    // ── カラム数チェック ───────────────────────────────────────────────────
+    if (cols.length !== EXPECTED_COLS) {
+      errors.push(`${rowNum}行目: カラム数が正しくありません（${cols.length}列 / 期待値: ${EXPECTED_COLS}列）`);
+      continue; // 列数が違う場合は以降のチェックをスキップ
+    }
+
+    // ── [0] 加盟店コード（必須）────────────────────────────────────────────
+    if (cols[0] === '') {
+      rowErrors.push(`${rowNum}行目: 加盟店コードを入力してください`);
+    }
+
+    // ── [1] 日付（必須, YYYY-MM-DD）───────────────────────────────────────
+    if (cols[1] === '') {
+      rowErrors.push(`${rowNum}行目: 日付を入力してください`);
+    } else if (!DATE_RE.test(cols[1])) {
+      rowErrors.push(`${rowNum}行目: 日付はYYYY-MM-DD形式で入力してください`);
+    }
+
+    // ── [2] 品目（必須）────────────────────────────────────────────────────
+    if (cols[2] === '') {
+      rowErrors.push(`${rowNum}行目: 品目を入力してください`);
+    }
+
+    // ── [3] 数量（必須, 数値）──────────────────────────────────────────────
+    if (cols[3] === '' || isNaN(Number(cols[3]))) {
+      rowErrors.push(`${rowNum}行目: 数量が数値ではありません`);
+    }
+
+    // ── [4] 単価（必須, 数値）──────────────────────────────────────────────
+    if (cols[4] === '' || isNaN(Number(cols[4]))) {
+      rowErrors.push(`${rowNum}行目: 単価が数値ではありません`);
+    }
+
+    // ── [5] 税率区分（必須, "8" or "10"）──────────────────────────────────
+    if (cols[5] !== '8' && cols[5] !== '10') {
+      rowErrors.push(`${rowNum}行目: 税率区分は8か10を入力してください`);
+    }
+
+    // ── [6] 請求金額（税抜）（必須, 数値）─────────────────────────────────
+    if (cols[6] === '' || isNaN(Number(cols[6]))) {
+      rowErrors.push(`${rowNum}行目: 請求金額（税抜）が数値ではありません`);
+    }
+
+    // ── [7] 消費税（必須, 数値）────────────────────────────────────────────
+    if (cols[7] === '' || isNaN(Number(cols[7]))) {
+      rowErrors.push(`${rowNum}行目: 消費税が数値ではありません`);
+    }
+
+    // [8] 備考は任意のためチェックなし
+
+    if (rowErrors.length === 0) {
+      // エラーなし → パース済みオブジェクトとして保存
+      rows.push({
+        storeCode:   cols[0],
+        date:        cols[1],
+        item:        cols[2],
+        qty:         Number(cols[3]),
+        unitPrice:   Number(cols[4]),
+        taxRate:     Number(cols[5]),
+        amountExTax: Number(cols[6]),
+        tax:         Number(cols[7]),
+        note:        cols[8],
+      });
+    } else {
+      errors.push(...rowErrors);
+    }
+  }
+
+  return { errors, rows };
+}
+
+// =============================================================================
+// Upload page: Render errors to UI
+// =============================================================================
+
+/**
+ * @param {string[]} errors
+ * @param {string}   [fileName] - 成功時に dropZone に表示するファイル名
+ */
+function renderErrors(errors, fileName) {
+  // リストをいったん空にする
+  alertList.innerHTML = '';
+
+  if (errors.length > 0) {
+    // エラーがある → dropZone を初期状態に戻す → リスト生成 → errorCard 表示 → 送信ボタン disabled
+    resetDropZone();
+    errors.forEach(msg => {
+      const li = document.createElement('li');
+      li.className = 'alert-item alert-item--error';
+      li.innerHTML = '<i class="fa-solid fa-circle alert-icon"></i>' + msg;
+      alertList.appendChild(li);
+    });
+    errorCard.classList.remove('hidden');
+    btnToConfirm.disabled = true;
+  } else {
+    // エラーなし → dropZone を成功表示に → errorCard 非表示 → 送信ボタン活性
+    setDropZoneSuccess(fileName || '');
+    errorCard.classList.add('hidden');
+    btnToConfirm.disabled = false;
+  }
+}
+
+// =============================================================================
+// Upload page: Submit helpers & page reset
+// =============================================================================
+
+/** 確認ページ送信ボタンのデフォルトラベル（リセット時に使用） */
+const SUBMIT_DEFAULT_HTML = '登録内容を送信する <i class="fa-solid fa-chevron-right"></i>';
+
+/** 送信中 UI に切り替える */
+function setSubmitLoading() {
+  btnFinalSubmit.disabled = true;
+  btnFinalSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送信中...';
+}
+
+/** 送信ボタンを通常状態に戻す（チェックボックスの状態に追従する） */
+function resetSubmitButton() {
+  const checked = document.getElementById('checkConfirm')?.checked ?? false;
+  btnFinalSubmit.disabled = !checked;
+  btnFinalSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
+}
+
+/**
+ * 画面全体を初期状態にリセットする（送信成功後に呼ぶ）
+ */
+function resetPage() {
+  rawCsv     = null;
+  parsedData = null;
+  try {
+    sessionStorage.removeItem('shiire_parsedData');
+    sessionStorage.removeItem('shiire_rawCsv');
+  } catch (e) {
+    console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+  }
+  resetDropZone();
+  alertList.innerHTML = '';
+  errorCard.classList.add('hidden');
+  btnToConfirm.disabled = true;
+  btnToConfirm.innerHTML = '確認画面へ進む <i class="fa-solid fa-chevron-right"></i>';
+  resetSubmitButton();
+  hideToast();
+}
+
+// アップロードページ: 確認画面へ進むボタン
+btnToConfirm.addEventListener('click', () => {
+  if (!parsedData || !rawCsv) {
+    showToast('送信できるデータがありません。CSVを再度選択してください。', 'error');
+    return;
+  }
+  location.hash = '#confirm';
+});
+
+// アップロードページ: キャンセルボタン → アップロード前の初期状態に戻す
+btnCancel.addEventListener('click', () => {
+  resetPage();
+});
+
+// =============================================================================
+// Upload page: CSV テンプレートダウンロード
+// =============================================================================
+
+/** BOM 付き UTF-8 CSV テンプレートをダウンロードする */
+function downloadCsvTemplate() {
+  const HEADERS = [
+    '加盟店コード',
+    '日付',
+    '品目',
+    '数量',
+    '単価',
+    '税率区分(%)',
+    '請求金額（税抜）',
+    '消費税',
+    '備考',
+  ];
+  const csvContent = HEADERS.map(h => `"${h}"`).join(',') + '\r\n';
+
+  // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = '請求CSVテンプレート.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('btnTemplateDlHeader').addEventListener('click', downloadCsvTemplate);
+document.getElementById('btnTemplateDlPage').addEventListener('click', e => {
+  e.preventDefault();
+  downloadCsvTemplate();
+});
+
+
+// ---- js/confirm.js ----
+// =============================================================================
+// Confirm page: Cancel modal（フォーカス管理・トラップ・Esc 対応）
+// =============================================================================
+
+/** モーダルを開く直前にフォーカスしていた要素を記憶する */
+let _modalTrigger = null;
+
+/** フォーカス可能なセレクタ */
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * キャンセル確認モーダルを開く
+ * @param {HTMLElement} [trigger] - 開くきっかけになった要素（閉じ後にフォーカスを戻す）
+ */
+function openCancelModal(trigger) {
+  const modal = document.getElementById('cancelModal');
+  _modalTrigger = trigger || document.activeElement;
+  modal.classList.remove('hidden');
+  // 最初のフォーカス可能要素へ移動
+  const first = modal.querySelector(FOCUSABLE);
+  if (first) first.focus();
+}
+
+/** キャンセル確認モーダルを閉じる */
+function closeCancelModal() {
+  const modal = document.getElementById('cancelModal');
+  modal.classList.add('hidden');
+  // フォーカスをトリガー要素に戻す
+  if (_modalTrigger && typeof _modalTrigger.focus === 'function') {
+    _modalTrigger.focus();
+  }
+  _modalTrigger = null;
+}
+
+// 確認ページ: キャンセルボタン → モーダルを表示
+document.getElementById('btnConfirmCancel').addEventListener('click', function () {
+  openCancelModal(this);
+});
+
+// モーダル: キャンセル（閉じるだけ）
+document.getElementById('cancelModalClose').addEventListener('click', () => {
+  closeCancelModal();
+});
+
+// モーダル: OK → データをリセットしアップロード画面へ
+document.getElementById('cancelModalOk').addEventListener('click', () => {
+  closeCancelModal();
+  resetPage();
+  location.hash = '#upload';
+});
+
+// モーダル: オーバーレイクリックで閉じる
+document.getElementById('cancelModal').addEventListener('click', function (e) {
+  if (e.target === this) closeCancelModal();
+});
+
+// モーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  const modal = document.getElementById('cancelModal');
+  if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+    closeCancelModal();
+  }
+});
+
+// モーダル: フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+document.getElementById('cancelModal').addEventListener('keydown', function (e) {
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(this.querySelectorAll(FOCUSABLE));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last  = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+  }
+});
+
+// =============================================================================
+// Confirm page: Submit
+// =============================================================================
+
+// 確認ページ: 登録内容を送信するボタン
+btnFinalSubmit.addEventListener('click', () => {
+  // 送信可能なデータが揃っているか念のため確認
+  if (!parsedData || !rawCsv) {
+    showToast('送信できるデータがありません。アップロードページからやり直してください。', 'error');
+    location.hash = '#upload';
+    return;
+  }
+
+  // ── 送信開始: UI をローディング状態に ─────────────────────────────────────
+  setSubmitLoading();
+  hideToast();
+
+  // ── GAS バックエンドへ送信 ────────────────────────────────────────────────
+  // google.script.run は GAS Webアプリ環境でのみ有効。
+  // ローカル Live Server で動作確認する場合は下部の「ローカル確認用フォールバック」が使われる。
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(onSubmitSuccess)
+      .withFailureHandler(onSubmitFailure)
+      .sendInvoiceData(parsedData, rawCsv);
+  } else {
+    // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
+    console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
+    console.log('[submit] jsonData:', parsedData);
+    console.log('[submit] csvContent (先頭200文字):', rawCsv.slice(0, 200));
+    setTimeout(() => onSubmitSuccess({ status: 'success', data: '(mock)' }), 800);
+  }
+});
+
+/**
+ * 送信成功ハンドラ
+ * @param {{ status: string, data: * }} result - server.js の success_() が返すオブジェクト
+ *   エラー時は error_() が返したオブジェクトが SuccessHandler に流れる場合がある
+ */
+function onSubmitSuccess(result) {
+  console.log('[submit] success:', result);
+  if (result && result.status === 'error') {
+    // GAS 側が _error() を返した場合（SuccessHandler に流れるがエラー扱い）
+    showToast('送信に失敗しました: ' + (result.message || '不明なエラー'), 'error');
+    resetSubmitButton();
+    return;
+  }
+  resetPage();
+  location.hash = '#home';
+  showToast('送信が完了しました', 'success');
+}
+
+/**
+ * 送信失敗ハンドラ
+ * @param {Error} error
+ */
+function onSubmitFailure(error) {
+  console.error('[submit] failure:', error);
+  showToast('送信に失敗しました: ' + (error.message || error), 'error');
+  resetSubmitButton(); // 再送信できるようにボタンを戻す
+}
+
+// 確認ページ: チェックボックスで送信ボタンの活性/非活性を切り替える
+document.getElementById('checkConfirm').addEventListener('change', function () {
+  btnFinalSubmit.disabled = !this.checked;
+});
+
+// =============================================================================
+// Confirm page: render
+// =============================================================================
+
+/**
+ * 確認画面を parsedData を元に描画する。
+ * navigate() が '#confirm' に切り替えるたびに呼ばれる。
+ */
+function renderConfirmPage() {
+  // データがなければアップロード画面へ戻す
+  if (!parsedData || parsedData.length === 0 || !rawCsv) {
+    if (parsedData && parsedData.length > 0 && !rawCsv) {
+      // CSVテキストのみ復元できなかったケース（送信不可）
+      showToast('送信に必要なデータが復元できませんでした。CSVを再度アップロードしてください。', 'error');
+    }
+    location.hash = '#upload';
+    return;
+  }
+
+  // チェックボックス・送信ボタンをリセット
+  const checkConfirm = document.getElementById('checkConfirm');
+  if (checkConfirm) checkConfirm.checked = false;
+  btnFinalSubmit.disabled = true;
+
+  // ── サマリー計算（1パスで全集計）────────────────────────────────────────
+  const totals = parsedData.reduce((acc, r) => {
+    acc.amountExTax += r.amountExTax;
+    acc.tax         += r.tax;
+    if (r.taxRate === 10) { acc.exTax10 += r.amountExTax; acc.tax10 += r.tax; }
+    else                  { acc.exTax8  += r.amountExTax; acc.tax8  += r.tax; }
+    return acc;
+  }, { amountExTax: 0, tax: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 });
+
+  const totalAmountExTax = totals.amountExTax;
+  const totalTax         = totals.tax;
+  const totalAmountInTax = totalAmountExTax + totalTax;
+  const { exTax10, tax10, exTax8, tax8 } = totals;
+
+  /** @param {number} n */
+  const fmt = n => n.toLocaleString('ja-JP') + '円';
+
+  document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
+  document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
+  document.getElementById('summaryTax').textContent         = fmt(totalTax);
+
+  const fee      = Math.floor(totalAmountInTax * 0.05);
+  const transfer = totalAmountInTax - fee;
+  document.getElementById('summaryFee').textContent      = fmt(fee);
+  document.getElementById('summaryTransfer').textContent = fmt(transfer);
+
+  document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
+  document.getElementById('summaryTax10').textContent       = fmt(tax10);
+  document.getElementById('summaryExTax8').textContent      = fmt(exTax8);
+  document.getElementById('summaryTax8').textContent        = fmt(tax8);
+
+  // ── 加盟店ごとにグルーピング ─────────────────────────────────────────────
+  /** @type {Map<string, typeof parsedData>} */
+  const groups = new Map();
+  parsedData.forEach(row => {
+    if (!groups.has(row.storeCode)) groups.set(row.storeCode, []);
+    groups.get(row.storeCode).push(row);
+  });
+
+  // ── 加盟店別リストを描画 ──────────────────────────────────────────────────
+  const list = document.getElementById('confirmStoreList');
+  list.innerHTML = '';
+
+  // 列ヘッダー行
+  const colHeader = document.createElement('div');
+  colHeader.className = 'store-list-header';
+  colHeader.innerHTML =
+    `<span class="slh-col slh-col--name">加盟店名</span>` +
+    `<span class="slh-col slh-col--amount">請求金額</span>` +
+    `<span class="slh-col slh-col--extax">小計（税抜）</span>` +
+    `<span class="slh-col slh-col--tax">消費税</span>` +
+    `<span class="slh-col slh-col--tax8">消費税内訳（8%）</span>` +
+    `<span class="slh-col slh-col--tax10">消費税内訳（10%）</span>` +
+    `<span class="slh-col slh-col--toggle"></span>`;
+  list.appendChild(colHeader);
+
+  groups.forEach((rows, storeCode) => {
+    const st = rows.reduce((acc, r) => {
+      acc.amountExTax += r.amountExTax;
+      acc.tax         += r.tax;
+      if (r.taxRate === 10) acc.tax10 += r.tax;
+      else                  acc.tax8  += r.tax;
+      return acc;
+    }, { amountExTax: 0, tax: 0, tax8: 0, tax10: 0 });
+    const storeAmountExTax = st.amountExTax;
+    const storeTax         = st.tax;
+    const storeTotal       = storeAmountExTax + storeTax;
+    const storeTax8        = st.tax8;
+    const storeTax10       = st.tax10;
+
+    // アコーディオンカード
+    const card = document.createElement('div');
+    card.className = 'store-accordion';
+
+    // ヘッダー行
+    const header = document.createElement('div');
+    header.className = 'store-accordion__header';
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+    header.innerHTML =
+      `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(storeCode)}</span>` +
+      `<span class="slh-col slh-col--amount">${fmt(storeTotal)}</span>` +
+      `<span class="slh-col slh-col--extax">${fmt(storeAmountExTax)}</span>` +
+      `<span class="slh-col slh-col--tax">${fmt(storeTax)}</span>` +
+      `<span class="slh-col slh-col--tax8"><span class="store-tax-val">${storeTax8.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--tax10"><span class="store-tax-val">${storeTax10.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
+
+    /** アコーディオン開閉ヘルパー（aria-expanded も同期） */
+    const toggleAccordion = () => {
+      const isOpen = card.classList.toggle('is-open');
+      header.setAttribute('aria-expanded', String(isOpen));
+    };
+
+    header.addEventListener('click', toggleAccordion);
+    header.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleAccordion();
+      }
+    });
+
+    // ボディ（明細カード一覧）
+    const body = document.createElement('div');
+    body.className = 'store-accordion__body';
+
+    rows.forEach(row => {
+      const item = document.createElement('div');
+      item.className = 'detail-row';
+
+      const fields = [
+        { label: '取引日',   value: escapeHtml(row.date.replace(/-/g, '/')) },
+        { label: '概要',     value: escapeHtml(row.item) },
+        { label: '数量',     value: row.qty.toLocaleString('ja-JP') },
+        { label: '単価',     value: row.unitPrice.toLocaleString('ja-JP') + '円' },
+        { label: '明細金額', value: row.amountExTax.toLocaleString('ja-JP') + '円' },
+        { label: '税率',     value: row.taxRate + '%' },
+        { label: '消費税',   value: row.tax.toLocaleString('ja-JP') + '円' },
+      ];
+
+      const mainRow = document.createElement('div');
+      mainRow.className = 'detail-row__main';
+      mainRow.innerHTML = fields.map(f =>
+        `<span class="detail-row__field">`+
+          `<span class="detail-row__label">${f.label}</span>`+
+          `<span class="detail-row__sep">|</span>`+
+          `<span class="detail-row__value">${f.value}</span>`+
+        `</span>`
+      ).join('');
+      item.appendChild(mainRow);
+
+      const noteRow = document.createElement('div');
+      noteRow.className = 'detail-row__note';
+      noteRow.innerHTML = `<span class="detail-row__note-label">備考：</span>${row.note ? escapeHtml(row.note) : '<span class="detail-row__note-empty">なし</span>'}`;
+      item.appendChild(noteRow);
+
+      body.appendChild(item);
+    });
+    card.appendChild(header);
+    card.appendChild(body);
+    list.appendChild(card);
+  });
+}
+
+
+// ---- js/router.js ----
+// =============================================================================
+// Router: ハッシュベースの簡易 SPA ルーター
+// =============================================================================
+
+/**
+ * 登録済みページのマップ。
+ * key   : URL ハッシュ（'#upload' など）
+ * value : そのページのルート要素の id
+ */
+const ROUTES = {
+  '#home':    'pageHome',
+  '#upload':  'pageUpload',
+  '#confirm': 'pageConfirm',
+  '#detail':  'pageDetail',
+};
+
+/** デフォルトルート */
+const DEFAULT_ROUTE = '#home';
+
+/**
+ * location.hash から { baseHash, params } を取り出す。
+ * 例: '#detail?invoiceId=b001' → { baseHash: '#detail', params: URLSearchParams }
+ * @returns {{ baseHash: string, params: URLSearchParams }}
+ */
+function parseHash() {
+  const raw = location.hash || DEFAULT_ROUTE;
+  const sepIdx = raw.indexOf('?');
+  if (sepIdx === -1) {
+    return { baseHash: raw, params: new URLSearchParams() };
+  }
+  return {
+    baseHash: raw.slice(0, sepIdx),
+    params:   new URLSearchParams(raw.slice(sepIdx + 1)),
+  };
+}
+
+/**
+ * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
+ */
+function navigate() {
+  const { baseHash, params } = parseHash();
+  const targetId = ROUTES[baseHash] || ROUTES[DEFAULT_ROUTE];
+
+  Object.values(ROUTES).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', id !== targetId);
+  });
+
+  if (targetId === 'pageHome') {
+    initHomePage();
+  }
+
+  if (targetId === 'pageConfirm') {
+    renderConfirmPage();
+  }
+
+  if (targetId === 'pageDetail') {
+    const invoiceId = params.get('invoiceId') || null;
+    console.log('[router] 詳細画面: invoiceId =', invoiceId);
+    // TODO: initDetailPage(invoiceId) を呼ぶ
+  }
+
+  console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
+}
+
+// ハッシュ変化時・初回ロード時にルーティング実行
+window.addEventListener('hashchange', navigate);
+window.addEventListener('DOMContentLoaded', navigate);
+
+</script>
+
+
+  <script>
+// ---- js/utils.js ----
+// =============================================================================
+// Utils: 共通ユーティリティ
+// =============================================================================
+
+/**
+ * XSS 対策: HTML 特殊文字をエスケープする
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+
+// ---- js/home.js ----
+// =============================================================================
+// Home page: カレンダー状態
+// =============================================================================
+
+/** 現在表示中の年月（初期値は実行時の当月） */
+const _today = new Date();
+let calYear  = _today.getFullYear();
+let calMonth = _today.getMonth(); // 0始まり
+
+/** スケジュールデータのキャッシュ（日付文字列 → オブジェクト配列） */
+let scheduleMap = {};
+
+// =============================================================================
+// Home page: 初期化
+// =============================================================================
+
+/**
+ * ホーム画面表示時に GAS からデータを取得し、カレンダーと請求履歴を描画する。
+ * 既に描画済みの場合は再描画しない（フラグ管理）。
+ */
+let homeInitialized = false;
+
+function initHomePage() {
+  if (homeInitialized) return;
+  homeInitialized = true;
+
+  // カレンダーナビゲーションボタンのイベント登録
+  document.getElementById('calPrev').addEventListener('click', () => {
+    calMonth -= 1;
+    if (calMonth < 0) { calMonth = 11; calYear -= 1; }
+    renderCalendar();
+  });
+  document.getElementById('calNext').addEventListener('click', () => {
+    calMonth += 1;
+    if (calMonth > 11) { calMonth = 0; calYear += 1; }
+    renderCalendar();
+  });
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    // スケジュールデータ取得
+    google.script.run
+      .withSuccessHandler(function(result) {
+        buildScheduleMap(result && result.data ? result.data : []);
+        renderCalendar();
+      })
+      .withFailureHandler(function(err) {
+        console.error('[home] getMockScheduleData failed:', err);
+        renderCalendar(); // データなしでもカレンダーは表示
+      })
+      .getMockScheduleData();
+
+    // 請求履歴取得
+    google.script.run
+      .withSuccessHandler(function(result) {
+        renderBillingHistory(result && result.data ? result.data : []);
+      })
+      .withFailureHandler(function(err) {
+        console.error('[home] getMockBillingHistory failed:', err);
+        renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
+      })
+      .getMockBillingHistory();
+  } else {
+    // ローカル確認用フォールバック
+    // NOTE: 以下のデータは server.js の MOCK_SCHEDULE_ / MOCK_BILLING_BASE_ / MOCK_BILLING_ENTRIES_
+    //       と同一形式を維持すること。BackOffice API 実装後は両方まとめて削除する。
+    console.warn('[home] google.script.run が利用できません。モックデータを使用します。');
+    const mockSchedule = [
+      { date: '2026-05-13', title: '請求確定', type: 'billing' },
+      { date: '2026-05-27', title: '口座振替', type: 'payment' },
+    ];
+    /** server.js MOCK_BILLING_BASE_ と同一 */
+    const billingBase = {
+      billingAmount: 99999999, subtotalExTax: 90000000, taxAmount: 9999999,
+      breakdown: [
+        { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
+        { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+      ],
+      fee: 9999999, transferAmount: 990000000, status: '支払完了',
+    };
+    /** server.js MOCK_BILLING_ENTRIES_ と同一 */
+    const mockBilling = [
+      { id: 'b001', monthLabel: '4月' },
+      { id: 'b002', monthLabel: '3月' },
+      { id: 'b003', monthLabel: '2月' },
+      { id: 'b004', monthLabel: '1月' },
+    ].map(entry => Object.assign({}, billingBase, entry));
+    buildScheduleMap(mockSchedule);
+    renderCalendar();
+    renderBillingHistory(mockBilling);
+  }
+}
+
+// =============================================================================
+// Home page: スケジュールマップ構築
+// =============================================================================
+
+/**
+ * 配列 → { '2026-05-13': [{...}], ... } の形に変換してキャッシュ
+ * @param {Array<{date:string, title:string, type:string}>} items
+ */
+function buildScheduleMap(items) {
+  scheduleMap = {};
+  (items || []).forEach(item => {
+    if (!scheduleMap[item.date]) scheduleMap[item.date] = [];
+    scheduleMap[item.date].push(item);
+  });
+}
+
+// =============================================================================
+// Home page: カレンダー描画
+// =============================================================================
+
+function renderCalendar() {
+  const label = document.getElementById('calMonthLabel');
+  const grid  = document.getElementById('calGrid');
+  if (!label || !grid) return;
+
+  label.innerHTML = `<span class="cal-label__year">${calYear}年</span><span class="cal-label__month">${calMonth + 1}月</span>`;
+  grid.innerHTML  = '';
+
+  // 月の初日の曜日（0=日, 6=土）
+  const firstDay  = new Date(calYear, calMonth, 1).getDay();
+  // 月の末日
+  const lastDate  = new Date(calYear, calMonth + 1, 0).getDate();
+  // 今日
+  const today     = new Date();
+  const isThisMonth = today.getFullYear() === calYear && today.getMonth() === calMonth;
+
+  // 空白セル（月初前）
+  for (let i = 0; i < firstDay; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'cal-cell cal-cell--empty';
+    grid.appendChild(blank);
+  }
+
+  // 日付セル
+  for (let d = 1; d <= lastDate; d++) {
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell';
+
+    const mm   = String(calMonth + 1).padStart(2, '0');
+    const dd   = String(d).padStart(2, '0');
+    const key  = `${calYear}-${mm}-${dd}`;
+
+    if (isThisMonth && d === today.getDate()) {
+      cell.classList.add('cal-cell--today');
+    }
+
+    // 日付番号
+    const num = document.createElement('span');
+    num.className   = 'cal-cell__num';
+    num.textContent = String(d);
+    cell.appendChild(num);
+
+    // スケジュールバッジ
+    const events = scheduleMap[key] || [];
+    events.forEach(ev => {
+      const badge = document.createElement('div');
+      badge.className = `cal-badge cal-badge--${ev.type}`;
+      badge.textContent = ev.title;
+      cell.appendChild(badge);
+    });
+
+    if (events.length > 0) {
+      cell.classList.add('cal-cell--has-event');
+    }
+
+    grid.appendChild(cell);
+  }
+}
+
+// =============================================================================
+// Home page: 請求履歴描画
+// =============================================================================
+
+/**
+ * 請求履歴リストを描画する
+ * @param {Array<{
+ *   id: string,
+ *   monthLabel: string,
+ *   billingAmount: number,
+ *   subtotalExTax: number,
+ *   taxAmount: number,
+ *   breakdown: Array<{rate: number, subtotalExTax: number, taxAmount: number}>,
+ *   fee: number,
+ *   transferAmount: number,
+ *   status: string
+ * }>} items
+ */
+function renderBillingHistory(items) {
+  const list = document.getElementById('billingHistoryList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!items || items.length === 0) {
+    list.innerHTML = '<p class="billing-empty">請求履歴がありません。</p>';
+    return;
+  }
+
+  items.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'billing-card';
+
+    const fmt = n => Number(n).toLocaleString('ja-JP');
+
+    // 内訳：グリッド表形式（内訳 | 小計ラベル | 税額ラベル → 10% | 値 | 値 → 8% | 値 | 値）
+    const rateItems = (item.breakdown || []);
+    const breakdownDataRows = rateItems.map(b => `
+      <div class="bc-breakdown__cell bc-breakdown__rate">${escapeHtml(String(b.rate))}%</div>
+      <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.subtotalExTax)}円</div>
+      <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.taxAmount)}円</div>
+    `).join('');
+
+    card.innerHTML = `
+      <div class="bc-month">${escapeHtml(item.monthLabel)}</div>
+
+      <div class="bc-billing">
+        <div class="bc-billing__label">請求金額</div>
+        <div class="bc-billing__amount">${fmt(item.billingAmount)}円</div>
+        <div class="bc-billing__sub">小計（税抜）<span>${fmt(item.subtotalExTax)}円</span></div>
+        <div class="bc-billing__sub">税額<span>${fmt(item.taxAmount)}円</span></div>
+      </div>
+
+      <div class="bc-divider"></div>
+
+      <div class="bc-breakdown">
+        <div class="bc-breakdown__grid">
+          <div class="bc-breakdown__cell bc-breakdown__title">内訳</div>
+          <div class="bc-breakdown__cell bc-breakdown__col-label">小計（税抜）</div>
+          <div class="bc-breakdown__cell bc-breakdown__col-label">税額</div>
+          ${breakdownDataRows}
+        </div>
+      </div>
+
+      <div class="bc-divider"></div>
+
+      <div class="bc-fee">
+        <div class="bc-fee__row">手数料<span>${fmt(item.fee)}円</span></div>
+        <div class="bc-fee__row">振込金額<span>${fmt(item.transferAmount)}円</span></div>
+      </div>
+
+      <button type="button" class="bc-detail-link" data-id="${escapeHtml(item.id)}">詳細を見る &gt;</button>
+    `;
+
+    // 詳細リンク: invoiceId をハッシュクエリに含めて #detail へ遷移
+    card.querySelector('.bc-detail-link').addEventListener('click', function() {
+      location.hash = '#detail?invoiceId=' + encodeURIComponent(this.dataset.id);
+    });
+
+    list.appendChild(card);
+  });
+}
+
+
+// ---- js/upload.js ----
+// =============================================================================
+// Upload page: DOM references
+// =============================================================================
+
+const dropZone       = document.getElementById('dropZone');
+const btnSelectFile  = document.getElementById('btnSelectFile');
+const fileInput      = document.getElementById('fileInput');
+const btnToConfirm   = document.getElementById('btnToConfirm');
+const btnCancel      = document.getElementById('btnCancel');
+const btnFinalSubmit = document.getElementById('btnFinalSubmit');
+const errorCard      = document.getElementById('errorCard');
+const alertList      = document.getElementById('alertList');
+const toast          = document.getElementById('toast');
+const toastClose     = document.getElementById('toastClose');
+
+// =============================================================================
+// Upload page: State（バックエンド送信用データ保持）
+// =============================================================================
+
+/** 読み込んだCSVの生テキスト（sendInvoiceData に渡す） */
+let rawCsv = null;
+
+/**
+ * パース済みデータ行の配列。各要素はカラム名をキーとしたオブジェクト。
+ * @type {Array<{storeCode:string, date:string, item:string, qty:number,
+ *              unitPrice:number, taxRate:number, amountExTax:number,
+ *              tax:number, note:string}>}
+ */
+let parsedData = null;
+
+// sessionStorage からリロード時に復元（GAS セッションタイムアウト対策）
+try {
+  const _saved = sessionStorage.getItem('shiire_parsedData');
+  const _raw   = sessionStorage.getItem('shiire_rawCsv');
+  if (_saved) parsedData = JSON.parse(_saved);
+  if (_raw)   rawCsv    = _raw;
+
+  // 型バリデーション: 想定外の値は捨ててセッションをクリア
+  const isValidRow = r =>
+    r !== null && typeof r === 'object' &&
+    typeof r.storeCode   === 'string' &&
+    typeof r.amountExTax === 'number' &&
+    typeof r.tax         === 'number' &&
+    typeof r.taxRate     === 'number';
+
+  if (parsedData !== null && (!Array.isArray(parsedData) || !parsedData.every(isValidRow))) {
+    console.warn('[state] sessionStorage の parsedData が不正な形式です。破棄します。');
+    parsedData = null;
+    rawCsv     = null;
+    sessionStorage.removeItem('shiire_parsedData');
+    sessionStorage.removeItem('shiire_rawCsv');
+  }
+} catch (e) {
+  console.warn('[state] sessionStorage の復元に失敗しました:', e);
+}
+
+// =============================================================================
+// Upload page: Toast helpers
+// =============================================================================
+
+/** @param {string} message @param {'error'|'success'} [type='error'] */
+function showToast(message, type = 'error') {
+  document.getElementById('toastMessage').textContent = message;
+  toast.classList.remove('hidden', 'toast--error', 'toast--success');
+  toast.classList.add(`toast--${type}`);
+}
+
+function hideToast() {
+  toast.classList.add('hidden');
+}
+
+toastClose.addEventListener('click', hideToast);
+
+// =============================================================================
+// Upload page: Drop zone helpers
+// =============================================================================
+
+/** 初期状態の dropZone 内 HTML（リセット時に復元する） */
+const DROP_ZONE_DEFAULT_HTML = dropZone.innerHTML;
+
+/** dropZone を初期状態に戻す */
+function resetDropZone() {
+  dropZone.innerHTML = DROP_ZONE_DEFAULT_HTML;
+  dropZone.classList.remove('is-success');
+  // innerHTML 差し替え後に DOM 参照とイベントを再登録
+  const newBtn   = dropZone.querySelector('#btnSelectFile');
+  const newInput = dropZone.querySelector('#fileInput');
+  newBtn.addEventListener('click', () => newInput.click());
+  newInput.addEventListener('change', function () {
+    if (this.files[0]) handleFile(this.files[0]);
+    this.value = '';
+  });
+}
+
+/**
+ * dropZone を成功表示に切り替える
+ * @param {string} fileName
+ */
+function setDropZoneSuccess(fileName) {
+  dropZone.innerHTML = `
+    <i class="fa-regular fa-circle-check drop-zone__icon drop-zone__icon--success"></i>
+    <p class="drop-zone__text drop-zone__text--success">
+      📄 <strong id="dropZoneFileName"></strong> を読み込みました
+    </p>
+    <button class="btn btn-select-file" id="btnSelectFile">
+      <i class="fa-regular fa-folder-open"></i> 別のファイルを選択
+    </button>
+    <input type="file" id="fileInput" accept=".csv" hidden />
+  `;
+  // XSS対策: ファイル名は textContent で挿入
+  dropZone.querySelector('#dropZoneFileName').textContent = fileName;
+  dropZone.classList.add('is-success');
+  // 再バインド
+  const newBtn   = dropZone.querySelector('#btnSelectFile');
+  const newInput = dropZone.querySelector('#fileInput');
+  newBtn.addEventListener('click', () => newInput.click());
+  newInput.addEventListener('change', function () {
+    if (this.files[0]) handleFile(this.files[0]);
+    this.value = '';
+  });
+}
+
+// =============================================================================
+// Upload page: Drag & Drop
+// =============================================================================
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+['dragleave', 'dragend'].forEach(ev =>
+  dropZone.addEventListener(ev, () => dropZone.classList.remove('drag-over'))
+);
+
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+// =============================================================================
+// Upload page: Click to select file
+// =============================================================================
+
+btnSelectFile.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  // 同じファイルを再選択できるようリセット
+  fileInput.value = '';
+});
+
+// =============================================================================
+// Upload page: File handler
+// =============================================================================
+
+/** @param {File} file */
+function handleFile(file) {
+  // ── Step 2: ファイル形式チェック ──────────────────────────────────────────
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    showToast('CSVファイルを選択してください');
+    resetDropZone();
+    return;
+  }
+
+  hideToast();
+
+  // ── Step 3: CSVを読み込んでパース＆バリデーション ────────────────────────
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    const text = e.target.result;
+    const { errors, rows } = validateCsv(text);
+
+    if (errors.length === 0) {
+      // 成功: グローバル変数に保持
+      rawCsv     = text;
+      parsedData = rows;
+      // リロード対策: sessionStorage に保存
+      try {
+        sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows));
+        sessionStorage.setItem('shiire_rawCsv', text);
+      } catch (e) {
+        console.warn('[state] sessionStorage への保存に失敗しました:', e);
+      }
+    } else {
+      // エラー: 保持データをクリア
+      rawCsv     = null;
+      parsedData = null;
+      try {
+        sessionStorage.removeItem('shiire_parsedData');
+        sessionStorage.removeItem('shiire_rawCsv');
+      } catch (e) {
+        console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+      }
+    }
+
+    renderErrors(errors, file.name);
+  };
+
+  reader.onerror = () => {
+    showToast('ファイルの読み込みに失敗しました');
+    resetDropZone();
+  };
+
+  reader.readAsText(file, 'UTF-8');
+}
+
+// =============================================================================
+// Upload page: CSV parse & validate
+// =============================================================================
+
+/**
+ * ダブルクォーテーション対応の1行パーサ。
+ * 各フィールドを囲むダブルクォーテーションを除去して返す。
+ *
+ * @param {string} line - CSVの1行文字列
+ * @returns {string[]} フィールド値の配列
+ */
+function parseCsvLine(line) {
+  const result = [];
+  // RFC 4180 に準拠した簡易実装:
+  // - "..." → ... (クォーテーション除去)
+  // - "" 内のカンマは区切り文字扱いしない
+  const re = /("(?:[^"]|"")*"|[^,]*)/g;
+  let m;
+  while ((m = re.exec(line)) !== null) {
+    // re がマッチするたびに1フィールド + 後続カンマ分を進める
+    let val = m[1];
+    if (val.startsWith('"') && val.endsWith('"')) {
+      val = val.slice(1, -1).replace(/""/g, '"');
+    }
+    result.push(val.trim());
+    // カンマを読み飛ばす（末尾フィールドの場合は終了）
+    if (re.lastIndex < line.length && line[re.lastIndex] === ',') {
+      re.lastIndex += 1;
+    } else if (re.lastIndex < line.length) {
+      break; // 予期しない文字 → ループ抜け
+    } else {
+      break;
+    }
+  }
+  return result;
+}
+
+/**
+ * CSVテキストをパースし、バリデーションエラーメッセージの配列を返す。
+ * エラーがなければ空配列を返す。
+ *
+ * カラム構成（1行目はヘッダー、2行目以降がデータ）:
+ *   [0] 加盟店コード    (必須)
+ *   [1] 日付            (必須, YYYY-MM-DD)
+ *   [2] 品目            (必須)
+ *   [3] 数量            (必須, 数値)
+ *   [4] 単価            (必須, 数値)
+ *   [5] 税率区分(%)     (必須, "8" or "10")
+ *   [6] 請求金額（税抜）(必須, 数値)
+ *   [7] 消費税          (必須, 数値)
+ *   [8] 備考            (任意)
+ *
+ * @param {string} csvText
+ * @returns {{ errors: string[], rows: object[] }}
+ */
+function validateCsv(csvText) {
+  const errors = [];
+  const rows   = []; // パース済み行データ
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const EXPECTED_COLS = 9;
+
+  // 改行コードを統一してから分割、末尾の空行を除去
+  const lines = csvText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter(line => line.trim() !== '');
+
+  // ── ヘッダー行チェック ──────────────────────────────────────────────────
+  const EXPECTED_HEADERS = [
+    '加盟店コード', '日付', '品目', '数量', '単価',
+    '税率区分(%)', '請求金額（税抜）', '消費税', '備考',
+  ];
+  const headerCols = parseCsvLine(lines[0]);
+  if (headerCols.length !== EXPECTED_COLS) {
+    errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${EXPECTED_COLS}列）`);
+    return { errors, rows };
+  }
+  const headerErrors = EXPECTED_HEADERS
+    .map((name, idx) => headerCols[idx] !== name
+      ? `ヘッダー行 ${idx + 1}列目: "${name}" が期待されますが "${headerCols[idx]}" になっています`
+      : null
+    )
+    .filter(Boolean);
+  if (headerErrors.length > 0) {
+    errors.push(...headerErrors);
+    return { errors, rows };
+  }
+
+  // ヘッダー含めて1行しかない（データなし）場合
+  if (lines.length <= 1) {
+    errors.push('CSVにデータ行が1件もありません');
+    return { errors, rows };
+  }
+
+  // 2行目（index=1）以降がデータ行
+  // rowNum はヘッダーを1行目とした実際の行番号 (index + 1)
+  for (let i = 1; i < lines.length; i++) {
+    const rowNum = i + 1; // ヘッダー = 1行目なのでデータは2行目〜
+    const cols = parseCsvLine(lines[i]);
+    const rowErrors = [];
+
+    // ── カラム数チェック ───────────────────────────────────────────────────
+    if (cols.length !== EXPECTED_COLS) {
+      errors.push(`${rowNum}行目: カラム数が正しくありません（${cols.length}列 / 期待値: ${EXPECTED_COLS}列）`);
+      continue; // 列数が違う場合は以降のチェックをスキップ
+    }
+
+    // ── [0] 加盟店コード（必須）────────────────────────────────────────────
+    if (cols[0] === '') {
+      rowErrors.push(`${rowNum}行目: 加盟店コードを入力してください`);
+    }
+
+    // ── [1] 日付（必須, YYYY-MM-DD）───────────────────────────────────────
+    if (cols[1] === '') {
+      rowErrors.push(`${rowNum}行目: 日付を入力してください`);
+    } else if (!DATE_RE.test(cols[1])) {
+      rowErrors.push(`${rowNum}行目: 日付はYYYY-MM-DD形式で入力してください`);
+    }
+
+    // ── [2] 品目（必須）────────────────────────────────────────────────────
+    if (cols[2] === '') {
+      rowErrors.push(`${rowNum}行目: 品目を入力してください`);
+    }
+
+    // ── [3] 数量（必須, 数値）──────────────────────────────────────────────
+    if (cols[3] === '' || isNaN(Number(cols[3]))) {
+      rowErrors.push(`${rowNum}行目: 数量が数値ではありません`);
+    }
+
+    // ── [4] 単価（必須, 数値）──────────────────────────────────────────────
+    if (cols[4] === '' || isNaN(Number(cols[4]))) {
+      rowErrors.push(`${rowNum}行目: 単価が数値ではありません`);
+    }
+
+    // ── [5] 税率区分（必須, "8" or "10"）──────────────────────────────────
+    if (cols[5] !== '8' && cols[5] !== '10') {
+      rowErrors.push(`${rowNum}行目: 税率区分は8か10を入力してください`);
+    }
+
+    // ── [6] 請求金額（税抜）（必須, 数値）─────────────────────────────────
+    if (cols[6] === '' || isNaN(Number(cols[6]))) {
+      rowErrors.push(`${rowNum}行目: 請求金額（税抜）が数値ではありません`);
+    }
+
+    // ── [7] 消費税（必須, 数値）────────────────────────────────────────────
+    if (cols[7] === '' || isNaN(Number(cols[7]))) {
+      rowErrors.push(`${rowNum}行目: 消費税が数値ではありません`);
+    }
+
+    // [8] 備考は任意のためチェックなし
+
+    if (rowErrors.length === 0) {
+      // エラーなし → パース済みオブジェクトとして保存
+      rows.push({
+        storeCode:   cols[0],
+        date:        cols[1],
+        item:        cols[2],
+        qty:         Number(cols[3]),
+        unitPrice:   Number(cols[4]),
+        taxRate:     Number(cols[5]),
+        amountExTax: Number(cols[6]),
+        tax:         Number(cols[7]),
+        note:        cols[8],
+      });
+    } else {
+      errors.push(...rowErrors);
+    }
+  }
+
+  return { errors, rows };
+}
+
+// =============================================================================
+// Upload page: Render errors to UI
+// =============================================================================
+
+/**
+ * @param {string[]} errors
+ * @param {string}   [fileName] - 成功時に dropZone に表示するファイル名
+ */
+function renderErrors(errors, fileName) {
+  // リストをいったん空にする
+  alertList.innerHTML = '';
+
+  if (errors.length > 0) {
+    // エラーがある → dropZone を初期状態に戻す → リスト生成 → errorCard 表示 → 送信ボタン disabled
+    resetDropZone();
+    errors.forEach(msg => {
+      const li = document.createElement('li');
+      li.className = 'alert-item alert-item--error';
+      li.innerHTML = '<i class="fa-solid fa-circle alert-icon"></i>' + msg;
+      alertList.appendChild(li);
+    });
+    errorCard.classList.remove('hidden');
+    btnToConfirm.disabled = true;
+  } else {
+    // エラーなし → dropZone を成功表示に → errorCard 非表示 → 送信ボタン活性
+    setDropZoneSuccess(fileName || '');
+    errorCard.classList.add('hidden');
+    btnToConfirm.disabled = false;
+  }
+}
+
+// =============================================================================
+// Upload page: Submit helpers & page reset
+// =============================================================================
+
+/** 確認ページ送信ボタンのデフォルトラベル（リセット時に使用） */
+const SUBMIT_DEFAULT_HTML = '登録内容を送信する <i class="fa-solid fa-chevron-right"></i>';
+
+/** 送信中 UI に切り替える */
+function setSubmitLoading() {
+  btnFinalSubmit.disabled = true;
+  btnFinalSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送信中...';
+}
+
+/** 送信ボタンを通常状態に戻す（チェックボックスの状態に追従する） */
+function resetSubmitButton() {
+  const checked = document.getElementById('checkConfirm')?.checked ?? false;
+  btnFinalSubmit.disabled = !checked;
+  btnFinalSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
+}
+
+/**
+ * 画面全体を初期状態にリセットする（送信成功後に呼ぶ）
+ */
+function resetPage() {
+  rawCsv     = null;
+  parsedData = null;
+  try {
+    sessionStorage.removeItem('shiire_parsedData');
+    sessionStorage.removeItem('shiire_rawCsv');
+  } catch (e) {
+    console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+  }
+  resetDropZone();
+  alertList.innerHTML = '';
+  errorCard.classList.add('hidden');
+  btnToConfirm.disabled = true;
+  btnToConfirm.innerHTML = '確認画面へ進む <i class="fa-solid fa-chevron-right"></i>';
+  resetSubmitButton();
+  hideToast();
+}
+
+// アップロードページ: 確認画面へ進むボタン
+btnToConfirm.addEventListener('click', () => {
+  if (!parsedData || !rawCsv) {
+    showToast('送信できるデータがありません。CSVを再度選択してください。', 'error');
+    return;
+  }
+  location.hash = '#confirm';
+});
+
+// アップロードページ: キャンセルボタン → アップロード前の初期状態に戻す
+btnCancel.addEventListener('click', () => {
+  resetPage();
+});
+
+// =============================================================================
+// Upload page: CSV テンプレートダウンロード
+// =============================================================================
+
+/** BOM 付き UTF-8 CSV テンプレートをダウンロードする */
+function downloadCsvTemplate() {
+  const HEADERS = [
+    '加盟店コード',
+    '日付',
+    '品目',
+    '数量',
+    '単価',
+    '税率区分(%)',
+    '請求金額（税抜）',
+    '消費税',
+    '備考',
+  ];
+  const csvContent = HEADERS.map(h => `"${h}"`).join(',') + '\r\n';
+
+  // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = '請求CSVテンプレート.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('btnTemplateDlHeader').addEventListener('click', downloadCsvTemplate);
+document.getElementById('btnTemplateDlPage').addEventListener('click', e => {
+  e.preventDefault();
+  downloadCsvTemplate();
+});
+
+
+// ---- js/confirm.js ----
+// =============================================================================
+// Confirm page: Cancel modal（フォーカス管理・トラップ・Esc 対応）
+// =============================================================================
+
+/** モーダルを開く直前にフォーカスしていた要素を記憶する */
+let _modalTrigger = null;
+
+/** フォーカス可能なセレクタ */
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * キャンセル確認モーダルを開く
+ * @param {HTMLElement} [trigger] - 開くきっかけになった要素（閉じ後にフォーカスを戻す）
+ */
+function openCancelModal(trigger) {
+  const modal = document.getElementById('cancelModal');
+  _modalTrigger = trigger || document.activeElement;
+  modal.classList.remove('hidden');
+  // 最初のフォーカス可能要素へ移動
+  const first = modal.querySelector(FOCUSABLE);
+  if (first) first.focus();
+}
+
+/** キャンセル確認モーダルを閉じる */
+function closeCancelModal() {
+  const modal = document.getElementById('cancelModal');
+  modal.classList.add('hidden');
+  // フォーカスをトリガー要素に戻す
+  if (_modalTrigger && typeof _modalTrigger.focus === 'function') {
+    _modalTrigger.focus();
+  }
+  _modalTrigger = null;
+}
+
+// 確認ページ: キャンセルボタン → モーダルを表示
+document.getElementById('btnConfirmCancel').addEventListener('click', function () {
+  openCancelModal(this);
+});
+
+// モーダル: キャンセル（閉じるだけ）
+document.getElementById('cancelModalClose').addEventListener('click', () => {
+  closeCancelModal();
+});
+
+// モーダル: OK → データをリセットしアップロード画面へ
+document.getElementById('cancelModalOk').addEventListener('click', () => {
+  closeCancelModal();
+  resetPage();
+  location.hash = '#upload';
+});
+
+// モーダル: オーバーレイクリックで閉じる
+document.getElementById('cancelModal').addEventListener('click', function (e) {
+  if (e.target === this) closeCancelModal();
+});
+
+// モーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  const modal = document.getElementById('cancelModal');
+  if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+    closeCancelModal();
+  }
+});
+
+// モーダル: フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+document.getElementById('cancelModal').addEventListener('keydown', function (e) {
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(this.querySelectorAll(FOCUSABLE));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last  = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+  }
+});
+
+// =============================================================================
+// Confirm page: Submit
+// =============================================================================
+
+// 確認ページ: 登録内容を送信するボタン
+btnFinalSubmit.addEventListener('click', () => {
+  // 送信可能なデータが揃っているか念のため確認
+  if (!parsedData || !rawCsv) {
+    showToast('送信できるデータがありません。アップロードページからやり直してください。', 'error');
+    location.hash = '#upload';
+    return;
+  }
+
+  // ── 送信開始: UI をローディング状態に ─────────────────────────────────────
+  setSubmitLoading();
+  hideToast();
+
+  // ── GAS バックエンドへ送信 ────────────────────────────────────────────────
+  // google.script.run は GAS Webアプリ環境でのみ有効。
+  // ローカル Live Server で動作確認する場合は下部の「ローカル確認用フォールバック」が使われる。
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(onSubmitSuccess)
+      .withFailureHandler(onSubmitFailure)
+      .sendInvoiceData(parsedData, rawCsv);
+  } else {
+    // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
+    console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
+    console.log('[submit] jsonData:', parsedData);
+    console.log('[submit] csvContent (先頭200文字):', rawCsv.slice(0, 200));
+    setTimeout(() => onSubmitSuccess({ status: 'success', data: '(mock)' }), 800);
+  }
+});
+
+/**
+ * 送信成功ハンドラ
+ * @param {{ status: string, data: * }} result - server.js の success_() が返すオブジェクト
+ *   エラー時は error_() が返したオブジェクトが SuccessHandler に流れる場合がある
+ */
+function onSubmitSuccess(result) {
+  console.log('[submit] success:', result);
+  if (result && result.status === 'error') {
+    // GAS 側が _error() を返した場合（SuccessHandler に流れるがエラー扱い）
+    showToast('送信に失敗しました: ' + (result.message || '不明なエラー'), 'error');
+    resetSubmitButton();
+    return;
+  }
+  resetPage();
+  location.hash = '#home';
+  showToast('送信が完了しました', 'success');
+}
+
+/**
+ * 送信失敗ハンドラ
+ * @param {Error} error
+ */
+function onSubmitFailure(error) {
+  console.error('[submit] failure:', error);
+  showToast('送信に失敗しました: ' + (error.message || error), 'error');
+  resetSubmitButton(); // 再送信できるようにボタンを戻す
+}
+
+// 確認ページ: チェックボックスで送信ボタンの活性/非活性を切り替える
+document.getElementById('checkConfirm').addEventListener('change', function () {
+  btnFinalSubmit.disabled = !this.checked;
+});
+
+// =============================================================================
+// Confirm page: render
+// =============================================================================
+
+/**
+ * 確認画面を parsedData を元に描画する。
+ * navigate() が '#confirm' に切り替えるたびに呼ばれる。
+ */
+function renderConfirmPage() {
+  // データがなければアップロード画面へ戻す
+  if (!parsedData || parsedData.length === 0 || !rawCsv) {
+    if (parsedData && parsedData.length > 0 && !rawCsv) {
+      // CSVテキストのみ復元できなかったケース（送信不可）
+      showToast('送信に必要なデータが復元できませんでした。CSVを再度アップロードしてください。', 'error');
+    }
+    location.hash = '#upload';
+    return;
+  }
+
+  // チェックボックス・送信ボタンをリセット
+  const checkConfirm = document.getElementById('checkConfirm');
+  if (checkConfirm) checkConfirm.checked = false;
+  btnFinalSubmit.disabled = true;
+
+  // ── サマリー計算（1パスで全集計）────────────────────────────────────────
+  const totals = parsedData.reduce((acc, r) => {
+    acc.amountExTax += r.amountExTax;
+    acc.tax         += r.tax;
+    if (r.taxRate === 10) { acc.exTax10 += r.amountExTax; acc.tax10 += r.tax; }
+    else                  { acc.exTax8  += r.amountExTax; acc.tax8  += r.tax; }
+    return acc;
+  }, { amountExTax: 0, tax: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 });
+
+  const totalAmountExTax = totals.amountExTax;
+  const totalTax         = totals.tax;
+  const totalAmountInTax = totalAmountExTax + totalTax;
+  const { exTax10, tax10, exTax8, tax8 } = totals;
+
+  /** @param {number} n */
+  const fmt = n => n.toLocaleString('ja-JP') + '円';
+
+  document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
+  document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
+  document.getElementById('summaryTax').textContent         = fmt(totalTax);
+
+  const fee      = Math.floor(totalAmountInTax * 0.05);
+  const transfer = totalAmountInTax - fee;
+  document.getElementById('summaryFee').textContent      = fmt(fee);
+  document.getElementById('summaryTransfer').textContent = fmt(transfer);
+
+  document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
+  document.getElementById('summaryTax10').textContent       = fmt(tax10);
+  document.getElementById('summaryExTax8').textContent      = fmt(exTax8);
+  document.getElementById('summaryTax8').textContent        = fmt(tax8);
+
+  // ── 加盟店ごとにグルーピング ─────────────────────────────────────────────
+  /** @type {Map<string, typeof parsedData>} */
+  const groups = new Map();
+  parsedData.forEach(row => {
+    if (!groups.has(row.storeCode)) groups.set(row.storeCode, []);
+    groups.get(row.storeCode).push(row);
+  });
+
+  // ── 加盟店別リストを描画 ──────────────────────────────────────────────────
+  const list = document.getElementById('confirmStoreList');
+  list.innerHTML = '';
+
+  // 列ヘッダー行
+  const colHeader = document.createElement('div');
+  colHeader.className = 'store-list-header';
+  colHeader.innerHTML =
+    `<span class="slh-col slh-col--name">加盟店名</span>` +
+    `<span class="slh-col slh-col--amount">請求金額</span>` +
+    `<span class="slh-col slh-col--extax">小計（税抜）</span>` +
+    `<span class="slh-col slh-col--tax">消費税</span>` +
+    `<span class="slh-col slh-col--tax8">消費税内訳（8%）</span>` +
+    `<span class="slh-col slh-col--tax10">消費税内訳（10%）</span>` +
+    `<span class="slh-col slh-col--toggle"></span>`;
+  list.appendChild(colHeader);
+
+  groups.forEach((rows, storeCode) => {
+    const st = rows.reduce((acc, r) => {
+      acc.amountExTax += r.amountExTax;
+      acc.tax         += r.tax;
+      if (r.taxRate === 10) acc.tax10 += r.tax;
+      else                  acc.tax8  += r.tax;
+      return acc;
+    }, { amountExTax: 0, tax: 0, tax8: 0, tax10: 0 });
+    const storeAmountExTax = st.amountExTax;
+    const storeTax         = st.tax;
+    const storeTotal       = storeAmountExTax + storeTax;
+    const storeTax8        = st.tax8;
+    const storeTax10       = st.tax10;
+
+    // アコーディオンカード
+    const card = document.createElement('div');
+    card.className = 'store-accordion';
+
+    // ヘッダー行
+    const header = document.createElement('div');
+    header.className = 'store-accordion__header';
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+    header.innerHTML =
+      `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(storeCode)}</span>` +
+      `<span class="slh-col slh-col--amount">${fmt(storeTotal)}</span>` +
+      `<span class="slh-col slh-col--extax">${fmt(storeAmountExTax)}</span>` +
+      `<span class="slh-col slh-col--tax">${fmt(storeTax)}</span>` +
+      `<span class="slh-col slh-col--tax8"><span class="store-tax-val">${storeTax8.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--tax10"><span class="store-tax-val">${storeTax10.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
+
+    /** アコーディオン開閉ヘルパー（aria-expanded も同期） */
+    const toggleAccordion = () => {
+      const isOpen = card.classList.toggle('is-open');
+      header.setAttribute('aria-expanded', String(isOpen));
+    };
+
+    header.addEventListener('click', toggleAccordion);
+    header.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleAccordion();
+      }
+    });
+
+    // ボディ（明細カード一覧）
+    const body = document.createElement('div');
+    body.className = 'store-accordion__body';
+
+    rows.forEach(row => {
+      const item = document.createElement('div');
+      item.className = 'detail-row';
+
+      const fields = [
+        { label: '取引日',   value: escapeHtml(row.date.replace(/-/g, '/')) },
+        { label: '概要',     value: escapeHtml(row.item) },
+        { label: '数量',     value: row.qty.toLocaleString('ja-JP') },
+        { label: '単価',     value: row.unitPrice.toLocaleString('ja-JP') + '円' },
+        { label: '明細金額', value: row.amountExTax.toLocaleString('ja-JP') + '円' },
+        { label: '税率',     value: row.taxRate + '%' },
+        { label: '消費税',   value: row.tax.toLocaleString('ja-JP') + '円' },
+      ];
+
+      const mainRow = document.createElement('div');
+      mainRow.className = 'detail-row__main';
+      mainRow.innerHTML = fields.map(f =>
+        `<span class="detail-row__field">`+
+          `<span class="detail-row__label">${f.label}</span>`+
+          `<span class="detail-row__sep">|</span>`+
+          `<span class="detail-row__value">${f.value}</span>`+
+        `</span>`
+      ).join('');
+      item.appendChild(mainRow);
+
+      const noteRow = document.createElement('div');
+      noteRow.className = 'detail-row__note';
+      noteRow.innerHTML = `<span class="detail-row__note-label">備考：</span>${row.note ? escapeHtml(row.note) : '<span class="detail-row__note-empty">なし</span>'}`;
+      item.appendChild(noteRow);
+
+      body.appendChild(item);
+    });
+    card.appendChild(header);
+    card.appendChild(body);
+    list.appendChild(card);
+  });
+}
+
+
+// ---- js/router.js ----
+// =============================================================================
+// Router: ハッシュベースの簡易 SPA ルーター
+// =============================================================================
+
+/**
+ * 登録済みページのマップ。
+ * key   : URL ハッシュ（'#upload' など）
+ * value : そのページのルート要素の id
+ */
+const ROUTES = {
+  '#home':    'pageHome',
+  '#upload':  'pageUpload',
+  '#confirm': 'pageConfirm',
+  '#detail':  'pageDetail',
+};
+
+/** デフォルトルート */
+const DEFAULT_ROUTE = '#home';
+
+/**
+ * location.hash から { baseHash, params } を取り出す。
+ * 例: '#detail?invoiceId=b001' → { baseHash: '#detail', params: URLSearchParams }
+ * @returns {{ baseHash: string, params: URLSearchParams }}
+ */
+function parseHash() {
+  const raw = location.hash || DEFAULT_ROUTE;
+  const sepIdx = raw.indexOf('?');
+  if (sepIdx === -1) {
+    return { baseHash: raw, params: new URLSearchParams() };
+  }
+  return {
+    baseHash: raw.slice(0, sepIdx),
+    params:   new URLSearchParams(raw.slice(sepIdx + 1)),
+  };
+}
+
+/**
+ * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
+ */
+function navigate() {
+  const { baseHash, params } = parseHash();
+  const targetId = ROUTES[baseHash] || ROUTES[DEFAULT_ROUTE];
+
+  Object.values(ROUTES).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', id !== targetId);
+  });
+
+  if (targetId === 'pageHome') {
+    initHomePage();
+  }
+
+  if (targetId === 'pageConfirm') {
+    renderConfirmPage();
+  }
+
+  if (targetId === 'pageDetail') {
+    const invoiceId = params.get('invoiceId') || null;
+    console.log('[router] 詳細画面: invoiceId =', invoiceId);
+    // TODO: initDetailPage(invoiceId) を呼ぶ
+  }
+
+  console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
+}
+
+// ハッシュ変化時・初回ロード時にルーティング実行
+window.addEventListener('hashchange', navigate);
+window.addEventListener('DOMContentLoaded', navigate);
+
+</script>
+</body>
+</html>

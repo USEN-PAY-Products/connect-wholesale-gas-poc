@@ -1,13 +1,23 @@
-# GAS/clasp settings
-.clasp*.json
-node_modules/
-
 # OS files
 .DS_Store
 Thumbs.db
 
-# Build files
-dist/
+# 依存パッケージ
+node_modules/
+
+# ローカル開発用（dist/ から npm run unbuild で再生成可能）
+src/
+build.js
+unbuild.js
+
+# GAS/clasp 設定（ローカル環境依存）
+.clasp*.json
+
+# GAS プロジェクト設定（dist/ にコピーされるため不要）
+appsscript.json
+
+# テストデータ
+*.csv
 
 # Local env files
 .env
