@@ -50,9 +50,25 @@ function build() {
     `<style>\n${css}\n</style>`
   );
 
-  // 3. app.js をインライン化（<script src="js/app.js"> を置換）
-  const jsPath = path.join(SRC_DIR, 'js/app.js');
-  const js     = fs.readFileSync(jsPath, 'utf8');
+  // 3. JS ファイルを結合してインライン化（<script src="js/app.js"> を置換）
+  //    依存順: utils → home → upload → confirm → router
+  const JS_FILES = [
+    'js/utils.js',
+    'js/home.js',
+    'js/upload.js',
+    'js/confirm.js',
+    'js/router.js',
+  ];
+  const js = JS_FILES
+    .map(f => {
+      const absPath = path.join(SRC_DIR, f);
+      if (!fs.existsSync(absPath)) {
+        console.warn(`[build] WARNING: JS file not found: ${absPath}`);
+        return `// MISSING: ${f}`;
+      }
+      return `// ---- ${f} ----\n` + fs.readFileSync(absPath, 'utf8');
+    })
+    .join('\n\n');
   html = html.replace(
     /<script\s+src="js\/app\.js"><\/script>/,
     `<script>\n${js}\n</script>`
