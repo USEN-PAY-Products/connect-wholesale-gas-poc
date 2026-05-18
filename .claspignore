@@ -1,0 +1,15 @@
+# GAS へ送らないファイルを列挙する（src/ 内のファイルが対象）
+# clasp push は rootDir: "./src" を基点として動作する
+
+# ドキュメント類
+**/*.md
+
+# 設定・パッケージ管理ファイル（src/外のものは自動除外されるが念のため）
+package.json
+package-lock.json
+.gitignore
+.claspignore
+
+# OS ファイル
+**/.DS_Store
+**/Thumbs.db
