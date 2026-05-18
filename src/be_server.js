@@ -46,7 +46,7 @@ function formatYearMonth_(date) {
 // =============================================================================
 
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('index')
+  return HtmlService.createTemplateFromFile('fe_index')
     .evaluate()
     .setTitle('Shiire System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
