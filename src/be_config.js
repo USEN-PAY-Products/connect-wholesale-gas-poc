@@ -86,7 +86,12 @@ function setupScriptProperties(forceOverwrite) {
   console.log('[setupScriptProperties] Script Properties を設定しました（ENV=development）。');
 }
 
-// ★ 一時関数 ★ Script Properties を強制上書きする。実行後に削除してOK。
+// ★ 一時関数 ★ Script Properties を強制上書きする。
+// development 環境でのみ実行可。バックオフィスAPI整備後は削除すること。
 function setupForce() {
+  const env = PropertiesService.getScriptProperties().getProperty('ENV');
+  if (env === 'production') {
+    throw new Error('[setupForce] production 環境では実行できません。');
+  }
   setupScriptProperties(true);
 }

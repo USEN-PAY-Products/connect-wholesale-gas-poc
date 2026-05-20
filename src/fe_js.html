@@ -620,12 +620,13 @@ function handleFile(file) {
  * @returns {string}
  */
 function arrayBufferToBase64_(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const bytes     = new Uint8Array(buffer);
+  const chunkSize = 8192; // 8KB ずつ処理してスタックオーバーフローを防ぐ
+  const parts     = [];
+  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
   }
-  return btoa(binary);
+  return btoa(parts.join(''));
 }
 
 /**
@@ -703,8 +704,9 @@ function validateCsv(csvText) {
   const expectedCols = fieldKeys.length;
 
   // 有効な customer_code セットを作成
+  // is_active が未提供（undefined）の場合は active 扱いにする
   const validCustomerCodes = new Set(
-    mappings.filter(m => m.is_active).map(m => String(m.customer_code))
+    mappings.filter(m => m.is_active !== false).map(m => String(m.customer_code))
   );
 
   // 改行コード統一・空行除去
@@ -713,6 +715,12 @@ function validateCsv(csvText) {
     .replace(/\r/g, '\n')
     .split('\n')
     .filter(line => line.trim() !== '');
+
+  // ── 空ファイルチェック（lines[0] が undefined になる前に弾く）──────────────
+  if (lines.length === 0) {
+    errors.push('CSVが空です。ヘッダー行とデータ行を含むCSVをアップロードしてください');
+    return { errors, rows };
+  }
 
   // ── ヘッダー行チェック ─────────────────────────────────────────────────────
   const headerCols = parseCsvLine(lines[0]);
@@ -1032,7 +1040,16 @@ btnFinalSubmit.addEventListener('click', () => {
   const wholesalerName = sessionStorage.getItem('shiire_wholesaler_name') || '';
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
-    const bqPayload = JSON.parse(sessionStorage.getItem('shiire_bq_payload') || 'null');
+    // SessionStorage から取得、失敗時は renderConfirmPage で設定した in-memory キャッシュを使用
+    const bqPayload = JSON.parse(sessionStorage.getItem('shiire_bq_payload') || 'null')
+                      ?? window._bqPayloadCache
+                      ?? null;
+    if (!bqPayload) {
+      hideLoadingOverlay();
+      showToast('送信データの準備に失敗しました。確認画面を開き直してから再送信してください。', 'error');
+      resetSubmitButton();
+      return;
+    }
     google.script.run
       .withSuccessHandler(onSubmitSuccess)
       .withFailureHandler(onSubmitFailure)
@@ -1241,15 +1258,17 @@ function renderConfirmPage() {
   });
 
   // BQペイロードを SessionStorage に保存（sendInvoiceData で使用）
+  // 保存失敗時は in-memory 変数で保持し、送信時にそちらを使う
+  const bqPayloadObj = { wholesalerInvoiceRow, merchantInvoiceRows, invoiceLineRows };
+  let bqPayloadSavedToStorage = false;
   try {
-    sessionStorage.setItem('shiire_bq_payload', JSON.stringify({
-      wholesalerInvoiceRow,
-      merchantInvoiceRows,
-      invoiceLineRows,
-    }));
+    sessionStorage.setItem('shiire_bq_payload', JSON.stringify(bqPayloadObj));
+    bqPayloadSavedToStorage = true;
   } catch (e) {
-    console.warn('[confirm] BQペイロードのSessionStorage保存に失敗しました:', e);
+    console.warn('[confirm] BQペイロードのSessionStorage保存に失敗しました（in-memoryで保持します）:', e);
   }
+  // in-memory キャッシュとして window に保持（SessionStorage 失敗時の送信用）
+  window._bqPayloadCache = bqPayloadObj;
 
   // ── 加盟店別リストを描画 ──────────────────────────────────────────────────
   const list = document.getElementById('confirmStoreList');

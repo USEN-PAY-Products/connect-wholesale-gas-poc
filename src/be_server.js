@@ -4,20 +4,20 @@
 // 準備が完了したら false に変更して clasp push する。
 // =============================================================================
 /** Drive保存・BQ書き込みのスタブ。false = 本番動作。 */
-var STUB_MODE = false;
+const STUB_MODE = false;
 /** getAccountInfo のスタブ。バックオフィスAPIが未整備の間は true にしておく。 */
-var STUB_ACCOUNT_INFO_MODE = true;
+const STUB_ACCOUNT_INFO_MODE = true;
 
 /** getAccountInfo のスタブ返却値。実際のAPIレスポンス構造に合わせる。 */
-var STUB_ACCOUNT_INFO = {
+const STUB_ACCOUNT_INFO = {
   wholesaler_id:      1,
   wholesaler_user_id: 1,
   wholesaler_name:    '（スタブ）卸業者サンプル',
   user_name:          'スタブ 太郎',
   fee_rate:           5,
   merchant_mappings: [
-    { customer_code: 'C001', mall_code: 'MALL-001', merchant_name: 'サンプル加盟店A' },
-    { customer_code: 'C002', mall_code: 'MALL-002', merchant_name: 'サンプル加盟店B' },
+    { customer_code: 'C001', mall_code: 'MALL-001', merchant_name: 'サンプル加盟店A', is_active: true },
+    { customer_code: 'C002', mall_code: 'MALL-002', merchant_name: 'サンプル加盟店B', is_active: true },
   ],
   csv_format_rules: null,   // null = デフォルトフォーマットを使用
 };
@@ -175,30 +175,12 @@ function sendInvoiceData(jsonData, csvBase64, wholesalerName, bqPayload) {
       throw new Error('bqPayload が null です。フロントから正しく渡されていません。');
     }
 
-    var payload = bqPayload;
+    const payload = bqPayload;
 
-    Logger.log('[BQ] wholesalerInvoiceRow: ' + JSON.stringify(payload.wholesalerInvoiceRow));
-    Logger.log('[BQ] merchantInvoiceRows件数: ' + (payload.merchantInvoiceRows || []).length);
-    Logger.log('[BQ] invoiceLineRows件数: ' + (payload.invoiceLineRows || []).length);
+    Logger.log('[BQ] 登録開始: wholesalerName=' + wholesalerName);
 
-    // csv_url を Drive 保存後の実 URL にセット
-    payload.wholesalerInvoiceRow.wholesaler_invoice_csv_url = csvUrl;
-
-    var projectId = config.gcpProjectId;
-    var datasetId = config.bqDatasetId;
-
-    // 1. wholesaler_invoices
-    insertRows_(projectId, datasetId, 'wholesaler_invoices', [payload.wholesalerInvoiceRow]);
-
-    // 2. merchant_invoices
-    if (payload.merchantInvoiceRows && payload.merchantInvoiceRows.length > 0) {
-      insertRows_(projectId, datasetId, 'merchant_invoices', payload.merchantInvoiceRows);
-    }
-
-    // 3. invoice_lines
-    if (payload.invoiceLineRows && payload.invoiceLineRows.length > 0) {
-      insertRows_(projectId, datasetId, 'invoice_lines', payload.invoiceLineRows);
-    }
+    // csv_url を Drive 保存後の実 URL にセットして be_bq_connection.js に委譲
+    insertInvoiceRows_(payload, csvUrl);
 
     return success_({ csv_url: csvUrl });
   } catch (err) {
@@ -206,55 +188,14 @@ function sendInvoiceData(jsonData, csvBase64, wholesalerName, bqPayload) {
   }
 }
 
-/**
- * BigQuery tabledata.insertAll を呼び出すヘルパー。
- * エラーがあれば例外をスローする。
- * @param {string} projectId
- * @param {string} datasetId
- * @param {string} tableId
- * @param {Array<Object>} rows
- */
-function insertRows_(projectId, datasetId, tableId, rows) {
-  var body = {
-    rows: rows.map(function(row, i) {
-      return { insertId: Utilities.getUuid(), json: row };
-    })
-  };
-  var response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);
-  if (response.insertErrors && response.insertErrors.length > 0) {
-    var details = response.insertErrors.map(function(e) {
-      return 'row[' + e.index + ']: ' + e.errors.map(function(err) {
-        return err.reason + ' - ' + err.message;
-      }).join(', ');
-    }).join(' | ');
-    throw new Error('[BQ] ' + tableId + ' の登録エラー: ' + details);
-  }
-}
-
 // =============================================================================
 // 3. fetchInvoices
+// TODO: バックオフィスAPI実装後に BQ クエリ or BackOffice API 呼び出しに差し替える
 // =============================================================================
 
 function fetchInvoices() {
   try {
-    const config = getConfig_();
-    const wholesalerId = getWholesalerId_();
-    const url = config.getUrl + '?wholesaler_id=' + encodeURIComponent(wholesalerId);
-
-    const response     = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
-    const responseCode = response.getResponseCode();
-    const rawText      = response.getContentText();
-    let responseBody;
-    try {
-      responseBody = JSON.parse(rawText);
-    } catch (_) {
-      responseBody = rawText;
-    }
-
-    if (responseCode < 200 || responseCode >= 300) {
-      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
-    }
-    return success_(responseBody);
+    return getMockBillingHistory();
   } catch (err) {
     throw new Error('fetchInvoices failed: ' + err.message);
   }
@@ -262,31 +203,13 @@ function fetchInvoices() {
 
 // =============================================================================
 // 4. fetchInvoiceDetail
+// TODO: バックオフィスAPI実装後に BQ クエリ or BackOffice API 呼び出しに差し替える
 // =============================================================================
 
 function fetchInvoiceDetail(invoiceId) {
   try {
-    const config = getConfig_();
-    const wholesalerId = getWholesalerId_();
-    const url =
-      config.getUrl +
-      '?invoice_id='    + encodeURIComponent(invoiceId) +
-      '&wholesaler_id=' + encodeURIComponent(wholesalerId);
-
-    const response     = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
-    const responseCode = response.getResponseCode();
-    const rawText      = response.getContentText();
-    let responseBody;
-    try {
-      responseBody = JSON.parse(rawText);
-    } catch (_) {
-      responseBody = rawText;
-    }
-
-    if (responseCode < 200 || responseCode >= 300) {
-      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
-    }
-    return success_(responseBody);
+    // TODO: invoiceId に紐づく明細を BQ から取得する
+    return success_(null);
   } catch (err) {
     throw new Error('fetchInvoiceDetail failed: ' + err.message);
   }
@@ -347,7 +270,7 @@ function getMockScheduleData() {
 
 function getMockBillingHistory() {
   try {
-    var items = MOCK_BILLING_ENTRIES_.map(function(entry) {
+    const items = MOCK_BILLING_ENTRIES_.map(function(entry) {
       return Object.assign({}, MOCK_BILLING_BASE_, entry);
     });
     return success_(items);
