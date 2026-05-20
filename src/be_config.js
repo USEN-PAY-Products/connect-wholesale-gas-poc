@@ -2,9 +2,11 @@
 // Config: Script Properties から環境設定を取得する
 //
 // GAS エディタ or clasp で以下のプロパティを設定してください:
-//   BACKOFFICE_API_POST_URL  … 請求データ送信先エンドポイント
-//   BACKOFFICE_API_GET_URL   … 請求一覧・詳細取得エンドポイント
-//   DRIVE_ROOT_FOLDER_ID     … 監査証跡 CSV の保存先 Drive フォルダ ID
+//   ACCOUNT_API_URL      … バックオフィスGASのアカウント情報取得APIエンドポイント
+//   API_KEY              … バックオフィスAPIの認証キー
+//   DRIVE_ROOT_FOLDER_ID … 監査証跡 CSV の保存先 Drive フォルダ ID
+//   GCP_PROJECT_ID       … BigQuery の GCP プロジェクト ID
+//   BQ_DATASET_ID        … BigQuery のデータセット ID（例: invoice_db）
 //
 // 設定方法（GASエディタ）:
 //   プロジェクトの設定 → スクリプト プロパティ → プロパティを追加
@@ -12,18 +14,30 @@
 
 function getConfig_() {
   const props = PropertiesService.getScriptProperties();
-  const postUrl       = props.getProperty('BACKOFFICE_API_POST_URL');
-  const getUrl        = props.getProperty('BACKOFFICE_API_GET_URL');
-  const driveFolderId = props.getProperty('DRIVE_ROOT_FOLDER_ID');
+  const accountApiUrl  = props.getProperty('ACCOUNT_API_URL');
+  const apiKey         = props.getProperty('API_KEY');
+  const driveFolderId  = props.getProperty('DRIVE_ROOT_FOLDER_ID');
+  const gcpProjectId   = props.getProperty('GCP_PROJECT_ID');
+  const bqDatasetId    = props.getProperty('BQ_DATASET_ID');
 
-  if (!postUrl)       throw new Error('Script Property "BACKOFFICE_API_POST_URL" が未設定です');
-  if (!getUrl)        throw new Error('Script Property "BACKOFFICE_API_GET_URL" が未設定です');
+  // DRIVE_ROOT_FOLDER_ID / GCP_PROJECT_ID / BQ_DATASET_ID は常に必須。
+  // ACCOUNT_API_URL / API_KEY はバックオフィスAPI呼び出し時のみ必要なため、
+  // STUB_ACCOUNT_INFO_MODE=false になってから必須チェックする。
   if (!driveFolderId) throw new Error('Script Property "DRIVE_ROOT_FOLDER_ID" が未設定です');
+  if (!gcpProjectId)  throw new Error('Script Property "GCP_PROJECT_ID" が未設定です');
+  if (!bqDatasetId)   throw new Error('Script Property "BQ_DATASET_ID" が未設定です');
+
+  if (!STUB_ACCOUNT_INFO_MODE) {
+    if (!accountApiUrl) throw new Error('Script Property "ACCOUNT_API_URL" が未設定です');
+    if (!apiKey)        throw new Error('Script Property "API_KEY" が未設定です');
+  }
 
   return {
-    postUrl:       postUrl,
-    getUrl:        getUrl,
-    driveFolderId: driveFolderId
+    accountApiUrl: accountApiUrl,
+    apiKey:        apiKey,
+    driveFolderId: driveFolderId,
+    gcpProjectId:  gcpProjectId,
+    bqDatasetId:   bqDatasetId,
   };
 }
 
@@ -52,8 +66,8 @@ function setupScriptProperties(forceOverwrite) {
   }
 
   // ── ガード2: 既存値がある場合は上書きしない（forceOverwrite=true で回避可） ──
-  const existingPostUrl = props.getProperty('BACKOFFICE_API_POST_URL');
-  if (existingPostUrl && !forceOverwrite) {
+  const existingFolderId = props.getProperty('DRIVE_ROOT_FOLDER_ID');
+  if (existingFolderId && !forceOverwrite) {
     throw new Error(
       '[setupScriptProperties] Script Properties はすでに設定済みです（上書きをスキップしました）。\n' +
       '再セットアップする場合は setupScriptProperties(true) を実行してください。'
@@ -62,10 +76,17 @@ function setupScriptProperties(forceOverwrite) {
 
   // ── 設定値の書き込み ────────────────────────────────────────────────────────
   props.setProperties({
-    'BACKOFFICE_API_POST_URL': 'https://httpbin.org/post',            // 本番 URL に変更してください
-    'BACKOFFICE_API_GET_URL':  'https://httpbin.org/get',             // 本番 URL に変更してください
-    'DRIVE_ROOT_FOLDER_ID':    '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro', // 本番フォルダ ID に変更してください
-    'ENV':                     'development'                          // 本番では 'production' に変更してください
+    'ACCOUNT_API_URL':    'https://script.google.com/macros/s/XXXXX/exec', // バックオフィスGAS URL に変更してください
+    'API_KEY':            'YOUR_SECRET_API_KEY',                            // APIキーに変更してください
+    'DRIVE_ROOT_FOLDER_ID': '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro',          // 本番フォルダ ID に変更してください
+    'GCP_PROJECT_ID':     'usenpay-connect-dev',                            // GCP プロジェクト ID
+    'BQ_DATASET_ID':      'invoice_db',                                     // BigQuery データセット ID
+    'ENV':                'development'                                     // 本番では 'production' に変更してください
   });
   console.log('[setupScriptProperties] Script Properties を設定しました（ENV=development）。');
+}
+
+// ★ 一時関数 ★ Script Properties を強制上書きする。実行後に削除してOK。
+function setupForce() {
+  setupScriptProperties(true);
 }

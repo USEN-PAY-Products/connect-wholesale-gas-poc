@@ -25,6 +25,14 @@
     <button class="toast-close" id="toastClose" aria-label="閉じる">&times;</button>
   </div>
 
+  <!-- 全画面ローディングスピナー -->
+  <div class="loading-overlay hidden" id="loadingOverlay" aria-hidden="true">
+    <div class="loading-overlay__spinner">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+    <p class="loading-overlay__text">登録中...</p>
+  </div>
+
   <?!= include('fe_page_home'); ?>
 
   <?!= include('fe_page_csv_upload'); ?>

@@ -1,4 +1,28 @@
 // =============================================================================
+// ★ STUB MODE ★
+// BQテーブルおよびバックオフィスAPIの準備が完了するまで true にしておく。
+// 準備が完了したら false に変更して clasp push する。
+// =============================================================================
+/** Drive保存・BQ書き込みのスタブ。false = 本番動作。 */
+var STUB_MODE = false;
+/** getAccountInfo のスタブ。バックオフィスAPIが未整備の間は true にしておく。 */
+var STUB_ACCOUNT_INFO_MODE = true;
+
+/** getAccountInfo のスタブ返却値。実際のAPIレスポンス構造に合わせる。 */
+var STUB_ACCOUNT_INFO = {
+  wholesaler_id:      1,
+  wholesaler_user_id: 1,
+  wholesaler_name:    '（スタブ）卸業者サンプル',
+  user_name:          'スタブ 太郎',
+  fee_rate:           5,
+  merchant_mappings: [
+    { customer_code: 'C001', mall_code: 'MALL-001', merchant_name: 'サンプル加盟店A' },
+    { customer_code: 'C002', mall_code: 'MALL-002', merchant_name: 'サンプル加盟店B' },
+  ],
+  csv_format_rules: null,   // null = デフォルトフォーマットを使用
+};
+
+// =============================================================================
 // Private utility helpers
 // =============================================================================
 
@@ -53,54 +77,157 @@ function doGet(e) {
 }
 
 // =============================================================================
-// 2. sendInvoiceData
+// 2. getAccountInfo
 // =============================================================================
 
-function sendInvoiceData(jsonData, csvContent) {
+/**
+ * バックオフィスGASのアカウント情報取得APIを呼び出し、卸情報を返す。
+ * フロントエンドの DOMContentLoaded 時に google.script.run 経由で呼ばれる。
+ *
+ * @returns {{ status: 'success', data: Object }}
+ * @throws {Error} API エラー時
+ */
+function getAccountInfo() {
+  // ★ STUB MODE ★
+  if (STUB_ACCOUNT_INFO_MODE) {
+    Logger.log('[STUB] getAccountInfo: スタブデータを返します');
+    return success_(STUB_ACCOUNT_INFO);
+  }
+
   try {
     const config = getConfig_();
-    const wholesalerId = getWholesalerId_();
-    const now = new Date();
+    const email  = Session.getActiveUser().getEmail();
 
-    // Save CSV audit trail to Drive
-    const rootFolder      = DriveApp.getFolderById(config.driveFolderId);
-    const userFolder      = getOrCreateSubFolder_(rootFolder, wholesalerId);
-    const monthFolder     = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
-    const fileName        = formatTimestamp_(now) + '_original.csv';
-    const csvFile         = monthFolder.createFile(fileName, csvContent, MimeType.CSV);
-    const originalFileUrl = csvFile.getUrl();
-
-    // Build payload
-    // jsonData は配列（parsedData）のため、専用キー rows に入れてマージする
     const payload = {
-      wholesaler_id:     wholesalerId,
-      original_file_url: originalFileUrl,
-      rows:              jsonData
+      api_key:             config.apiKey,
+      wholesaler_user_id:  email,
     };
 
     const options = {
       method:             'post',
       contentType:        'application/json',
       payload:            JSON.stringify(payload),
-      muteHttpExceptions: true
+      muteHttpExceptions: true,
     };
 
-    const response     = UrlFetchApp.fetch(config.postUrl, options);
+    const response     = UrlFetchApp.fetch(config.accountApiUrl, options);
     const responseCode = response.getResponseCode();
     const rawText      = response.getContentText();
     let responseBody;
     try {
       responseBody = JSON.parse(rawText);
     } catch (_) {
-      responseBody = rawText; // 非JSONレスポンスは生テキストのまま保持
+      responseBody = rawText;
     }
 
     if (responseCode < 200 || responseCode >= 300) {
-      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
+      throw new Error('AccountInfo API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
+    }
+    if (responseBody && responseBody.status === 'error') {
+      throw new Error('AccountInfo API error (' + responseBody.error_type + '): ' + JSON.stringify(responseBody));
     }
     return success_(responseBody);
   } catch (err) {
+    throw new Error('getAccountInfo failed: ' + err.message);
+  }
+}
+
+// =============================================================================
+// 3. sendInvoiceData
+// =============================================================================
+
+/**
+ * CSV を Drive に保存し、BigQuery の 3 テーブルに登録する。
+ * Drive フォルダ構造: <DRIVE_ROOT> / <卸名> / <YYYYMM> / <タイムスタンプ>_original.csv
+ *
+ * @param {Array<Object>} jsonData        - パース済み請求行データの配列（現在未使用）
+ * @param {string}        csvBase64       - 元CSVのBase64エンコード文字列
+ * @param {string}        wholesalerName  - 卸業者名（Driveフォルダ名に使用）
+ * @param {Object}        bqPayload       - フロントが組み立てた BQ 登録用ペイロード
+ * @returns {{ status: 'success', data: { csv_url: string } }}
+ * @throws {Error} Drive 操作または BQ 書き込み失敗時
+ */
+function sendInvoiceData(jsonData, csvBase64, wholesalerName, bqPayload) {
+  try {
+    const config     = getConfig_();
+    const now        = new Date();
+    const folderName = wholesalerName || '不明';
+
+    // ── Drive 保存（元バイト列のまま保存）─────────────────────────────────────
+    const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
+    const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
+    const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
+    const fileName    = formatTimestamp_(now) + '_original.csv';
+    const csvBytes    = Utilities.base64Decode(csvBase64);
+    const csvBlob     = Utilities.newBlob(csvBytes, MimeType.CSV, fileName);
+    const csvFile     = monthFolder.createFile(csvBlob);
+    const csvUrl      = csvFile.getUrl();
+
+    // ── STUB MODE: Drive 保存のみ、BQ 書き込みスキップ ─────────────────────
+    if (STUB_MODE) {
+      Logger.log('[STUB] Drive 保存完了: ' + csvUrl);
+      Logger.log('[STUB] BQ 書き込みはスキップします（テーブル未作成）');
+      return success_({ csv_url: csvUrl });
+    }
+
+    // ── BQ 登録 ───────────────────────────────────────────────────────────────
+    if (!bqPayload) {
+      throw new Error('bqPayload が null です。フロントから正しく渡されていません。');
+    }
+
+    var payload = bqPayload;
+
+    Logger.log('[BQ] wholesalerInvoiceRow: ' + JSON.stringify(payload.wholesalerInvoiceRow));
+    Logger.log('[BQ] merchantInvoiceRows件数: ' + (payload.merchantInvoiceRows || []).length);
+    Logger.log('[BQ] invoiceLineRows件数: ' + (payload.invoiceLineRows || []).length);
+
+    // csv_url を Drive 保存後の実 URL にセット
+    payload.wholesalerInvoiceRow.wholesaler_invoice_csv_url = csvUrl;
+
+    var projectId = config.gcpProjectId;
+    var datasetId = config.bqDatasetId;
+
+    // 1. wholesaler_invoices
+    insertRows_(projectId, datasetId, 'wholesaler_invoices', [payload.wholesalerInvoiceRow]);
+
+    // 2. merchant_invoices
+    if (payload.merchantInvoiceRows && payload.merchantInvoiceRows.length > 0) {
+      insertRows_(projectId, datasetId, 'merchant_invoices', payload.merchantInvoiceRows);
+    }
+
+    // 3. invoice_lines
+    if (payload.invoiceLineRows && payload.invoiceLineRows.length > 0) {
+      insertRows_(projectId, datasetId, 'invoice_lines', payload.invoiceLineRows);
+    }
+
+    return success_({ csv_url: csvUrl });
+  } catch (err) {
     throw new Error('sendInvoiceData failed: ' + err.message);
+  }
+}
+
+/**
+ * BigQuery tabledata.insertAll を呼び出すヘルパー。
+ * エラーがあれば例外をスローする。
+ * @param {string} projectId
+ * @param {string} datasetId
+ * @param {string} tableId
+ * @param {Array<Object>} rows
+ */
+function insertRows_(projectId, datasetId, tableId, rows) {
+  var body = {
+    rows: rows.map(function(row, i) {
+      return { insertId: Utilities.getUuid(), json: row };
+    })
+  };
+  var response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);
+  if (response.insertErrors && response.insertErrors.length > 0) {
+    var details = response.insertErrors.map(function(e) {
+      return 'row[' + e.index + ']: ' + e.errors.map(function(err) {
+        return err.reason + ' - ' + err.message;
+      }).join(', ');
+    }).join(' | ');
+    throw new Error('[BQ] ' + tableId + ' の登録エラー: ' + details);
   }
 }
 

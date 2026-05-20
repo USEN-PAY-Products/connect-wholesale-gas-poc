@@ -1,8 +1,134 @@
 <script>
+// ---- account.js ----
+// =============================================================================
+// Account: ログイン時のアカウント情報取得・SessionStorage管理
+// =============================================================================
+
+/**
+ * アカウント情報APIのレスポンスを SessionStorage に保存する。
+ * @param {Object} data - getAccountInfo() のレスポンス data フィールド
+ */
+function saveAccountInfo(data) {
+  try {
+    sessionStorage.setItem('shiire_wholesaler_id',    String(data.wholesaler_id   ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_user_id', String(data.wholesaler_user_id ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_name',  String(data.wholesaler_name ?? ''));
+    sessionStorage.setItem('shiire_user_name',        String(data.user_name       ?? ''));
+    sessionStorage.setItem('shiire_invoice_fee_rate', String(data.fee_rate ?? 0));
+    sessionStorage.setItem('shiire_merchant_mappings',  JSON.stringify(data.merchant_mappings  || []));
+    sessionStorage.setItem('shiire_csv_format_rules',   JSON.stringify(data.csv_format_rules   || null));
+    console.log('[account] SessionStorage に卸情報を保存しました:', data.wholesaler_name);
+  } catch (e) {
+    console.warn('[account] SessionStorage への保存に失敗しました:', e);
+  }
+}
+
+/**
+ * SessionStorage から merchant_mappings を取得する。
+ * @returns {Array<{customer_code:string, mall_code:string, merchant_name:string, is_active:boolean}>}
+ */
+function getMerchantMappings() {
+  try {
+    return JSON.parse(sessionStorage.getItem('shiire_merchant_mappings') || '[]');
+  } catch (_) { return []; }
+}
+
+/**
+ * SessionStorage から csv_format_rules を取得する。
+ * null の場合はデフォルトフォーマット定義を返す。
+ * @returns {Object}
+ */
+function getCsvFormatRules() {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
+    if (raw && Object.keys(raw).length > 0) return raw;
+  } catch (_) {}
+  // デフォルトフォーマット（csv_format_rules が空の卸向け）
+  return {
+    customer_code:         { csv_header: '加盟店コード',       type: 'string',  required: true  },
+    transaction_date:      { csv_header: '日付',               type: 'date',    required: true  },
+    item_name:             { csv_header: '品目',               type: 'string',  required: true  },
+    quantity:              { csv_header: '数量',               type: 'integer', required: true  },
+    unit_price:            { csv_header: '単価',               type: 'integer', required: true  },
+    tax_rate:              { csv_header: '税率区分(%)',         type: 'integer', required: true, enum: [8, 10] },
+    amount_ex_tax:         { csv_header: '請求金額（税抜）',   type: 'integer', required: true  },
+    invoice_detail_remark: { csv_header: '備考',               type: 'string',  required: false },
+  };
+}
+
+// =============================================================================
+// Account: アプリ初期化（DOMContentLoaded で実行）
+// =============================================================================
+
+document.addEventListener('DOMContentLoaded', function () {
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(function (result) {
+        if (result && result.data) {
+          saveAccountInfo(result.data);
+        } else {
+          console.error('[account] getAccountInfo のレスポンスが不正です:', result);
+        }
+      })
+      .withFailureHandler(function (err) {
+        console.error('[account] getAccountInfo failed:', err);
+      })
+      .getAccountInfo();
+  } else {
+    // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
+    console.warn('[account] google.script.run が利用できません。モックデータを使用します。');
+    saveAccountInfo({
+      wholesaler_id:      1,
+      wholesaler_name:    'ベジクル',
+      wholesaler_user_id: 1,
+      user_name:          '卸 担当者A',
+      fee_rate:           3,
+      csv_format_rules: {
+        transaction_date: { csv_header: '伝票日付',   type: 'date',    required: true },
+        slip_number:      { csv_header: '伝票番号',   type: 'integer', required: true },
+        customer_code:    { csv_header: '得意先コード', type: 'string', required: true },
+        merchant_name:    { csv_header: '請求先名',   type: 'string',  required: true },
+        item_name:        { csv_header: '商品名',     type: 'string',  required: true, max_length: 250 },
+        quantity:         { csv_header: '売上数量',   type: 'integer', required: true },
+        unit:             { csv_header: '数量単位',   type: 'string',  required: true },
+        unit_price:       { csv_header: '単価',       type: 'integer', required: true },
+        amount_ex_tax:    { csv_header: '金額',       type: 'integer', required: true },
+        tax_rate:         { csv_header: '消費税率',   type: 'integer', required: true, enum: [8, 10] },
+      },
+      merchant_mappings: [
+        { customer_code: '1189', mall_code: 'U123', merchant_name: '焼肉USEN 1号店', is_active: true },
+        { customer_code: '1200', mall_code: 'U234', merchant_name: '焼肉USEN 2号店', is_active: true },
+      ],
+    });
+  }
+});
+
+
 // ---- utils.js ----
 // =============================================================================
 // Utils: 共通ユーティリティ
 // =============================================================================
+
+/**
+ * 全画面ローディングスピナーを表示する。
+ * @param {string} [text='登録中...'] - スピナー下部に表示するテキスト
+ */
+function showLoadingOverlay(text) {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  const textEl = overlay.querySelector('.loading-overlay__text');
+  if (textEl) textEl.textContent = text || '登録中...';
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+}
+
+/** 全画面ローディングスピナーを非表示にする。 */
+function hideLoadingOverlay() {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+}
 
 /**
  * XSS 対策: HTML 特殊文字をエスケープする
@@ -294,8 +420,8 @@ const toastClose     = document.getElementById('toastClose');
 // Upload page: State（バックエンド送信用データ保持）
 // =============================================================================
 
-/** 読み込んだCSVの生テキスト（sendInvoiceData に渡す） */
-let rawCsv = null;
+/** 読み込んだCSVの元バイト列をBase64エンコードした文字列（DriveにSJISなど元ファイルそのまま保存するため） */
+let rawCsvBase64 = null;
 
 /**
  * パース済みデータ行の配列。各要素はカラム名をキーとしたオブジェクト。
@@ -307,25 +433,25 @@ let parsedData = null;
 
 // sessionStorage からリロード時に復元（GAS セッションタイムアウト対策）
 try {
-  const _saved = sessionStorage.getItem('shiire_parsedData');
-  const _raw   = sessionStorage.getItem('shiire_rawCsv');
-  if (_saved) parsedData = JSON.parse(_saved);
-  if (_raw)   rawCsv    = _raw;
+  const _saved  = sessionStorage.getItem('shiire_parsedData');
+  const _rawB64  = sessionStorage.getItem('shiire_rawCsvBase64');
+  if (_saved)  parsedData    = JSON.parse(_saved);
+  if (_rawB64) rawCsvBase64 = _rawB64;
 
   // 型バリデーション: 想定外の値は捨ててセッションをクリア
+  // 新フォーマット（csv_format_rules ベース）は customer_code と amount_ex_tax / tax_rate が必須キー
   const isValidRow = r =>
     r !== null && typeof r === 'object' &&
-    typeof r.storeCode   === 'string' &&
-    typeof r.amountExTax === 'number' &&
-    typeof r.tax         === 'number' &&
-    typeof r.taxRate     === 'number';
+    'customer_code' in r &&
+    'amount_ex_tax' in r &&
+    'tax_rate'      in r;
 
   if (parsedData !== null && (!Array.isArray(parsedData) || !parsedData.every(isValidRow))) {
     console.warn('[state] sessionStorage の parsedData が不正な形式です。破棄します。');
-    parsedData = null;
-    rawCsv     = null;
+    parsedData    = null;
+    rawCsvBase64  = null;
     sessionStorage.removeItem('shiire_parsedData');
-    sessionStorage.removeItem('shiire_rawCsv');
+    sessionStorage.removeItem('shiire_rawCsvBase64');
   }
 } catch (e) {
   console.warn('[state] sessionStorage の復元に失敗しました:', e);
@@ -448,27 +574,29 @@ function handleFile(file) {
   const reader = new FileReader();
 
   reader.onload = e => {
-    const text = e.target.result;
+    const buffer = e.target.result;
+    const text   = decodeBuffer_(buffer);
     const { errors, rows } = validateCsv(text);
 
     if (errors.length === 0) {
-      // 成功: グローバル変数に保持
-      rawCsv     = text;
-      parsedData = rows;
+      // 成功: 元バイト列をBase64で保持（Drive保存時に元ファイルをそのまま再現するため）
+      const base64 = arrayBufferToBase64_(buffer);
+      rawCsvBase64 = base64;
+      parsedData   = rows;
       // リロード対策: sessionStorage に保存
       try {
-        sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows));
-        sessionStorage.setItem('shiire_rawCsv', text);
+        sessionStorage.setItem('shiire_parsedData',   JSON.stringify(rows));
+        sessionStorage.setItem('shiire_rawCsvBase64', base64);
       } catch (e) {
         console.warn('[state] sessionStorage への保存に失敗しました:', e);
       }
     } else {
       // エラー: 保持データをクリア
-      rawCsv     = null;
-      parsedData = null;
+      rawCsvBase64 = null;
+      parsedData   = null;
       try {
         sessionStorage.removeItem('shiire_parsedData');
-        sessionStorage.removeItem('shiire_rawCsv');
+        sessionStorage.removeItem('shiire_rawCsvBase64');
       } catch (e) {
         console.warn('[state] sessionStorage のクリアに失敗しました:', e);
       }
@@ -482,7 +610,48 @@ function handleFile(file) {
     resetDropZone();
   };
 
-  reader.readAsText(file, 'UTF-8');
+  // SJIS / UTF-8 を自動判定するため ArrayBuffer で読み込む
+  reader.readAsArrayBuffer(file);
+}
+
+/**
+ * ArrayBuffer を Base64 文字列に変換する。
+ * @param {ArrayBuffer} buffer
+ * @returns {string}
+ */
+function arrayBufferToBase64_(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * ArrayBuffer を文字コード自動判定してテキストに変換する。
+ * UTF-8 BOM あり / UTF-8 妥当 → UTF-8 で decode。
+ * それ以外 → Shift_JIS で decode し UTF-8 に変換して返す。
+ *
+ * @param {ArrayBuffer} buffer
+ * @returns {string}
+ */
+function decodeBuffer_(buffer) {
+  const bytes = new Uint8Array(buffer);
+
+  // UTF-8 BOM チェック (EF BB BF)
+  const hasUtf8Bom = bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+  if (hasUtf8Bom) {
+    return new TextDecoder('utf-8').decode(buffer);
+  }
+
+  // UTF-8 として valid か試みる（fatal:true = 不正バイト列で例外）
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch (_) {
+    // UTF-8 として invalid → Shift_JIS として decode
+    return new TextDecoder('shift_jis').decode(buffer);
+  }
 }
 
 // =============================================================================
@@ -491,30 +660,21 @@ function handleFile(file) {
 
 /**
  * ダブルクォーテーション対応の1行パーサ。
- * 各フィールドを囲むダブルクォーテーションを除去して返す。
- *
- * @param {string} line - CSVの1行文字列
- * @returns {string[]} フィールド値の配列
+ * @param {string} line
+ * @returns {string[]}
  */
 function parseCsvLine(line) {
   const result = [];
-  // RFC 4180 に準拠した簡易実装:
-  // - "..." → ... (クォーテーション除去)
-  // - "" 内のカンマは区切り文字扱いしない
   const re = /("(?:[^"]|"")*"|[^,]*)/g;
   let m;
   while ((m = re.exec(line)) !== null) {
-    // re がマッチするたびに1フィールド + 後続カンマ分を進める
     let val = m[1];
     if (val.startsWith('"') && val.endsWith('"')) {
       val = val.slice(1, -1).replace(/""/g, '"');
     }
     result.push(val.trim());
-    // カンマを読み飛ばす（末尾フィールドの場合は終了）
     if (re.lastIndex < line.length && line[re.lastIndex] === ',') {
       re.lastIndex += 1;
-    } else if (re.lastIndex < line.length) {
-      break; // 予期しない文字 → ループ抜け
     } else {
       break;
     }
@@ -523,133 +683,128 @@ function parseCsvLine(line) {
 }
 
 /**
- * CSVテキストをパースし、バリデーションエラーメッセージの配列を返す。
- * エラーがなければ空配列を返す。
- *
- * カラム構成（1行目はヘッダー、2行目以降がデータ）:
- *   [0] 加盟店コード    (必須)
- *   [1] 日付            (必須, YYYY-MM-DD)
- *   [2] 品目            (必須)
- *   [3] 数量            (必須, 数値)
- *   [4] 単価            (必須, 数値)
- *   [5] 税率区分(%)     (必須, "8" or "10")
- *   [6] 請求金額（税抜）(必須, 数値)
- *   [7] 消費税          (必須, 数値)
- *   [8] 備考            (任意)
+ * csv_format_rules に基づいてCSVをパース・バリデーションする。
+ * rules が空の場合はデフォルトフォーマットにフォールバック（getCsvFormatRules()）。
+ * merchant_mappings で customer_code の有効性もチェックする。
  *
  * @param {string} csvText
- * @returns {{ errors: string[], rows: object[] }}
+ * @returns {{ errors: string[], rows: Object[] }}
  */
 function validateCsv(csvText) {
   const errors = [];
-  const rows   = []; // パース済み行データ
-  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  const EXPECTED_COLS = 9;
+  const rows   = [];
 
-  // 改行コードを統一してから分割、末尾の空行を除去
+  // SessionStorage からフォーマットルールとマッピングを取得
+  const rules    = getCsvFormatRules();
+  const mappings = getMerchantMappings();
+
+  // フィールドキー順リスト（ヘッダー順 = ルールの定義順）
+  const fieldKeys   = Object.keys(rules);
+  const expectedCols = fieldKeys.length;
+
+  // 有効な customer_code セットを作成
+  const validCustomerCodes = new Set(
+    mappings.filter(m => m.is_active).map(m => String(m.customer_code))
+  );
+
+  // 改行コード統一・空行除去
   const lines = csvText
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
     .filter(line => line.trim() !== '');
 
-  // ── ヘッダー行チェック ──────────────────────────────────────────────────
-  const EXPECTED_HEADERS = [
-    '加盟店コード', '日付', '品目', '数量', '単価',
-    '税率区分(%)', '請求金額（税抜）', '消費税', '備考',
-  ];
+  // ── ヘッダー行チェック ─────────────────────────────────────────────────────
   const headerCols = parseCsvLine(lines[0]);
-  if (headerCols.length !== EXPECTED_COLS) {
-    errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${EXPECTED_COLS}列）`);
+  if (headerCols.length !== expectedCols) {
+    errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${expectedCols}列）`);
     return { errors, rows };
   }
-  const headerErrors = EXPECTED_HEADERS
-    .map((name, idx) => headerCols[idx] !== name
-      ? `ヘッダー行 ${idx + 1}列目: "${name}" が期待されますが "${headerCols[idx]}" になっています`
-      : null
-    )
+  const headerErrors = fieldKeys
+    .map((key, idx) => {
+      const expected = rules[key].csv_header;
+      return headerCols[idx] !== expected
+        ? `ヘッダー行 ${idx + 1}列目: "${expected}" が期待されますが "${headerCols[idx]}" になっています`
+        : null;
+    })
     .filter(Boolean);
   if (headerErrors.length > 0) {
     errors.push(...headerErrors);
     return { errors, rows };
   }
 
-  // ヘッダー含めて1行しかない（データなし）場合
   if (lines.length <= 1) {
     errors.push('CSVにデータ行が1件もありません');
     return { errors, rows };
   }
 
-  // 2行目（index=1）以降がデータ行
-  // rowNum はヘッダーを1行目とした実際の行番号 (index + 1)
+  // ── データ行チェック ────────────────────────────────────────────────────────
   for (let i = 1; i < lines.length; i++) {
-    const rowNum = i + 1; // ヘッダー = 1行目なのでデータは2行目〜
-    const cols = parseCsvLine(lines[i]);
+    const rowNum  = i + 1;
+    const cols    = parseCsvLine(lines[i]);
     const rowErrors = [];
 
-    // ── カラム数チェック ───────────────────────────────────────────────────
-    if (cols.length !== EXPECTED_COLS) {
-      errors.push(`${rowNum}行目: カラム数が正しくありません（${cols.length}列 / 期待値: ${EXPECTED_COLS}列）`);
-      continue; // 列数が違う場合は以降のチェックをスキップ
+    if (cols.length !== expectedCols) {
+      errors.push(`${rowNum}行目: カラム数が正しくありません（${cols.length}列 / 期待値: ${expectedCols}列）`);
+      continue;
     }
 
-    // ── [0] 加盟店コード（必須）────────────────────────────────────────────
-    if (cols[0] === '') {
-      rowErrors.push(`${rowNum}行目: 加盟店コードを入力してください`);
-    }
+    const rowObj = {};
+    fieldKeys.forEach((key, idx) => {
+      const rule = rules[key];
+      const val  = cols[idx];
 
-    // ── [1] 日付（必須, YYYY-MM-DD）───────────────────────────────────────
-    if (cols[1] === '') {
-      rowErrors.push(`${rowNum}行目: 日付を入力してください`);
-    } else if (!DATE_RE.test(cols[1])) {
-      rowErrors.push(`${rowNum}行目: 日付はYYYY-MM-DD形式で入力してください`);
-    }
+      // 必須チェック
+      if (rule.required && val === '') {
+        rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は必須項目です`);
+        return;
+      }
+      if (val === '') {
+        rowObj[key] = '';
+        return;
+      }
 
-    // ── [2] 品目（必須）────────────────────────────────────────────────────
-    if (cols[2] === '') {
-      rowErrors.push(`${rowNum}行目: 品目を入力してください`);
-    }
+      // 型チェック
+      switch (rule.type) {
+        case 'date':
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" はYYYY-MM-DD形式で入力してください`);
+          } else {
+            rowObj[key] = val;
+          }
+          break;
+        case 'integer':
+          if (isNaN(Number(val)) || val === '') {
+            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は数値で入力してください`);
+          } else {
+            const num = Number(val);
+            // enumチェック
+            if (rule.enum && !rule.enum.includes(num)) {
+              rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は ${rule.enum.join(' または ')} を入力してください`);
+            } else {
+              rowObj[key] = num;
+            }
+          }
+          break;
+        default: // string
+          if (rule.max_length && val.length > rule.max_length) {
+            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は${rule.max_length}文字以内で入力してください`);
+          } else {
+            rowObj[key] = val;
+          }
+      }
+    });
 
-    // ── [3] 数量（必須, 数値）──────────────────────────────────────────────
-    if (cols[3] === '' || isNaN(Number(cols[3]))) {
-      rowErrors.push(`${rowNum}行目: 数量が数値ではありません`);
+    // customer_code の有効性チェック（merchant_mappings）
+    const cc = rowObj['customer_code'];
+    if (cc !== undefined && cc !== '') {
+      if (validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
+        rowErrors.push(`${rowNum}行目: "${cc}" は請求可能な加盟店コードではありません`);
+      }
     }
-
-    // ── [4] 単価（必須, 数値）──────────────────────────────────────────────
-    if (cols[4] === '' || isNaN(Number(cols[4]))) {
-      rowErrors.push(`${rowNum}行目: 単価が数値ではありません`);
-    }
-
-    // ── [5] 税率区分（必須, "8" or "10"）──────────────────────────────────
-    if (cols[5] !== '8' && cols[5] !== '10') {
-      rowErrors.push(`${rowNum}行目: 税率区分は8か10を入力してください`);
-    }
-
-    // ── [6] 請求金額（税抜）（必須, 数値）─────────────────────────────────
-    if (cols[6] === '' || isNaN(Number(cols[6]))) {
-      rowErrors.push(`${rowNum}行目: 請求金額（税抜）が数値ではありません`);
-    }
-
-    // ── [7] 消費税（必須, 数値）────────────────────────────────────────────
-    if (cols[7] === '' || isNaN(Number(cols[7]))) {
-      rowErrors.push(`${rowNum}行目: 消費税が数値ではありません`);
-    }
-
-    // [8] 備考は任意のためチェックなし
 
     if (rowErrors.length === 0) {
-      // エラーなし → パース済みオブジェクトとして保存
-      rows.push({
-        storeCode:   cols[0],
-        date:        cols[1],
-        item:        cols[2],
-        qty:         Number(cols[3]),
-        unitPrice:   Number(cols[4]),
-        taxRate:     Number(cols[5]),
-        amountExTax: Number(cols[6]),
-        tax:         Number(cols[7]),
-        note:        cols[8],
-      });
+      rows.push(rowObj);
     } else {
       errors.push(...rowErrors);
     }
@@ -713,11 +868,11 @@ function resetSubmitButton() {
  * 画面全体を初期状態にリセットする（送信成功後に呼ぶ）
  */
 function resetPage() {
-  rawCsv     = null;
-  parsedData = null;
+  rawCsvBase64 = null;
+  parsedData   = null;
   try {
     sessionStorage.removeItem('shiire_parsedData');
-    sessionStorage.removeItem('shiire_rawCsv');
+    sessionStorage.removeItem('shiire_rawCsvBase64');
   } catch (e) {
     console.warn('[state] sessionStorage のクリアに失敗しました:', e);
   }
@@ -732,7 +887,7 @@ function resetPage() {
 
 // アップロードページ: 確認画面へ進むボタン
 btnToConfirm.addEventListener('click', () => {
-  if (!parsedData || !rawCsv) {
+  if (!parsedData || !rawCsvBase64) {
     showToast('送信できるデータがありません。CSVを再度選択してください。', 'error');
     return;
   }
@@ -750,21 +905,13 @@ btnCancel.addEventListener('click', () => {
 
 /** BOM 付き UTF-8 CSV テンプレートをダウンロードする */
 function downloadCsvTemplate() {
-  const HEADERS = [
-    '加盟店コード',
-    '日付',
-    '品目',
-    '数量',
-    '単価',
-    '税率区分(%)',
-    '請求金額（税抜）',
-    '消費税',
-    '備考',
-  ];
-  const csvContent = HEADERS.map(h => `"${h}"`).join(',') + '\r\n';
+  // csv_format_rules（またはデフォルト定義）からヘッダーを動的生成
+  const rules   = getCsvFormatRules();
+  const headers = Object.values(rules).map(r => `"${r.csv_header}"`);
+  const csvContent = headers.join(',') + '\r\n';
 
   // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする
-  const bom = '\uFEFF';
+  const bom  = '\uFEFF';
   const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
 
@@ -868,7 +1015,7 @@ document.getElementById('cancelModal').addEventListener('keydown', function (e) 
 // 確認ページ: 登録内容を送信するボタン
 btnFinalSubmit.addEventListener('click', () => {
   // 送信可能なデータが揃っているか念のため確認
-  if (!parsedData || !rawCsv) {
+  if (!parsedData || !rawCsvBase64) {
     showToast('送信できるデータがありません。アップロードページからやり直してください。', 'error');
     location.hash = '#upload';
     return;
@@ -876,22 +1023,27 @@ btnFinalSubmit.addEventListener('click', () => {
 
   // ── 送信開始: UI をローディング状態に ─────────────────────────────────────
   setSubmitLoading();
+  showLoadingOverlay('登録中...');
   hideToast();
 
   // ── GAS バックエンドへ送信 ────────────────────────────────────────────────
   // google.script.run は GAS Webアプリ環境でのみ有効。
   // ローカル Live Server で動作確認する場合は下部の「ローカル確認用フォールバック」が使われる。
+  const wholesalerName = sessionStorage.getItem('shiire_wholesaler_name') || '';
+
   if (typeof google !== 'undefined' && google.script && google.script.run) {
+    const bqPayload = JSON.parse(sessionStorage.getItem('shiire_bq_payload') || 'null');
     google.script.run
       .withSuccessHandler(onSubmitSuccess)
       .withFailureHandler(onSubmitFailure)
-      .sendInvoiceData(parsedData, rawCsv);
+      .sendInvoiceData(parsedData, rawCsvBase64, wholesalerName, bqPayload);
   } else {
     // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
     console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
     console.log('[submit] jsonData:', parsedData);
-    console.log('[submit] csvContent (先頭200文字):', rawCsv.slice(0, 200));
-    setTimeout(() => onSubmitSuccess({ status: 'success', data: '(mock)' }), 800);
+    console.log('[submit] wholesalerName:', wholesalerName);
+    console.log('[submit] rawCsvBase64 (先頭100文字):', rawCsvBase64.slice(0, 100));
+    setTimeout(() => onSubmitSuccess({ status: 'success', data: '(mock)' }), 1500);
   }
 });
 
@@ -904,13 +1056,15 @@ function onSubmitSuccess(result) {
   console.log('[submit] success:', result);
   if (result && result.status === 'error') {
     // GAS 側が _error() を返した場合（SuccessHandler に流れるがエラー扱い）
+    hideLoadingOverlay();
     showToast('送信に失敗しました: ' + (result.message || '不明なエラー'), 'error');
     resetSubmitButton();
     return;
   }
   resetPage();
+  hideLoadingOverlay();
   location.hash = '#home';
-  showToast('送信が完了しました', 'success');
+  showToast('登録が完了しました', 'success');
 }
 
 /**
@@ -919,6 +1073,7 @@ function onSubmitSuccess(result) {
  */
 function onSubmitFailure(error) {
   console.error('[submit] failure:', error);
+  hideLoadingOverlay();
   showToast('送信に失敗しました: ' + (error.message || error), 'error');
   resetSubmitButton(); // 再送信できるようにボタンを戻す
 }
@@ -938,9 +1093,8 @@ document.getElementById('checkConfirm').addEventListener('change', function () {
  */
 function renderConfirmPage() {
   // データがなければアップロード画面へ戻す
-  if (!parsedData || parsedData.length === 0 || !rawCsv) {
-    if (parsedData && parsedData.length > 0 && !rawCsv) {
-      // CSVテキストのみ復元できなかったケース（送信不可）
+  if (!parsedData || parsedData.length === 0 || !rawCsvBase64) {
+    if (parsedData && parsedData.length > 0 && !rawCsvBase64) {
       showToast('送信に必要なデータが復元できませんでした。CSVを再度アップロードしてください。', 'error');
     }
     location.hash = '#upload';
@@ -952,12 +1106,28 @@ function renderConfirmPage() {
   if (checkConfirm) checkConfirm.checked = false;
   btnFinalSubmit.disabled = true;
 
+  // ── 卸情報を SessionStorage から取得 ─────────────────────────────────────
+  const wholesalerId     = sessionStorage.getItem('shiire_wholesaler_id')     || '';
+  const wholesalerUserId = sessionStorage.getItem('shiire_wholesaler_user_id') || '';
+  const wholesalerName   = sessionStorage.getItem('shiire_wholesaler_name')   || '';
+  const feeRate          = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
+  const mappings         = getMerchantMappings();
+  const rules            = getCsvFormatRules();
+
+  // customer_code → mall_code / merchant_name の変換マップ
+  const mappingMap = {};
+  mappings.forEach(m => { mappingMap[String(m.customer_code)] = m; });
+
   // ── サマリー計算（1パスで全集計）────────────────────────────────────────
+  // tax_amount は amount_ex_tax × tax_rate ÷ 100（切り捨て）で計算
   const totals = parsedData.reduce((acc, r) => {
-    acc.amountExTax += r.amountExTax;
-    acc.tax         += r.tax;
-    if (r.taxRate === 10) { acc.exTax10 += r.amountExTax; acc.tax10 += r.tax; }
-    else                  { acc.exTax8  += r.amountExTax; acc.tax8  += r.tax; }
+    const amtExTax  = Number(r['amount_ex_tax'] || 0);
+    const taxRate   = Number(r['tax_rate']       || 0);
+    const taxAmount = Math.floor(amtExTax * taxRate / 100);
+    acc.amountExTax += amtExTax;
+    acc.tax         += taxAmount;
+    if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+    else                { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
     return acc;
   }, { amountExTax: 0, tax: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 });
 
@@ -965,6 +1135,8 @@ function renderConfirmPage() {
   const totalTax         = totals.tax;
   const totalAmountInTax = totalAmountExTax + totalTax;
   const { exTax10, tax10, exTax8, tax8 } = totals;
+  const feeAmount  = Math.floor(totalAmountInTax * feeRate / 100);
+  const payAmount  = totalAmountInTax - feeAmount;
 
   /** @param {number} n */
   const fmt = n => n.toLocaleString('ja-JP') + '円';
@@ -972,24 +1144,112 @@ function renderConfirmPage() {
   document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
   document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
   document.getElementById('summaryTax').textContent         = fmt(totalTax);
-
-  const fee      = Math.floor(totalAmountInTax * 0.05);
-  const transfer = totalAmountInTax - fee;
-  document.getElementById('summaryFee').textContent      = fmt(fee);
-  document.getElementById('summaryTransfer').textContent = fmt(transfer);
-
+  document.getElementById('summaryFeeRate').textContent    = feeRate;
+  document.getElementById('summaryFee').textContent         = fmt(feeAmount);
+  document.getElementById('summaryTransfer').textContent    = fmt(payAmount);
   document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
   document.getElementById('summaryTax10').textContent       = fmt(tax10);
   document.getElementById('summaryExTax8').textContent      = fmt(exTax8);
   document.getElementById('summaryTax8').textContent        = fmt(tax8);
 
-  // ── 加盟店ごとにグルーピング ─────────────────────────────────────────────
-  /** @type {Map<string, typeof parsedData>} */
+  // ── customer_code ごとにグルーピング ─────────────────────────────────────
+  /** @type {Map<string, Array>} */
   const groups = new Map();
   parsedData.forEach(row => {
-    if (!groups.has(row.storeCode)) groups.set(row.storeCode, []);
-    groups.get(row.storeCode).push(row);
+    const cc = String(row['customer_code'] || '');
+    if (!groups.has(cc)) groups.set(cc, []);
+    groups.get(cc).push(row);
   });
+
+  // ── BQ 登録用ペイロードを組み立てる ─────────────────────────────────────
+  const invoiceDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // 親テーブル: wholesaler_invoices
+  const wholesalerInvoiceRow = {
+    wholesaler_id:             Number(wholesalerId) || -1,
+    wholesaler_user_id:        Number(wholesalerUserId) || -1,
+    wholesaler_name:           wholesalerName,
+    wholesaler_invoice_id:     null,
+    wholesaler_invoice_date:   invoiceDate,
+    wholesaler_total_amount:   totalAmountInTax,
+    wholesaler_subtotal_amount: totalAmountExTax,
+    wholesaler_tax_amount:     totalTax,
+    wholesaler_total_ex_tax_8: exTax8,
+    wholesaler_total_ex_tax_10: exTax10,
+    invoice_fee_rate:          feeRate,
+    invoice_fee_amount:        feeAmount,
+    payment_amount:            payAmount,
+    handover_matter:           '',
+    wholesaler_invoice_csv_url: '', // Drive保存後にbe_invoice.jsでセット
+  };
+
+  // 子テーブル: merchant_invoices / 孫テーブル: invoice_lines
+  const merchantInvoiceRows = [];
+  const invoiceLineRows     = [];
+
+  groups.forEach((rows, customerCode) => {
+    const mapping    = mappingMap[customerCode] || {};
+    const mallCode   = mapping.mall_code || '';
+    const slipKey    = Object.keys(rules).find(k => k === 'slip_number');
+    const slipNumber = slipKey ? String(rows[0][slipKey] || '') : '';
+    const merchantNameFromCsv = String(rows[0]['merchant_name'] || '');
+
+    // 加盟店ごとの集計
+    const st = rows.reduce((acc, r) => {
+      const amtExTax  = Number(r['amount_ex_tax'] || 0);
+      const taxRate   = Number(r['tax_rate']       || 0);
+      const taxAmount = Math.floor(amtExTax * taxRate / 100);
+      acc.tax += taxAmount;
+      if (taxRate === 10) acc.exTax10 += amtExTax;
+      else                acc.exTax8  += amtExTax;
+      return acc;
+    }, { tax: 0, exTax8: 0, exTax10: 0 });
+
+    merchantInvoiceRows.push({
+      wholesaler_invoice_id: null,
+      wholesaler_id:         Number(wholesalerId) || -1,
+      mall_code:             mallCode,
+      customer_code:         customerCode,
+      merchant_name:         merchantNameFromCsv,
+      slip_number:           slipNumber,
+      wholesaler_remark:     '',
+      tax_amount:            st.tax,
+      total_ex_tax_8:        st.exTax8,
+      total_ex_tax_10:       st.exTax10,
+    });
+
+    // 孫テーブル: 明細行
+    rows.forEach(row => {
+      const amtExTax  = Number(row['amount_ex_tax'] || 0);
+      const taxRate   = Number(row['tax_rate']       || 0);
+      const taxAmount = Math.floor(amtExTax * taxRate / 100);
+      invoiceLineRows.push({
+        wholesaler_invoice_id:  null,
+        mall_code:              mallCode,
+        slip_number:            slipNumber,
+        transaction_date:       String(row['transaction_date'] || ''),
+        item_name:              String(row['item_name']        || ''),
+        unit_price:             Number(row['unit_price']       || 0),
+        quantity:               Number(row['quantity']         || 0),
+        quantity_unit:          String(row['unit']             || ''),
+        tax_rate:               taxRate,
+        amount_ex_tax:          amtExTax,
+        tax_amount:             taxAmount,
+        invoice_detail_remark:  String(row['invoice_detail_remark'] || ''),
+      });
+    });
+  });
+
+  // BQペイロードを SessionStorage に保存（sendInvoiceData で使用）
+  try {
+    sessionStorage.setItem('shiire_bq_payload', JSON.stringify({
+      wholesalerInvoiceRow,
+      merchantInvoiceRows,
+      invoiceLineRows,
+    }));
+  } catch (e) {
+    console.warn('[confirm] BQペイロードのSessionStorage保存に失敗しました:', e);
+  }
 
   // ── 加盟店別リストを描画 ──────────────────────────────────────────────────
   const list = document.getElementById('confirmStoreList');
@@ -1008,85 +1268,92 @@ function renderConfirmPage() {
     `<span class="slh-col slh-col--toggle"></span>`;
   list.appendChild(colHeader);
 
-  groups.forEach((rows, storeCode) => {
+  groups.forEach((rows, customerCode) => {
+    const mapping  = mappingMap[customerCode] || {};
+    // 加盟店表示名の解決ロジック:
+    // 1. CSVに merchant_name 列がある（カスタムフォーマット）→ CSVの値を使用
+    // 2. CSVに merchant_name 列がない（デフォルトフォーマット）→ merchant_mappings から customer_code で検索
+    // 3. どちらも取得できない場合 → customer_code をそのまま表示
+    const merchantNameFromCsv = String(rows[0]['merchant_name'] || '');
+    const merchantNameFromMap  = (mappingMap[customerCode] || {}).merchant_name || '';
+    const displayName          = merchantNameFromCsv || merchantNameFromMap || customerCode;
+
     const st = rows.reduce((acc, r) => {
-      acc.amountExTax += r.amountExTax;
-      acc.tax         += r.tax;
-      if (r.taxRate === 10) acc.tax10 += r.tax;
-      else                  acc.tax8  += r.tax;
+      const amtExTax  = Number(r['amount_ex_tax'] || 0);
+      const taxRate   = Number(r['tax_rate']       || 0);
+      const taxAmount = Math.floor(amtExTax * taxRate / 100);
+      acc.amountExTax += amtExTax;
+      acc.tax         += taxAmount;
+      if (taxRate === 10) acc.tax10 += taxAmount;
+      else                acc.tax8  += taxAmount;
       return acc;
     }, { amountExTax: 0, tax: 0, tax8: 0, tax10: 0 });
+
     const storeAmountExTax = st.amountExTax;
     const storeTax         = st.tax;
     const storeTotal       = storeAmountExTax + storeTax;
-    const storeTax8        = st.tax8;
-    const storeTax10       = st.tax10;
 
-    // アコーディオンカード
     const card = document.createElement('div');
     card.className = 'store-accordion';
 
-    // ヘッダー行
     const header = document.createElement('div');
     header.className = 'store-accordion__header';
     header.setAttribute('role', 'button');
     header.setAttribute('tabindex', '0');
     header.setAttribute('aria-expanded', 'false');
     header.innerHTML =
-      `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(storeCode)}</span>` +
+      `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(displayName)}</span>` +
       `<span class="slh-col slh-col--amount">${fmt(storeTotal)}</span>` +
       `<span class="slh-col slh-col--extax">${fmt(storeAmountExTax)}</span>` +
       `<span class="slh-col slh-col--tax">${fmt(storeTax)}</span>` +
-      `<span class="slh-col slh-col--tax8"><span class="store-tax-val">${storeTax8.toLocaleString('ja-JP')}円</span></span>` +
-      `<span class="slh-col slh-col--tax10"><span class="store-tax-val">${storeTax10.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--tax8"><span class="store-tax-val">${st.tax8.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--tax10"><span class="store-tax-val">${st.tax10.toLocaleString('ja-JP')}円</span></span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
-    /** アコーディオン開閉ヘルパー（aria-expanded も同期） */
     const toggleAccordion = () => {
       const isOpen = card.classList.toggle('is-open');
       header.setAttribute('aria-expanded', String(isOpen));
     };
-
     header.addEventListener('click', toggleAccordion);
     header.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        toggleAccordion();
-      }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAccordion(); }
     });
 
-    // ボディ（明細カード一覧）
     const body = document.createElement('div');
     body.className = 'store-accordion__body';
 
     rows.forEach(row => {
+      const amtExTax  = Number(row['amount_ex_tax'] || 0);
+      const taxRate   = Number(row['tax_rate']       || 0);
+      const taxAmount = Math.floor(amtExTax * taxRate / 100);
       const item = document.createElement('div');
       item.className = 'detail-row';
 
       const fields = [
-        { label: '取引日',   value: escapeHtml(row.date.replace(/-/g, '/')) },
-        { label: '概要',     value: escapeHtml(row.item) },
-        { label: '数量',     value: row.qty.toLocaleString('ja-JP') },
-        { label: '単価',     value: row.unitPrice.toLocaleString('ja-JP') + '円' },
-        { label: '明細金額', value: row.amountExTax.toLocaleString('ja-JP') + '円' },
-        { label: '税率',     value: row.taxRate + '%' },
-        { label: '消費税',   value: row.tax.toLocaleString('ja-JP') + '円' },
+        { label: '取引日',   value: escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/')) },
+        { label: '品名',     value: escapeHtml(String(row['item_name']        || '')) },
+        { label: '数量',     value: Number(row['quantity']  || 0).toLocaleString('ja-JP') },
+        { label: '単価',     value: Number(row['unit_price'] || 0).toLocaleString('ja-JP') + '円' },
+        { label: '明細金額', value: amtExTax.toLocaleString('ja-JP') + '円' },
+        { label: '税率',     value: taxRate + '%' },
+        { label: '消費税',   value: taxAmount.toLocaleString('ja-JP') + '円' },
       ];
 
       const mainRow = document.createElement('div');
       mainRow.className = 'detail-row__main';
       mainRow.innerHTML = fields.map(f =>
-        `<span class="detail-row__field">`+
-          `<span class="detail-row__label">${f.label}</span>`+
-          `<span class="detail-row__sep">|</span>`+
-          `<span class="detail-row__value">${f.value}</span>`+
+        `<span class="detail-row__field">` +
+          `<span class="detail-row__label">${f.label}</span>` +
+          `<span class="detail-row__sep">|</span>` +
+          `<span class="detail-row__value">${f.value}</span>` +
         `</span>`
       ).join('');
       item.appendChild(mainRow);
 
+      const remark = String(row['invoice_detail_remark'] || '');
       const noteRow = document.createElement('div');
       noteRow.className = 'detail-row__note';
-      noteRow.innerHTML = `<span class="detail-row__note-label">備考：</span>${row.note ? escapeHtml(row.note) : '<span class="detail-row__note-empty">なし</span>'}`;
+      noteRow.innerHTML = `<span class="detail-row__note-label">備考：</span>${remark ? escapeHtml(remark) : '<span class="detail-row__note-empty">なし</span>'}`;
       item.appendChild(noteRow);
 
       body.appendChild(item);
