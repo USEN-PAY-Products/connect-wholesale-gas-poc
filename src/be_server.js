@@ -5,8 +5,9 @@
 // =============================================================================
 /** Drive保存・BQ書き込みのスタブ。false = 本番動作。 */
 const STUB_MODE = false;
-/** getAccountInfo のスタブ。バックオフィスAPIが未整備の間は true にしておく。 */
-const STUB_ACCOUNT_INFO_MODE = true;
+// ★ getAccountInfo のスタブ切り替えは Script Properties "STUB_ACCOUNT_INFO_MODE" で行う。
+// GAS エディタ → プロジェクトの設定 → スクリプトプロパティ で 'true' / 'false' を設定。
+// be_config.js の getConfig_().stubAccountInfoMode がその値を読み込む。
 
 /** getAccountInfo のスタブ返却値。実際のAPIレスポンス構造に合わせる。 */
 const STUB_ACCOUNT_INFO = {
@@ -88,12 +89,13 @@ function doGet(e) {
  * @throws {Error} API エラー時
  */
 function getServerAccountInfo_() {
-  if (STUB_ACCOUNT_INFO_MODE) {
+  const config = getConfig_();
+
+  if (config.stubAccountInfoMode) {
     Logger.log('[STUB] getServerAccountInfo_: スタブデータを返します');
     return STUB_ACCOUNT_INFO;
   }
 
-  const config = getConfig_();
   const email  = Session.getActiveUser().getEmail();
 
   const payload = {
@@ -124,7 +126,10 @@ function getServerAccountInfo_() {
   if (responseBody && responseBody.status === 'error') {
     throw new Error('AccountInfo API error (' + responseBody.error_type + '): ' + JSON.stringify(responseBody));
   }
-  return responseBody;
+
+  // API が { status: 'success', data: {...} } 形式の場合は data 部分のみ返す。
+  // data プロパティがない場合はレスポンス全体をそのまま返す（後方互換）。
+  return (responseBody && responseBody.data !== undefined) ? responseBody.data : responseBody;
 }
 
 /**

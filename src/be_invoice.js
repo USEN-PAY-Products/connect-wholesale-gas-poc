@@ -23,7 +23,8 @@
 
 /**
  * CSV を Drive に保存し、BigQuery の 3 テーブルに登録する。
- * Drive フォルダ構造: <DRIVE_ROOT> / <卸名> / <YYYYMM> / <タイムスタンプ>_original.csv
+ * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_id> / <YYYYMM> / <タイムスタンプ>_original.csv
+ * フォルダ名に卸業者名でなく ID を使用することで、卸名変更時でも監査証跡が分散しない。
  *
  * 【セキュリティ】卸情報（wholesaler_id / wholesaler_name など）はサーバー側の
  * getServerAccountInfo_() から取得し、フロントから受け取った bqPayload 内の値は
@@ -53,17 +54,29 @@ function sendInvoiceData(csvBase64, bqPayload) {
       );
     }
 
-    // ── サーバー値でペイロードの卸情報フィールドを上書き（改ざん防止）───
+    // ── サーバー値でペイロード内の卸情報を全行上書き（改ざん防止）───
+    // 親テーブル（wholesaler_invoices）
     bqPayload.wholesalerInvoiceRow.wholesaler_id        = serverWsId;
     bqPayload.wholesalerInvoiceRow.wholesaler_user_id   = serverWsUserId;
     bqPayload.wholesalerInvoiceRow.wholesaler_name      = serverWsName;
+    // 子テーブル（merchant_invoices）―各行の wholesaler_id もサーバー値で上書き
+    const wholesalerInvoiceId = bqPayload.wholesalerInvoiceRow.wholesaler_invoice_id;
+    (bqPayload.merchantInvoiceRows || []).forEach(function(row) {
+      row.wholesaler_id         = serverWsId;
+      row.wholesaler_invoice_id = wholesalerInvoiceId;
+    });
+    // 孫テーブル（invoice_lines）― wholesaler_invoice_id をサーバー値で上書き
+    (bqPayload.invoiceLineRows || []).forEach(function(row) {
+      row.wholesaler_invoice_id = wholesalerInvoiceId;
+    });
 
     const config = getConfig_();
     const now    = new Date();
 
     // ── Drive 保存（元バイト列のまま保存）─────────────────────────────────────
+    // フォルダ名に卸業者名でなく wholesaler_id を使用（卸名変更でも監査証跡が分散しない）
     const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
-    const userFolder  = getOrCreateSubFolder_(rootFolder, serverWsName);
+    const userFolder  = getOrCreateSubFolder_(rootFolder, String(serverWsId));
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
     const fileName    = formatTimestamp_(now) + '_original.csv';
     const csvBytes    = Utilities.base64Decode(csvBase64);
@@ -186,7 +199,7 @@ function getMockScheduleData() {
  */
 function getMockBillingHistory() {
   try {
-    var items = MOCK_BILLING_ENTRIES_.map(function(entry) {
+    const items = MOCK_BILLING_ENTRIES_.map(function(entry) {
       return Object.assign({}, MOCK_BILLING_BASE_, entry);
     });
     return success_(items);
@@ -207,14 +220,14 @@ function getMockBillingHistory() {
  *   場合は STUB_ACCOUNT_INFO の wholesaler_id（=1）と一致するペイロードを渡すこと。
  */
 function testSendInvoice_() {
-  var env = PropertiesService.getScriptProperties().getProperty('ENV');
+  const env = PropertiesService.getScriptProperties().getProperty('ENV');
   if (env !== 'development') {
     throw new Error('testSendInvoice_() は development 環境でのみ実行できます (ENV=' + env + ')');
   }
-  var dummyCsv = '加盟店コード,日付,品目,数量,単価,税率区分(%),請求金額（税抜）,備考\r\nC001,2026-05-01,テスト品目,1,1000,10,1000,\r\n';
-  var dummyBase64 = Utilities.base64Encode(dummyCsv);
+  const dummyCsv = '加盟店コード,日付,品目,数量,単価,税率区分(%),請求金額（税抜）,備考\r\nC001,2026-05-01,テスト品目,1,1000,10,1000,\r\n';
+  const dummyBase64 = Utilities.base64Encode(dummyCsv);
   // STUB_ACCOUNT_INFO の wholesaler_id=1 と一致させる
-  var dummyBqPayload = {
+  const dummyBqPayload = {
     wholesalerInvoiceRow: {
       wholesaler_id:              1,
       wholesaler_user_id:         1,
@@ -235,6 +248,6 @@ function testSendInvoice_() {
     merchantInvoiceRows: [],
     invoiceLineRows:     [],
   };
-  var result = sendInvoiceData(dummyBase64, dummyBqPayload);
+  const result = sendInvoiceData(dummyBase64, dummyBqPayload);
   Logger.log('テスト結果: ' + JSON.stringify(result));
 }

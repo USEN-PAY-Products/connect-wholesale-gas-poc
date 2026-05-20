@@ -38,11 +38,12 @@ function getConfig_() {
   }
 
   return {
-    accountApiUrl: accountApiUrl,
-    apiKey:        apiKey,
-    driveFolderId: driveFolderId,
-    gcpProjectId:  gcpProjectId,
-    bqDatasetId:   bqDatasetId,
+    accountApiUrl:      accountApiUrl,
+    apiKey:             apiKey,
+    driveFolderId:      driveFolderId,
+    gcpProjectId:       gcpProjectId,
+    bqDatasetId:        bqDatasetId,
+    stubAccountInfoMode: stubAccountInfoMode,
   };
 }
 

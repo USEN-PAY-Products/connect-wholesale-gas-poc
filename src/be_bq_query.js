@@ -65,7 +65,7 @@ function fetchInvoiceDetail_(invoiceId) {
     'ORDER BY mi.mall_code, il.transaction_date';
 
   const params = [
-    { name: 'invoice_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(invoiceId) } },
+    { name: 'invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
   ];
 
   return runQuery_(config.gcpProjectId, sql, params);
