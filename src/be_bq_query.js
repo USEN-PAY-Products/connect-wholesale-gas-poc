@@ -59,7 +59,8 @@ function fetchInvoiceDetail_(invoiceId) {
     '  il.invoice_detail_remark ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.merchant_invoices` AS mi ' +
     'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.invoice_lines` AS il ' +
-    '  ON mi.mall_code = il.mall_code AND mi.slip_number = il.slip_number ' +
+    '  ON mi.wholesaler_invoice_id = il.wholesaler_invoice_id ' +
+    '  AND mi.mall_code = il.mall_code AND mi.slip_number = il.slip_number ' +
     'WHERE mi.wholesaler_invoice_id = @invoice_id ' +
     'ORDER BY mi.mall_code, il.transaction_date';
 

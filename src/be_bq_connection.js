@@ -51,6 +51,10 @@ function insertInvoiceRows_(bqPayload, csvUrl) {
  * BigQuery tabledata.insertAll を呼び出す汎用ヘルパー。
  * insertErrors があれば詳細メッセージ付きで例外をスローする。
  *
+ * insertId は「wholesaler_invoice_id + テーブル名 + 行インデックス」から生成する。
+ * これにより送信リトライや再実行時でも同一リクエストに同一 insertId が付与され、
+ * BQ の重複排除（best-effort deduplication）が機能する。
+ *
  * @param {string}         projectId
  * @param {string}         datasetId
  * @param {string}         tableId
@@ -59,8 +63,11 @@ function insertInvoiceRows_(bqPayload, csvUrl) {
  */
 function insertRows_(projectId, datasetId, tableId, rows) {
   const body = {
-    rows: rows.map(function(row) {
-      return { insertId: Utilities.getUuid(), json: row };
+    rows: rows.map(function(row, idx) {
+      // wholesaler_invoice_id が全行に必ず入っていることを前提とする（fe_js.html で生成済み）
+      const invoiceId = row.wholesaler_invoice_id || 'unknown';
+      const insertId  = invoiceId + '_' + tableId + '_' + idx;
+      return { insertId: insertId, json: row };
     }),
   };
   const response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);

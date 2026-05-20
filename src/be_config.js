@@ -2,11 +2,13 @@
 // Config: Script Properties から環境設定を取得する
 //
 // GAS エディタ or clasp で以下のプロパティを設定してください:
-//   ACCOUNT_API_URL      … バックオフィスGASのアカウント情報取得APIエンドポイント
-//   API_KEY              … バックオフィスAPIの認証キー
-//   DRIVE_ROOT_FOLDER_ID … 監査証跡 CSV の保存先 Drive フォルダ ID
-//   GCP_PROJECT_ID       … BigQuery の GCP プロジェクト ID
-//   BQ_DATASET_ID        … BigQuery のデータセット ID（例: invoice_db）
+//   ACCOUNT_API_URL        … バックオフィスGASのアカウント情報取得APIエンドポイント
+//   API_KEY                … バックオフィスAPIの認証キー
+//   DRIVE_ROOT_FOLDER_ID   … 監査証跡 CSV の保存先 Drive フォルダ ID
+//   GCP_PROJECT_ID         … BigQuery の GCP プロジェクト ID
+//   BQ_DATASET_ID          … BigQuery のデータセット ID（例: invoice_db）
+//   STUB_ACCOUNT_INFO_MODE … 'true' = getAccountInfo をスタブ返却（API未整備時）
+//                            'false' = バックオフィスAPIを実際に呼び出す
 //
 // 設定方法（GASエディタ）:
 //   プロジェクトの設定 → スクリプト プロパティ → プロパティを追加
@@ -21,13 +23,16 @@ function getConfig_() {
   const bqDatasetId    = props.getProperty('BQ_DATASET_ID');
 
   // DRIVE_ROOT_FOLDER_ID / GCP_PROJECT_ID / BQ_DATASET_ID は常に必須。
-  // ACCOUNT_API_URL / API_KEY はバックオフィスAPI呼び出し時のみ必要なため、
-  // STUB_ACCOUNT_INFO_MODE=false になってから必須チェックする。
+  // ACCOUNT_API_URL / API_KEY は STUB_ACCOUNT_INFO_MODE=false のときのみ必要。
+  // STUB_ACCOUNT_INFO_MODE は Script Properties から読み込み、be_server.js の定数に依存しない。
+  // 値が 'false'（文字列）のときだけ false と見なし、未設定・'true' はすべて true 扱い。
+  const stubAccountInfoMode = props.getProperty('STUB_ACCOUNT_INFO_MODE') !== 'false';
+
   if (!driveFolderId) throw new Error('Script Property "DRIVE_ROOT_FOLDER_ID" が未設定です');
   if (!gcpProjectId)  throw new Error('Script Property "GCP_PROJECT_ID" が未設定です');
   if (!bqDatasetId)   throw new Error('Script Property "BQ_DATASET_ID" が未設定です');
 
-  if (!STUB_ACCOUNT_INFO_MODE) {
+  if (!stubAccountInfoMode) {
     if (!accountApiUrl) throw new Error('Script Property "ACCOUNT_API_URL" が未設定です');
     if (!apiKey)        throw new Error('Script Property "API_KEY" が未設定です');
   }
@@ -76,12 +81,13 @@ function setupScriptProperties(forceOverwrite) {
 
   // ── 設定値の書き込み ────────────────────────────────────────────────────────
   props.setProperties({
-    'ACCOUNT_API_URL':    'https://script.google.com/macros/s/XXXXX/exec', // バックオフィスGAS URL に変更してください
-    'API_KEY':            'YOUR_SECRET_API_KEY',                            // APIキーに変更してください
-    'DRIVE_ROOT_FOLDER_ID': '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro',          // 本番フォルダ ID に変更してください
-    'GCP_PROJECT_ID':     'usenpay-connect-dev',                            // GCP プロジェクト ID
-    'BQ_DATASET_ID':      'invoice_db',                                     // BigQuery データセット ID
-    'ENV':                'development'                                     // 本番では 'production' に変更してください
+    'ACCOUNT_API_URL':      'https://script.google.com/macros/s/XXXXX/exec', // バックオフィスGAS URL に変更してください
+    'API_KEY':              'YOUR_SECRET_API_KEY',                            // APIキーに変更してください
+    'DRIVE_ROOT_FOLDER_ID': '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro',            // 本番フォルダ ID に変更してください
+    'GCP_PROJECT_ID':       'usenpay-connect-dev',                            // GCP プロジェクト ID
+    'BQ_DATASET_ID':        'invoice_db',                                     // BigQuery データセット ID
+    'ENV':                  'development',                                    // 本番では 'production' に変更してください
+    'STUB_ACCOUNT_INFO_MODE': 'true',                                         // バックオフィスAPI整備後に 'false' に変更してください
   });
   console.log('[setupScriptProperties] Script Properties を設定しました（ENV=development）。');
 }

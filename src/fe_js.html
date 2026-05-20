@@ -881,9 +881,11 @@ function resetPage() {
   try {
     sessionStorage.removeItem('shiire_parsedData');
     sessionStorage.removeItem('shiire_rawCsvBase64');
+    sessionStorage.removeItem('shiire_bq_payload');
   } catch (e) {
     console.warn('[state] sessionStorage のクリアに失敗しました:', e);
   }
+  delete window._bqPayloadCache;
   resetDropZone();
   alertList.innerHTML = '';
   errorCard.classList.add('hidden');
@@ -1053,7 +1055,7 @@ btnFinalSubmit.addEventListener('click', () => {
     google.script.run
       .withSuccessHandler(onSubmitSuccess)
       .withFailureHandler(onSubmitFailure)
-      .sendInvoiceData(parsedData, rawCsvBase64, wholesalerName, bqPayload);
+      .sendInvoiceData(rawCsvBase64, bqPayload);
   } else {
     // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
     console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
@@ -1182,11 +1184,20 @@ function renderConfirmPage() {
   const invoiceDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
   // 親テーブル: wholesaler_invoices
+  // BQテーブル間結合用の一意請求IDをフロントで生成する。
+  // フォーマット: WI-<wholesalerId>-<YYYYMMDDHHmmss>-<乱数4桁>
+  const _now = new Date();
+  const _pad = (n, d) => String(n).padStart(d, '0');
+  const _tsStr = _now.getFullYear() + _pad(_now.getMonth() + 1, 2) + _pad(_now.getDate(), 2)
+               + _pad(_now.getHours(), 2) + _pad(_now.getMinutes(), 2) + _pad(_now.getSeconds(), 2);
+  const _rand = _pad(Math.floor(Math.random() * 10000), 4);
+  const wholesalerInvoiceId = 'WI-' + (wholesalerId || '0') + '-' + _tsStr + '-' + _rand;
+
   const wholesalerInvoiceRow = {
     wholesaler_id:             Number(wholesalerId) || -1,
     wholesaler_user_id:        Number(wholesalerUserId) || -1,
     wholesaler_name:           wholesalerName,
-    wholesaler_invoice_id:     null,
+    wholesaler_invoice_id:     wholesalerInvoiceId,
     wholesaler_invoice_date:   invoiceDate,
     wholesaler_total_amount:   totalAmountInTax,
     wholesaler_subtotal_amount: totalAmountExTax,
@@ -1210,6 +1221,8 @@ function renderConfirmPage() {
     const slipKey    = Object.keys(rules).find(k => k === 'slip_number');
     const slipNumber = slipKey ? String(rows[0][slipKey] || '') : '';
     const merchantNameFromCsv = String(rows[0]['merchant_name'] || '');
+    const merchantNameFromMap = String(mapping.merchant_name || '');
+    const resolvedMerchantName = merchantNameFromCsv || merchantNameFromMap;
 
     // 加盟店ごとの集計
     const st = rows.reduce((acc, r) => {
@@ -1223,11 +1236,11 @@ function renderConfirmPage() {
     }, { tax: 0, exTax8: 0, exTax10: 0 });
 
     merchantInvoiceRows.push({
-      wholesaler_invoice_id: null,
+      wholesaler_invoice_id: wholesalerInvoiceId,
       wholesaler_id:         Number(wholesalerId) || -1,
       mall_code:             mallCode,
       customer_code:         customerCode,
-      merchant_name:         merchantNameFromCsv,
+      merchant_name:         resolvedMerchantName,
       slip_number:           slipNumber,
       wholesaler_remark:     '',
       tax_amount:            st.tax,
@@ -1241,7 +1254,7 @@ function renderConfirmPage() {
       const taxRate   = Number(row['tax_rate']       || 0);
       const taxAmount = Math.floor(amtExTax * taxRate / 100);
       invoiceLineRows.push({
-        wholesaler_invoice_id:  null,
+        wholesaler_invoice_id:  wholesalerInvoiceId,
         mall_code:              mallCode,
         slip_number:            slipNumber,
         transaction_date:       String(row['transaction_date'] || ''),
