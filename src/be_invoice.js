@@ -43,11 +43,20 @@ function sendInvoiceData(csvBase64, bqPayload) {
     const serverWsUserId = Number(accountInfo.wholesaler_user_id);
     const serverWsName   = String(accountInfo.wholesaler_name || '不明');
 
-    // ── BQ ペイロードの存在確認と wholesaler_id 検証 ─────────────────────
+    // ── BQ ペイロードの存在確認・構造検証・wholesaler_id 検証 ──────────────
     if (!bqPayload) {
       throw new Error('bqPayload が null です。確認画面を開き直してから再送信してください。');
     }
-    const clientWsId = Number((bqPayload.wholesalerInvoiceRow || {}).wholesaler_id);
+    if (!bqPayload.wholesalerInvoiceRow || typeof bqPayload.wholesalerInvoiceRow !== 'object') {
+      throw new Error('bqPayload.wholesalerInvoiceRow が不正です。確認画面を開き直してから再送信してください。');
+    }
+    if (!Array.isArray(bqPayload.merchantInvoiceRows)) {
+      throw new Error('bqPayload.merchantInvoiceRows が配列ではありません。確認画面を開き直してから再送信してください。');
+    }
+    if (!Array.isArray(bqPayload.invoiceLineRows)) {
+      throw new Error('bqPayload.invoiceLineRows が配列ではありません。確認画面を開き直してから再送信してください。');
+    }
+    const clientWsId = Number(bqPayload.wholesalerInvoiceRow.wholesaler_id);
     if (clientWsId !== serverWsId) {
       throw new Error(
         'wholesaler_id の不一致: client=' + clientWsId + ', server=' + serverWsId

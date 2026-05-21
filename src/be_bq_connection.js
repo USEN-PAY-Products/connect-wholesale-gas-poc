@@ -64,14 +64,14 @@ function insertInvoiceRows_(bqPayload, csvUrl) {
 function insertRows_(projectId, datasetId, tableId, rows) {
   // BQ insertAll の上限（1万行）を超えないよう 5,000 行ずつバッチ分割する。
   // 1加盟店最大1,000行 × 5加盟店 = 5,000行/バッチが目安。
-  var BATCH_SIZE = 5000;
-  for (var batchStart = 0; batchStart < rows.length; batchStart += BATCH_SIZE) {
-    var batch = rows.slice(batchStart, batchStart + BATCH_SIZE);
-    var body = {
+  const BATCH_SIZE = 5000;
+  for (let batchStart = 0; batchStart < rows.length; batchStart += BATCH_SIZE) {
+    const batch = rows.slice(batchStart, batchStart + BATCH_SIZE);
+    const body = {
       rows: batch.map(function(row, idx) {
         // 親テーブルは row.id（UUID）、子・孫テーブルは row.wholesaler_invoice_id（同UUID）を使う。
         // どちらも未設定の場合は呼び出し元（sendInvoiceData）のバグなので例外にする。
-        var invoiceId = row.id || row.wholesaler_invoice_id;
+        const invoiceId = row.id || row.wholesaler_invoice_id;
         if (!invoiceId) {
           throw new Error(
             '[BQ] insertId の生成に必要な id / wholesaler_invoice_id が row[' + (batchStart + idx) + '] に存在しません。' +
@@ -79,13 +79,13 @@ function insertRows_(projectId, datasetId, tableId, rows) {
           );
         }
         // insertId にバッチ開始オフセットを含めることで全行ユニークを保証する
-        var insertId = invoiceId + '_' + tableId + '_' + (batchStart + idx);
+        const insertId = invoiceId + '_' + tableId + '_' + (batchStart + idx);
         return { insertId: insertId, json: row };
       }),
     };
-    var response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);
+    const response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);
     if (response.insertErrors && response.insertErrors.length > 0) {
-      var details = response.insertErrors.map(function(e) {
+      const details = response.insertErrors.map(function(e) {
         return 'row[' + (batchStart + e.index) + ']: ' + e.errors.map(function(err) {
           return err.reason + ' - ' + err.message;
         }).join(', ');

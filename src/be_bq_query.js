@@ -10,7 +10,7 @@
 // 公開する内部関数（末尾アンダースコア）:
 //   fetchInvoicesByWholesaler_(wholesalerId) … 卸IDに紐づく請求一覧を取得
 //   fetchInvoiceDetail_(invoiceId)           … 請求IDに紐づく明細を取得
-//   runQuery_(sql, params)                   … 汎用クエリ実行ラッパー
+//   runQuery_(projectId, sql, params)        … 汎用クエリ実行ラッパー
 // =============================================================================
 
 /**
@@ -90,7 +90,7 @@ function runQuery_(projectId, sql, params) {
   };
 
   // ── ① ジョブ投入 ─────────────────────────────────────────────────────────
-  var response = BigQuery.Jobs.query(request, projectId);
+  let response = BigQuery.Jobs.query(request, projectId);
 
   if (response.errors && response.errors.length > 0) {
     throw new Error('[BQ] クエリエラー: ' + JSON.stringify(response.errors));
@@ -102,8 +102,8 @@ function runQuery_(projectId, sql, params) {
   }
 
   // ── ② jobComplete=false の場合はポーリング（最大30回 = 最大5分待機）──────
-  var MAX_POLL = 30;
-  for (var poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
+  const MAX_POLL = 30;
+  for (let poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
     Logger.log('[BQ] クエリ実行中... ポーリング ' + (poll + 1) + '/' + MAX_POLL);
     Utilities.sleep(2000); // 2秒待機してから再取得
     response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
@@ -118,12 +118,12 @@ function runQuery_(projectId, sql, params) {
 
   // ── ③ 全ページ取得（pageToken がある限りループ）─────────────────────────
   const schema = (response.schema && response.schema.fields) || [];
-  var allBqRows = response.rows || [];
-  var pageToken = response.pageToken;
+  let allBqRows = response.rows || [];
+  let pageToken = response.pageToken;
 
   while (pageToken) {
     Logger.log('[BQ] 追加ページ取得中... 取得済み行数: ' + allBqRows.length);
-    var nextPage = BigQuery.Jobs.getQueryResults(projectId, jobId, { pageToken: pageToken });
+    const nextPage = BigQuery.Jobs.getQueryResults(projectId, jobId, { pageToken: pageToken });
     if (nextPage.errors && nextPage.errors.length > 0) {
       throw new Error('[BQ] ページング中エラー: ' + JSON.stringify(nextPage.errors));
     }

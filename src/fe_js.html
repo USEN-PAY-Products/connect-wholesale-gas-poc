@@ -512,10 +512,14 @@ const DROP_ZONE_DEFAULT_HTML = dropZone.innerHTML;
 /** dropZone を初期状態に戻す */
 function resetDropZone() {
   dropZone.innerHTML = DROP_ZONE_DEFAULT_HTML;
-  dropZone.classList.remove('is-success');
+  // is-disabled / is-success を除去（アカウント取得済みの状態に戻す）
+  dropZone.classList.remove('is-disabled', 'is-success');
   // innerHTML 差し替え後に DOM 参照とイベントを再登録
   const newBtn   = dropZone.querySelector('#btnSelectFile');
   const newInput = dropZone.querySelector('#fileInput');
+  // disabled 属性を除去（初期HTMLは disabled 状態でキャプチャされているため）
+  if (newBtn)   newBtn.disabled   = false;
+  if (newInput) newInput.disabled = false;
   newBtn.addEventListener('click', () => newInput.click());
   newInput.addEventListener('change', function () {
     if (this.files[0]) handleFile(this.files[0]);
@@ -595,7 +599,7 @@ function handleFile(file) {
     return;
   }
 
-  // ── Step 2: ファイルサイズチェック（Base64後に sessionStorage quota を超えないよう 3MB 上限）──
+  // ── Step 2: ファイルサイズチェック（Base64後に sessionStorage quota を超えないよう 5MB 上限）──
   const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5MB（Base64後≒6.7MB、1.5万行程度まで対応）
   if (file.size > MAX_CSV_BYTES) {
     showToast('ファイルサイズが大きすぎます（上限 5MB）。行数を分割して再度お試しください。');
