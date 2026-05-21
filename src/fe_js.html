@@ -711,20 +711,51 @@ function decodeBuffer_(buffer) {
  * @param {string} line
  * @returns {string[]}
  */
+/**
+ * CSV の1行をフィールド配列にパースする。
+ * RFC 4180 準拠のクォート・エスケープ（""）・空フィールド・行頭カンマを正しく処理する。
+ * 正規表現の lastIndex に依存しない状態機械ベース実装のため、連続カンマ等で無限ループしない。
+ *
+ * @param {string} line - 改行を含まない1行
+ * @returns {string[]} フィールド値の配列（前後スペースをtrim済み）
+ */
 function parseCsvLine(line) {
   const result = [];
-  const re = /("(?:[^"]|"")*"|[^,]*)/g;
-  let m;
-  while ((m = re.exec(line)) !== null) {
-    let val = m[1];
-    if (val.startsWith('"') && val.endsWith('"')) {
-      val = val.slice(1, -1).replace(/""/g, '"');
-    }
-    result.push(val.trim());
-    if (re.lastIndex < line.length && line[re.lastIndex] === ',') {
-      re.lastIndex += 1;
-    } else {
+  let i = 0;
+  while (i <= line.length) {
+    if (i === line.length) {
+      // 末尾カンマの後の空フィールドを処理
+      result.push('');
       break;
+    }
+    if (line[i] === '"') {
+      // ── クォートフィールド ──────────────────────────────────────────────
+      let val = '';
+      i++; // 開きクォートをスキップ
+      while (i < line.length) {
+        if (line[i] === '"' && line[i + 1] === '"') {
+          // エスケープされたクォート（""）
+          val += '"';
+          i += 2;
+        } else if (line[i] === '"') {
+          // 閉じクォート
+          i++;
+          break;
+        } else {
+          val += line[i++];
+        }
+      }
+      result.push(val.trim());
+      if (line[i] === ',') i++; // 区切りカンマをスキップ
+    } else {
+      // ── 非クォートフィールド ────────────────────────────────────────────
+      const end = line.indexOf(',', i);
+      if (end === -1) {
+        result.push(line.slice(i).trim());
+        break;
+      }
+      result.push(line.slice(i, end).trim());
+      i = end + 1;
     }
   }
   return result;
@@ -931,7 +962,6 @@ function resetPage() {
   } catch (e) {
     console.warn('[state] sessionStorage のクリアに失敗しました:', e);
   }
-  delete window._bqPayloadCache;
   resetDropZone();
   alertList.innerHTML = '';
   errorCard.classList.add('hidden');
@@ -1065,6 +1095,59 @@ document.getElementById('cancelModal').addEventListener('keydown', function (e) 
 });
 
 // =============================================================================
+// Confirm page: collectSummaryData / collectRemarks
+// =============================================================================
+
+/**
+ * 確認画面の金額 input から wholesalerTotal / merchantTotals を収集して返す。
+ * @returns {{ wholesalerTotal: Object, merchantTotals: Array<Object> }}
+ */
+function collectSummaryData_() {
+  const getVal = id => Number(document.getElementById(id)?.value || 0);
+  const wholesalerTotal = {
+    totalAmount:    getVal('summaryAmountInTax'),
+    subtotalAmount: getVal('summaryAmountExTax'),
+    taxAmount:      getVal('summaryTax'),
+    exTax10:        getVal('summaryExTax10'),
+    tax10:          getVal('summaryTax10'),
+    exTax8:         getVal('summaryExTax8'),
+    tax8:           getVal('summaryTax8'),
+    feeAmount:      getVal('summaryFee'),
+    paymentAmount:  getVal('summaryTransfer'),
+  };
+
+  const merchantTotals = [];
+  document.querySelectorAll('.store-accordion').forEach(card => {
+    const customerCode = card.dataset.cc || '';
+    const getInput = field => Number(card.querySelector(`input[data-field="${field}"]`)?.value || 0);
+    merchantTotals.push({
+      customerCode,
+      totalAmount:    getInput('totalAmount'),
+      subtotalAmount: getInput('subtotalAmount'),
+      taxAmount:      getInput('taxAmount'),
+      exTax10:        getInput('exTax10'),
+      tax10:          getInput('tax10'),
+      exTax8:         getInput('exTax8'),
+      tax8:           getInput('tax8'),
+    });
+  });
+
+  return { wholesalerTotal, merchantTotals };
+}
+
+/**
+ * 確認画面の備考 textarea から { customerCode: remarks文字列 } を収集して返す。
+ * @returns {Object.<string, string>}
+ */
+function collectRemarks_() {
+  const remarks = {};
+  document.querySelectorAll('.remarks-input[data-customer-code]').forEach(ta => {
+    remarks[ta.dataset.customerCode] = ta.value || '';
+  });
+  return remarks;
+}
+
+// =============================================================================
 // Confirm page: Submit
 // =============================================================================
 
@@ -1086,27 +1169,21 @@ btnFinalSubmit.addEventListener('click', () => {
   // google.script.run は GAS Webアプリ環境でのみ有効。
   // ローカル Live Server で動作確認する場合は下部の「ローカル確認用フォールバック」が使われる。
   const wholesalerName = sessionStorage.getItem('shiire_wholesaler_name') || '';
+  const summaryData    = collectSummaryData_();
+  const remarks        = collectRemarks_();
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
-    // renderConfirmPage で設定した in-memory キャッシュを使用
-    // （sessionStorage には保存していないため window._bqPayloadCache のみ参照）
-    const bqPayload = window._bqPayloadCache ?? null;
-    if (!bqPayload) {
-      hideLoadingOverlay();
-      showToast('送信データの準備に失敗しました。確認画面を開き直してから再送信してください。', 'error');
-      resetSubmitButton();
-      return;
-    }
     google.script.run
       .withSuccessHandler(onSubmitSuccess)
       .withFailureHandler(onSubmitFailure)
-      .sendInvoiceData(rawCsvBase64, bqPayload);
+      .sendInvoiceData(rawCsvBase64, summaryData, remarks);
   } else {
     // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
     console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
-    console.log('[submit] jsonData:', parsedData);
     console.log('[submit] wholesalerName:', wholesalerName);
     console.log('[submit] rawCsvBase64 (先頭100文字):', rawCsvBase64.slice(0, 100));
+    console.log('[submit] summaryData:', summaryData);
+    console.log('[submit] remarks:', remarks);
     setTimeout(() => onSubmitSuccess({ status: 'success', data: '(mock)' }), 1500);
   }
 });
@@ -1202,19 +1279,16 @@ function renderConfirmPage() {
   const feeAmount  = Math.floor(totalAmountInTax * feeRate / 100);
   const payAmount  = totalAmountInTax - feeAmount;
 
-  /** @param {number} n */
-  const fmt = n => n.toLocaleString('ja-JP') + '円';
-
-  document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
-  document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
-  document.getElementById('summaryTax').textContent         = fmt(totalTax);
-  document.getElementById('summaryFeeRate').textContent    = feeRate;
-  document.getElementById('summaryFee').textContent         = fmt(feeAmount);
-  document.getElementById('summaryTransfer').textContent    = fmt(payAmount);
-  document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
-  document.getElementById('summaryTax10').textContent       = fmt(tax10);
-  document.getElementById('summaryExTax8').textContent      = fmt(exTax8);
-  document.getElementById('summaryTax8').textContent        = fmt(tax8);
+  document.getElementById('summaryAmountInTax').value = totalAmountInTax;
+  document.getElementById('summaryAmountExTax').value = totalAmountExTax;
+  document.getElementById('summaryTax').value         = totalTax;
+  document.getElementById('summaryFeeRate').textContent = feeRate;
+  document.getElementById('summaryFee').value         = feeAmount;
+  document.getElementById('summaryTransfer').value    = payAmount;
+  document.getElementById('summaryExTax10').value     = exTax10;
+  document.getElementById('summaryTax10').value       = tax10;
+  document.getElementById('summaryExTax8').value      = exTax8;
+  document.getElementById('summaryTax8').value        = tax8;
 
   // ── customer_code ごとにグルーピング ─────────────────────────────────────
   /** @type {Map<string, Array>} */
@@ -1225,98 +1299,6 @@ function renderConfirmPage() {
     groups.get(cc).push(row);
   });
 
-  // ── BQ 登録用ペイロードを組み立てる ─────────────────────────────────────
-  const invoiceDate = (() => {
-    const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-  })(); // ローカル日付（JST）で YYYY-MM-DD を組み立てる（toISOString は UTC のため深夜帯でズレる恐れあり）
-
-  // 親テーブル: wholesaler_invoices
-  // id（UUID）はサーバー側（be_invoice.js）で Utilities.getUuid() により生成する。
-  // wholesaler_invoice_id は否認・修正ループで付与される正式請求書IDのため、アップロード時点では null。
-  const wholesalerInvoiceRow = {
-    wholesaler_id:             Number(wholesalerId) || -1,
-    wholesaler_user_id:        Number(wholesalerUserId) || -1,
-    wholesaler_name:           wholesalerName,
-    wholesaler_invoice_id:     null,
-    wholesaler_invoice_date:   invoiceDate,
-    wholesaler_total_amount:   totalAmountInTax,
-    wholesaler_subtotal_amount: totalAmountExTax,
-    wholesaler_tax_amount:     totalTax,
-    wholesaler_total_ex_tax_8: exTax8,
-    wholesaler_total_ex_tax_10: exTax10,
-    invoice_fee_rate:          feeRate,
-    invoice_fee_amount:        feeAmount,
-    payment_amount:            payAmount,
-    handover_matter:           '',
-    wholesaler_invoice_csv_url: '', // Drive保存後にbe_invoice.jsでセット
-  };
-
-  // 子テーブル: merchant_invoices / 孫テーブル: invoice_lines
-  const merchantInvoiceRows = [];
-  const invoiceLineRows     = [];
-
-  groups.forEach((rows, customerCode) => {
-    const mapping    = mappingMap[customerCode] || {};
-    const mallCode   = mapping.mall_code || '';
-    const slipKey    = Object.keys(rules).find(k => k === 'slip_number');
-    const slipNumber = slipKey ? String(rows[0][slipKey] || '') : '';
-    const merchantNameFromCsv = String(rows[0]['merchant_name'] || '');
-    const merchantNameFromMap = String(mapping.merchant_name || '');
-    const resolvedMerchantName = merchantNameFromCsv || merchantNameFromMap;
-
-    // 加盟店ごとの集計
-    const st = rows.reduce((acc, r) => {
-      const amtExTax  = Number(r['amount_ex_tax'] || 0);
-      const taxRate   = Number(r['tax_rate']       || 0);
-      const taxAmount = Math.floor(amtExTax * taxRate / 100);
-      acc.tax += taxAmount;
-      if (taxRate === 10) acc.exTax10 += amtExTax;
-      else                acc.exTax8  += amtExTax;
-      return acc;
-    }, { tax: 0, exTax8: 0, exTax10: 0 });
-
-    merchantInvoiceRows.push({
-      wholesaler_invoice_id: null, // サーバー側で UUID を設定する
-      wholesaler_id:         Number(wholesalerId) || -1,
-      mall_code:             mallCode,
-      customer_code:         customerCode,
-      merchant_name:         resolvedMerchantName,
-      slip_number:           slipNumber,
-      wholesaler_remark:     '',
-      tax_amount:            st.tax,
-      total_ex_tax_8:        st.exTax8,
-      total_ex_tax_10:       st.exTax10,
-    });
-
-    // 孫テーブル: 明細行
-    rows.forEach(row => {
-      const amtExTax  = Number(row['amount_ex_tax'] || 0);
-      const taxRate   = Number(row['tax_rate']       || 0);
-      const taxAmount = Math.floor(amtExTax * taxRate / 100);
-      invoiceLineRows.push({
-        wholesaler_invoice_id:  null, // サーバー側で UUID を設定する
-        mall_code:              mallCode,
-        slip_number:            slipNumber,
-        transaction_date:       String(row['transaction_date'] || ''),
-        item_name:              String(row['item_name']        || ''),
-        unit_price:             Number(row['unit_price']       || 0),
-        quantity:               Number(row['quantity']         || 0),
-        quantity_unit:          String(row['unit']             || ''),
-        tax_rate:               taxRate,
-        amount_ex_tax:          amtExTax,
-        tax_amount:             taxAmount,
-        invoice_detail_remark:  String(row['invoice_detail_remark'] || ''),
-      });
-    });
-  });
-
-  // BQペイロードは window に in-memory で保持する。
-  // sessionStorage には保存しない（大量明細時の quota 超過を避けるため）。
-  // GAS は SPA なのでページ遷移がなく window 変数はアップロード→確認→送信を通じて生き続ける。
-  const bqPayloadObj = { wholesalerInvoiceRow, merchantInvoiceRows, invoiceLineRows };
-  window._bqPayloadCache = bqPayloadObj;
 
   // ── 加盟店別リストを描画 ──────────────────────────────────────────────────
   const list = document.getElementById('confirmStoreList');
@@ -1351,10 +1333,10 @@ function renderConfirmPage() {
       const taxAmount = Math.floor(amtExTax * taxRate / 100);
       acc.amountExTax += amtExTax;
       acc.tax         += taxAmount;
-      if (taxRate === 10) acc.tax10 += taxAmount;
-      else                acc.tax8  += taxAmount;
+      if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+      else                { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
       return acc;
-    }, { amountExTax: 0, tax: 0, tax8: 0, tax10: 0 });
+    }, { amountExTax: 0, tax: 0, exTax8: 0, tax8: 0, exTax10: 0, tax10: 0 });
 
     const storeAmountExTax = st.amountExTax;
     const storeTax         = st.tax;
@@ -1362,6 +1344,7 @@ function renderConfirmPage() {
 
     const card = document.createElement('div');
     card.className = 'store-accordion';
+    card.dataset.cc = customerCode;
 
     const header = document.createElement('div');
     header.className = 'store-accordion__header';
@@ -1370,11 +1353,11 @@ function renderConfirmPage() {
     header.setAttribute('aria-expanded', 'false');
     header.innerHTML =
       `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(displayName)}</span>` +
-      `<span class="slh-col slh-col--amount">${fmt(storeTotal)}</span>` +
-      `<span class="slh-col slh-col--extax">${fmt(storeAmountExTax)}</span>` +
-      `<span class="slh-col slh-col--tax">${fmt(storeTax)}</span>` +
-      `<span class="slh-col slh-col--tax8"><span class="store-tax-val">${st.tax8.toLocaleString('ja-JP')}円</span></span>` +
-      `<span class="slh-col slh-col--tax10"><span class="store-tax-val">${st.tax10.toLocaleString('ja-JP')}円</span></span>` +
+      `<span class="slh-col slh-col--amount"><input type="number" class="amount-input" data-field="totalAmount" value="${storeTotal}" /></span>` +
+      `<span class="slh-col slh-col--extax"><input type="number" class="amount-input" data-field="subtotalAmount" value="${storeAmountExTax}" /></span>` +
+      `<span class="slh-col slh-col--tax"><input type="number" class="amount-input" data-field="taxAmount" value="${storeTax}" /></span>` +
+      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" /></span>` +
+      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" /></span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
     const toggleAccordion = () => {
@@ -1425,6 +1408,23 @@ function renderConfirmPage() {
 
       body.appendChild(item);
     });
+
+    // 加盟店ごとの内訳 hidden input（collectSummaryData_ で読み取る）
+    const hiddenDiv = document.createElement('div');
+    hiddenDiv.style.display = 'none';
+    hiddenDiv.innerHTML =
+      `<input type="number" data-field="exTax10" value="${st.exTax10}" />` +
+      `<input type="number" data-field="exTax8"  value="${st.exTax8}"  />`;
+    body.appendChild(hiddenDiv);
+
+    // 卸→加盟店 備考
+    const remarksDiv = document.createElement('div');
+    remarksDiv.className = 'store-accordion__remarks';
+    remarksDiv.innerHTML =
+      `<label class="remarks-label">卸→加盟店 備考：</label>` +
+      `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="備考があれば入力してください"></textarea>`;
+    body.appendChild(remarksDiv);
+
     card.appendChild(header);
     card.appendChild(body);
     list.appendChild(card);

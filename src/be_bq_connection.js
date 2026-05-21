@@ -1,97 +1,182 @@
 // =============================================================================
 // be_bq_connection.js
 //
-// BigQuery への書き込み接続ロジック（tabledata.insertAll）を管理するファイル。
+// BigQuery への書き込み接続ロジックを管理するファイル。
+// Load Job（大量明細）+ マルチステートメント・トランザクション方式。
+//
+// 登録フロー:
+//   ③ loadCsvToBq_()       … 生CSV を BQ Load Job で staging テーブルへ投入
+//   ④ waitForLoadJob_()    … Load Job の完了をポーリング待機
+//   ⑤ runTransactionSql_() … BEGIN TRANSACTION 〜 COMMIT を1発実行
+//   ⑥ dropStagingTable_()  … 使い捨て staging テーブルを DROP（TRANSACTION 外）
 //
 // 依存: be_config.js（getConfig_）
-//
-// 公開する内部関数（末尾アンダースコア）:
-//   insertInvoiceRows_(bqPayload, csvUrl) … 3テーブルへの一括登録
-//   insertRows_(projectId, datasetId, tableId, rows) … 汎用insertAllラッパー
 // =============================================================================
 
 /**
- * BQ 3テーブル（wholesaler_invoices / merchant_invoices / invoice_lines）に
- * 一括登録する。csv_url は Drive 保存後の実 URL を渡すこと。
- *
- * @param {Object} bqPayload - renderConfirmPage() が組み立てたペイロード
- *   @param {Object}        bqPayload.wholesalerInvoiceRow  - 親テーブル行
- *   @param {Array<Object>} bqPayload.merchantInvoiceRows   - 子テーブル行配列
- *   @param {Array<Object>} bqPayload.invoiceLineRows       - 孫テーブル行配列
- * @param {string} csvUrl - Drive 保存後の CSV ファイル URL
- * @throws {Error} insertAll 失敗時
+ * staging テーブルのスキーマ定義。
+ * CSV の各列をそのまま格納する（GAS 側での変換なし）。
+ * Load Job 投入時に schema フィールドとして渡す。
  */
-function insertInvoiceRows_(bqPayload, csvUrl) {
-  const config    = getConfig_();
-  const projectId = config.gcpProjectId;
-  const datasetId = config.bqDatasetId;
+const STAGING_SCHEMA_ = {
+  fields: [
+    { name: 'transaction_date',      type: 'DATE'    },
+    { name: 'slip_number',           type: 'INTEGER' },
+    { name: 'customer_code',         type: 'STRING'  },
+    { name: 'merchant_name',         type: 'STRING'  },
+    { name: 'item_name',             type: 'STRING'  },
+    { name: 'quantity',              type: 'INTEGER' },
+    { name: 'quantity_unit',         type: 'STRING'  },
+    { name: 'unit_price',            type: 'INTEGER' },
+    { name: 'tax_rate',              type: 'INTEGER' },
+    { name: 'amount_ex_tax',         type: 'INTEGER' },
+    { name: 'invoice_detail_remark', type: 'STRING'  },
+  ],
+};
 
-  // csv_url を Drive 保存後の実 URL にセット
-  bqPayload.wholesalerInvoiceRow.wholesaler_invoice_csv_url = csvUrl;
+/**
+ * CSV バイト列を BQ Load Job で指定の staging テーブルへ投入する。
+ * GAS は CSV を一切パースしない。バイト列をそのまま BQ へ横流しするだけ。
+ *
+ * ⚠️ 元 CSV が Shift-JIS の場合、フロント側で UTF-8 に変換してから base64 エンコードすること。
+ *    BQ Load Job は UTF-8 / ISO-8859-1 のみサポートしており、Shift-JIS は非サポート。
+ *
+ * @param {string}   projectId      - GCP プロジェクトID
+ * @param {string}   datasetId      - BQ データセットID
+ * @param {string}   stagingTableId - 宛先テーブルID（UUID付き、ハイフン→アンダースコア済み）
+ * @param {number[]} csvBytes       - Utilities.base64Decode() で得た生バイト配列
+ * @returns {string} 投入した Load Job の jobId
+ * @throws {Error} Load Job 投入失敗時
+ */
+function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes) {
+  const blob = Utilities.newBlob(csvBytes, 'application/octet-stream');
+  const jobResource = {
+    configuration: {
+      load: {
+        destinationTable: {
+          projectId: projectId,
+          datasetId: datasetId,
+          tableId:   stagingTableId,
+        },
+        sourceFormat:     'CSV',
+        skipLeadingRows:  1,
+        writeDisposition: 'WRITE_TRUNCATE',
+        encoding:         'UTF-8',
+        schema:           STAGING_SCHEMA_,
+      },
+    },
+  };
 
-  Logger.log('[BQ] wholesalerInvoiceRow: ' + JSON.stringify(bqPayload.wholesalerInvoiceRow));
-  Logger.log('[BQ] merchantInvoiceRows件数: ' + (bqPayload.merchantInvoiceRows || []).length);
-  Logger.log('[BQ] invoiceLineRows件数: '     + (bqPayload.invoiceLineRows     || []).length);
-
-  // 1. wholesaler_invoices（親）
-  insertRows_(projectId, datasetId, 'wholesaler_invoices', [bqPayload.wholesalerInvoiceRow]);
-
-  // 2. merchant_invoices（子）
-  if (bqPayload.merchantInvoiceRows && bqPayload.merchantInvoiceRows.length > 0) {
-    insertRows_(projectId, datasetId, 'merchant_invoices', bqPayload.merchantInvoiceRows);
+  Logger.log('[BQ] Load Job 投入: stagingTable=' + stagingTableId);
+  const response = BigQuery.Jobs.insert(jobResource, projectId, blob);
+  if (!response || !response.jobReference || !response.jobReference.jobId) {
+    throw new Error('[BQ] Load Job 投入失敗: jobReference が取得できませんでした');
   }
-
-  // 3. invoice_lines（孫）
-  if (bqPayload.invoiceLineRows && bqPayload.invoiceLineRows.length > 0) {
-    insertRows_(projectId, datasetId, 'invoice_lines', bqPayload.invoiceLineRows);
-  }
+  const jobId = response.jobReference.jobId;
+  Logger.log('[BQ] Load Job 投入完了: jobId=' + jobId);
+  return jobId;
 }
 
 /**
- * BigQuery tabledata.insertAll を呼び出す汎用ヘルパー。
- * insertErrors があれば詳細メッセージ付きで例外をスローする。
+ * BQ Load Job の完了をポーリングで待機する。
+ * 最大 60 回（= 約 2 分）ポーリングし、タイムアウトまたはエラーで例外をスローする。
  *
- * insertId は「wholesaler_invoice_id + テーブル名 + 行インデックス」から生成する。
- * これにより送信リトライや再実行時でも同一リクエストに同一 insertId が付与され、
- * BQ の重複排除（best-effort deduplication）が機能する。
- *
- * @param {string}         projectId
- * @param {string}         datasetId
- * @param {string}         tableId
- * @param {Array<Object>}  rows
- * @throws {Error} BQ エラー時
+ * @param {string} projectId - GCP プロジェクトID
+ * @param {string} jobId     - 待機対象の Load Job ID
+ * @throws {Error} Load Job 失敗またはタイムアウト時
  */
-function insertRows_(projectId, datasetId, tableId, rows) {
-  // BQ insertAll の上限（1万行）を超えないよう 5,000 行ずつバッチ分割する。
-  // 1加盟店最大1,000行 × 5加盟店 = 5,000行/バッチが目安。
-  const BATCH_SIZE = 5000;
-  for (let batchStart = 0; batchStart < rows.length; batchStart += BATCH_SIZE) {
-    const batch = rows.slice(batchStart, batchStart + BATCH_SIZE);
-    const body = {
-      rows: batch.map(function(row, idx) {
-        // 親テーブルは row.id（UUID）、子・孫テーブルは row.wholesaler_invoice_id（同UUID）を使う。
-        // どちらも未設定の場合は呼び出し元（sendInvoiceData）のバグなので例外にする。
-        const invoiceId = row.id || row.wholesaler_invoice_id;
-        if (!invoiceId) {
-          throw new Error(
-            '[BQ] insertId の生成に必要な id / wholesaler_invoice_id が row[' + (batchStart + idx) + '] に存在しません。' +
-            ' テーブル: ' + tableId
-          );
-        }
-        // insertId にバッチ開始オフセットを含めることで全行ユニークを保証する
-        const insertId = invoiceId + '_' + tableId + '_' + (batchStart + idx);
-        return { insertId: insertId, json: row };
-      }),
-    };
-    const response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);
-    if (response.insertErrors && response.insertErrors.length > 0) {
-      const details = response.insertErrors.map(function(e) {
-        return 'row[' + (batchStart + e.index) + ']: ' + e.errors.map(function(err) {
-          return err.reason + ' - ' + err.message;
-        }).join(', ');
-      }).join(' | ');
-      throw new Error('[BQ] ' + tableId + ' の登録エラー（バッチ開始行: ' + batchStart + '）: ' + details);
+function waitForLoadJob_(projectId, jobId) {
+  const MAX_POLL      = 60;
+  const POLL_INTERVAL = 2000; // ms
+  for (let i = 0; i < MAX_POLL; i++) {
+    const job       = BigQuery.Jobs.get(projectId, jobId);
+    const state     = job.status && job.status.state;
+    const errResult = job.status && job.status.errorResult;
+
+    if (errResult) {
+      throw new Error('[BQ] Load Job 失敗 (jobId: ' + jobId + '): ' + JSON.stringify(errResult));
     }
-    Logger.log('[BQ] ' + tableId + ' バッチ登録完了: ' + batchStart + '〜' + (batchStart + batch.length - 1) + '行目');
+    if (state === 'DONE') {
+      Logger.log('[BQ] Load Job 完了: jobId=' + jobId);
+      return;
+    }
+    Logger.log('[BQ] Load Job 実行中... ポーリング ' + (i + 1) + '/' + MAX_POLL + ' (state=' + state + ')');
+    Utilities.sleep(POLL_INTERVAL);
   }
+  throw new Error('[BQ] Load Job タイムアウト（jobId: ' + jobId + '）');
+}
+
+/**
+ * BQ マルチステートメント・トランザクション SQL を実行する。
+ * BEGIN TRANSACTION 〜 COMMIT を含む SQL 文字列を1発で実行し、
+ * 完了するまでポーリングで待機する。
+ *
+ * エラー発生時は BQ が自動ロールバックするため、補償削除コードは不要。
+ * GAS 自体がタイムアウトした場合も BQ 側でロールバックがかかる。
+ *
+ * @param {string} projectId - GCP プロジェクトID
+ * @param {string} sql       - BEGIN TRANSACTION 〜 COMMIT を含む SQL 全文
+ * @throws {Error} トランザクション失敗時
+ */
+function runTransactionSql_(projectId, sql) {
+  Logger.log('[BQ] トランザクション SQL 実行開始');
+  const request = {
+    query:        sql,
+    useLegacySql: false,
+    timeoutMs:    10000,
+  };
+
+  let response = BigQuery.Jobs.query(request, projectId);
+  if (response.errors && response.errors.length > 0) {
+    throw new Error('[BQ] トランザクションエラー: ' + JSON.stringify(response.errors));
+  }
+
+  const jobId = response.jobReference && response.jobReference.jobId;
+  if (!jobId) throw new Error('[BQ] jobId が取得できませんでした（トランザクション）');
+
+  const MAX_POLL = 30;
+  for (let poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
+    Logger.log('[BQ] トランザクション実行中... ポーリング ' + (poll + 1) + '/' + MAX_POLL);
+    Utilities.sleep(2000);
+    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+    if (response.errors && response.errors.length > 0) {
+      throw new Error('[BQ] トランザクションエラー（ポーリング中）: ' + JSON.stringify(response.errors));
+    }
+  }
+
+  if (!response.jobComplete) {
+    throw new Error('[BQ] トランザクションがタイムアウトしました（jobId: ' + jobId + '）');
+  }
+  Logger.log('[BQ] トランザクション完了: jobId=' + jobId);
+}
+
+/**
+ * 使い捨て staging テーブルを DROP する。
+ * トランザクション外で実行すること（BQ の DDL は TRANSACTION 内に含められない）。
+ * DROP 失敗は致命的ではない（DB への全登録は成功済み）。
+ *
+ * @param {string} projectId      - GCP プロジェクトID
+ * @param {string} datasetId      - BQ データセットID
+ * @param {string} stagingTableId - 削除するテーブルID
+ * @throws {Error} DROP 失敗時
+ */
+function dropStagingTable_(projectId, datasetId, stagingTableId) {
+  const fullRef = '`' + projectId + '.' + datasetId + '.' + stagingTableId + '`';
+  const sql     = 'DROP TABLE IF EXISTS ' + fullRef;
+
+  Logger.log('[BQ] staging テーブルを DROP: ' + stagingTableId);
+  const request = {
+    query:        sql,
+    useLegacySql: false,
+    timeoutMs:    30000,
+  };
+
+  const response = BigQuery.Jobs.query(request, projectId);
+  if (response.errors && response.errors.length > 0) {
+    throw new Error(
+      '[BQ] staging テーブルの DROP に失敗しました（テーブル名: ' + stagingTableId +
+      '）。手動で DROP してください。詳細: ' + JSON.stringify(response.errors)
+    );
+  }
+  Logger.log('[BQ] staging テーブル DROP 完了: ' + stagingTableId);
 }

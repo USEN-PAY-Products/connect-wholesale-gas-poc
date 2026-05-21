@@ -25,7 +25,7 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
-    '  wholesaler_invoice_id, wholesaler_invoice_date, wholesaler_name, ' +
+    '  id AS wholesaler_invoice_id, wholesaler_invoice_date, wholesaler_name, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
     '  invoice_fee_rate, invoice_fee_amount, payment_amount ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +

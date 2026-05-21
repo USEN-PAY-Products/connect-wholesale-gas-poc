@@ -18,16 +18,22 @@
         <div class="summary-block summary-block--left">
           <div class="summary-block__row summary-block__row--main">
             <span class="summary-block__label">請求金額</span>
-            <span class="summary-block__value summary-block__value--main" id="summaryAmountInTax">--</span>
+            <span class="summary-block__value summary-block__value--main">
+              <input type="number" class="amount-input amount-input--main" id="summaryAmountInTax" min="0" step="1" value="0" />円
+            </span>
           </div>
           <div class="summary-block__divider"></div>
           <div class="summary-block__row">
             <span class="summary-block__label">小計（税抜）</span>
-            <span class="summary-block__value" id="summaryAmountExTax">--</span>
+            <span class="summary-block__value">
+              <input type="number" class="amount-input" id="summaryAmountExTax" min="0" step="1" value="0" />円
+            </span>
           </div>
           <div class="summary-block__row">
             <span class="summary-block__label">税額</span>
-            <span class="summary-block__value" id="summaryTax">--</span>
+            <span class="summary-block__value">
+              <input type="number" class="amount-input" id="summaryTax" min="0" step="1" value="0" />円
+            </span>
           </div>
         </div>
 
@@ -40,13 +46,13 @@
           </div>
           <div class="summary-block__row">
             <span class="summary-block__tax-rate" id="summaryRate10">10%</span>
-            <span class="summary-block__value" id="summaryExTax10">--</span>
-            <span class="summary-block__value" id="summaryTax10">--</span>
+            <span class="summary-block__value"><input type="number" class="amount-input" id="summaryExTax10" min="0" step="1" value="0" />円</span>
+            <span class="summary-block__value"><input type="number" class="amount-input" id="summaryTax10" min="0" step="1" value="0" />円</span>
           </div>
           <div class="summary-block__row">
             <span class="summary-block__tax-rate" id="summaryRate8">8%</span>
-            <span class="summary-block__value" id="summaryExTax8">--</span>
-            <span class="summary-block__value" id="summaryTax8">--</span>
+            <span class="summary-block__value"><input type="number" class="amount-input" id="summaryExTax8" min="0" step="1" value="0" />円</span>
+            <span class="summary-block__value"><input type="number" class="amount-input" id="summaryTax8" min="0" step="1" value="0" />円</span>
           </div>
         </div>
 
@@ -54,12 +60,16 @@
         <div class="summary-block summary-block--right">
           <div class="summary-block__row">
             <span class="summary-block__label">手数料（<span id="summaryFeeRate">-</span>%）</span>
-            <span class="summary-block__value" id="summaryFee">--</span>
+            <span class="summary-block__value">
+              <input type="number" class="amount-input" id="summaryFee" min="0" step="1" value="0" />円
+            </span>
           </div>
           <div class="summary-block__divider"></div>
           <div class="summary-block__row">
             <span class="summary-block__label">振込金額</span>
-            <span class="summary-block__value summary-block__value--transfer" id="summaryTransfer">--</span>
+            <span class="summary-block__value summary-block__value--transfer">
+              <input type="number" class="amount-input amount-input--transfer" id="summaryTransfer" min="0" step="1" value="0" />円
+            </span>
           </div>
         </div>
 

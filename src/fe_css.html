@@ -562,6 +562,33 @@ button { cursor: pointer; font-family: inherit; }
   font-weight: 700;
 }
 
+/* ─── 金額入力フィールド（編集可能な amount input）─── */
+.amount-input {
+  display: inline-block;
+  width: 100%;
+  border: 1px solid #C9D4E8;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a2b4a;
+  text-align: right;
+  background: #FAFCFF;
+  box-sizing: border-box;
+}
+.amount-input:focus {
+  outline: none;
+  border-color: #4A7FF5;
+  box-shadow: 0 0 0 2px rgba(74,127,245,.15);
+  background: #FFF;
+}
+/* サマリーの主要金額（請求金額・振込金額）はより大きく表示 */
+.amount-input--main,
+.amount-input--transfer {
+  font-size: 20px;
+  font-weight: 700;
+}
+
 /* =====================================================
    Confirm page: store accordion
    ===================================================== */
@@ -575,6 +602,14 @@ button { cursor: pointer; font-family: inherit; }
 .slh-col--tax8     { width: 160px; text-align: right; }
 .slh-col--tax10    { width: 160px; text-align: right; }
 .slh-col--toggle   { width: 36px;  text-align: center; flex-shrink: 0; padding: 0; }
+
+/* store accordion header 内の amount-input は幅いっぱいに使う */
+.store-accordion__header .amount-input {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 4px;
+}
 
 /* 列ヘッダー行 */
 .store-list-header {
@@ -640,6 +675,39 @@ button { cursor: pointer; font-family: inherit; }
   background: #FAFAFA;
 }
 .store-accordion.is-open .store-accordion__body { display: block; }
+
+/* 加盟店ごとの備考エリア */
+.store-accordion__remarks {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px dashed #D9D9D9;
+  background: #F5F8FF;
+}
+.remarks-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #555;
+  padding-top: 6px;
+  white-space: nowrap;
+}
+.remarks-input {
+  flex: 1;
+  min-height: 52px;
+  padding: 6px 8px;
+  border: 1px solid #C9D4E8;
+  border-radius: 4px;
+  font-size: 13px;
+  resize: vertical;
+  background: #FFF;
+  color: #333;
+}
+.remarks-input:focus {
+  outline: none;
+  border-color: #4A7FF5;
+  box-shadow: 0 0 0 2px rgba(74,127,245,.15);
+}
 
 
 /* 加盟店リスト外枠 */
