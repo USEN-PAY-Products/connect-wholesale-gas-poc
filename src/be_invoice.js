@@ -4,7 +4,7 @@
 // 請求データ関連の公開関数（フロントから google.script.run で呼ばれる）を管理する。
 //
 // 公開関数:
-//   sendInvoiceData(csvBase64, summaryData, remarks)
+//   sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks)
 //   fetchInvoices()
 //   fetchInvoiceDetail(invoiceId)
 //   getMockScheduleData()    ← BackOffice API 実装後に削除
@@ -64,7 +64,7 @@ function parseCsvLine_(line) {
 function validateCsvHeader_(csvText, expected) {
   const firstNewline = csvText.indexOf('\n');
   const headerLine   = firstNewline === -1 ? csvText : csvText.slice(0, firstNewline);
-  const cols         = parseCsvLine_(headerLine.replace(/\r$/, ''));
+  const cols         = parseCsvLine_(headerLine.replace(/^\uFEFF/, '').replace(/\r$/, ''));
   if (cols.length !== expected.length) {
     throw new Error(
       'CSVヘッダーの列数が不正です（' + cols.length + '列 / 期待値: ' + expected.length + '列）'
@@ -97,6 +97,61 @@ function getExpectedHeaders_(csvFormatRules) {
 }
 
 /**
+ * csv_format_rules から BQ Load Job 用の staging スキーマを動的生成する。
+ * 各ルールに bq_field（staging フィールド名）と type（BQ 型）が必要。
+ *
+ * デフォルトフォーマット（csv_format_rules = null）の場合は null を返し、
+ * 呼び出し側で STAGING_SCHEMA_（固定）にフォールバックさせる。
+ *
+ * SQL の SELECT / JOIN で参照する必須フィールドが揃っているかも検証する。
+ *
+ * @param {Object|null} csvFormatRules - accountInfo.csv_format_rules
+ * @returns {Object|null} BQ スキーマオブジェクト、またはデフォルト使用の場合 null
+ * @throws {Error} bq_field 未設定 / 必須フィールド不足の場合
+ */
+function buildStagingSchema_(csvFormatRules) {
+  if (!csvFormatRules || Object.keys(csvFormatRules).length === 0) {
+    return null; // STAGING_SCHEMA_（固定11列）を使用
+  }
+
+  // buildTransactionSql_ の INSERT SELECT / JOIN で参照する必須フィールド
+  const REQUIRED_BQ_FIELDS = [
+    'transaction_date', // INSERT: invoice_lines.transaction_date
+    'customer_code',    // JOIN: wholesaler_merchants.customer_code
+    'item_name',        // INSERT: invoice_lines.item_name
+    'quantity',         // INSERT: invoice_lines.quantity
+    'unit_price',       // INSERT: invoice_lines.unit_price
+    'tax_rate',         // INSERT: invoice_lines.tax_category
+    'amount_ex_tax',    // INSERT: invoice_lines.line_amount_excluding_tax
+  ];
+
+  // csv_format_rules の type → BQ 型
+  const TYPE_MAP = { date: 'DATE', integer: 'INTEGER', string: 'STRING' };
+
+  const fields = Object.values(csvFormatRules).map(function(rule) {
+    if (!rule.bq_field) {
+      throw new Error(
+        'csv_format_rules に bq_field が未設定の列があります: csv_header="' + rule.csv_header + '"'
+      );
+    }
+    return { name: rule.bq_field, type: TYPE_MAP[rule.type] || 'STRING' };
+  });
+
+  // 必須フィールドの存在チェック
+  const fieldNames = new Set(fields.map(function(f) { return f.name; }));
+  REQUIRED_BQ_FIELDS.forEach(function(f) {
+    if (!fieldNames.has(f)) {
+      throw new Error(
+        'csv_format_rules に必須の bq_field が不足しています: "' + f + '"\n' +
+        '（buildTransactionSql_ の SQL で参照されるフィールドです）'
+      );
+    }
+  });
+
+  return { fields: fields };
+}
+
+/**
  * merchant_mappings から customer_code → mall_code のマップを構築する。
  * summaryData の customerCode が全て merchant_mappings に存在するかも検証する（改ざん防止）。
  *
@@ -123,8 +178,14 @@ function buildMallCodeMap_(mappings, merchantTotals) {
  * BQ マルチステートメント・トランザクション SQL を組み立てる。
  * BEGIN TRANSACTION 〜 COMMIT を含む SQL 全文を返す。
  *
- * ⚠️ SQL インジェクション対策: remarks 等のユーザー入力は esc() でシングルクォートをエスケープする。
- *    BQ の parameterized queries は GAS の Jobs.query() では使用できないため文字列エスケープで対処。
+ * ⚠️ SQL インジェクション対策:
+ *   BQ の named parameter（@param_name）は単一ステートメントでは機能する（be_bq_query.js 参照）が、
+ *   BEGIN TRANSACTION 〜 COMMIT を含むマルチステートメントスクリプト内では使用できない。
+ *   （BQ の仕様制限）
+ *   そのため、ユーザー入力値には次の対策を併用する:
+ *     - 文字列（remarks 等）: esc() でシングルクォートをエスケープ
+ *     - 数値（金額等）: Number() でキャスト + 非有限大・ NaN の事前検証（本関数内で実施）
+ *     - ID 値（UUID 等）: 正規表現でフォーマット検証（本関数内で実施）
  *
  * @param {string} invoiceUuid - 請求UUID
  * @param {string} stagingId   - staging テーブル名（ハイフンなし）
@@ -142,6 +203,31 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
   const wt       = summaryData.wholesalerTotal;
+
+  // ── 入力値の型・範囲検証（SQL インジェクション対策の第一層）──────────────
+  // UUID 形式検証（invoiceUuid / wsUserId）
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(invoiceUuid)) {
+    throw new Error('[buildTransactionSql_] invoiceUuid の形式が不正です: ' + invoiceUuid);
+  }
+  if (!UUID_RE.test(wsUserId)) {
+    throw new Error('[buildTransactionSql_] wholesaler_user_id の形式が不正です: ' + wsUserId);
+  }
+  // staging テーブル名検証（アンダースコア・英数字のみ）
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) {
+    throw new Error('[buildTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+  }
+  // 整数型検証（wsId）
+  if (!Number.isInteger(wsId) || wsId <= 0) {
+    throw new Error('[buildTransactionSql_] wholesaler_id が不正です: ' + wsId);
+  }
+  // 単体合計値の有限性・非負・NaN検証
+  const numFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8','feeAmount','paymentAmount'];
+  numFields.forEach(function(f) {
+    const v = Number(wt[f] || 0);
+    if (!isFinite(v)) throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' が数値ではありません: ' + wt[f]);
+    if (v < 0) throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' に負数は許可されていません: ' + v);
+  });
 
   // SQL 文字列内のシングルクォートを '' でエスケープする（SQLインジェクション対策）
   const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
@@ -242,20 +328,22 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
  *   - summaryData.customerCode が merchant_mappings に存在するかをサーバー側で検証
  *   - 金額・備考はフロント確定値をそのまま使用（卸が確認画面で承認した値）
  *
- * @param {string} csvBase64   - 元CSVのBase64エンコード文字列（フロントで UTF-8 エンコード済み）
+ * @param {string} rawCsvBase64  - 元CSVのBase64（元ファイルのバイト列そのまま。Drive保存に使用）
+ * @param {string} utf8CsvBase64 - UTF-8変換済みCSVのBase64（ヘッダー検証・BQ Load Jobに使用）
  * @param {Object} summaryData - フロント確定値 { wholesalerTotal: {...}, merchantTotals: [...] }
  * @param {Object} remarks     - 加盟店別備考 { [customerCode]: string }
  * @returns {{ status: 'success', data: { csv_url: string, invoice_uuid: string } }}
  * @throws {Error} Drive 操作または BQ 書き込み失敗時
  */
-function sendInvoiceData(csvBase64, summaryData, remarks) {
+function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
   try {
     // ── サーバー側から卸情報を取得（改ざん不可）──────────────────────────
     const accountInfo = getServerAccountInfo_();
     const mappings    = accountInfo.merchant_mappings || [];
 
     // ── 入力バリデーション ────────────────────────────────────────────────
-    if (!csvBase64) throw new Error('csvBase64 が空です');
+    if (!rawCsvBase64)  throw new Error('rawCsvBase64 が空です');
+    if (!utf8CsvBase64) throw new Error('utf8CsvBase64 が空です');
     if (!summaryData || !summaryData.wholesalerTotal || !Array.isArray(summaryData.merchantTotals)) {
       throw new Error('summaryData の形式が不正です');
     }
@@ -266,14 +354,17 @@ function sendInvoiceData(csvBase64, summaryData, remarks) {
       throw new Error('summaryData.merchantTotals が空です');
     }
 
+    // ── csv_format_rules から staging スキーマを生成（カスタム対応）────────
+    // null の場合は loadCsvToBq_ 内で STAGING_SCHEMA_（固定11列）にフォールバック。
+    const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
+
     // ── merchant_mappings で customerCode を検証し mall_code マップを構築 ──
     const mallCodeMap = buildMallCodeMap_(mappings, summaryData.merchantTotals);
 
-    // ── ② CSV デコード・ヘッダー検証（データ行は読まない）─────────────────
-    const csvBytes = Utilities.base64Decode(csvBase64);
-    const csvBlob  = Utilities.newBlob(csvBytes, MimeType.CSV);
-    const csvText  = csvBlob.getDataAsString('UTF-8');
-    const expected = getExpectedHeaders_(accountInfo.csv_format_rules);
+    // ── ② ヘッダー検証（utf8CsvBase64 を使用。データ行は読まない）──────────
+    const utf8Bytes = Utilities.base64Decode(utf8CsvBase64);
+    const csvText   = Utilities.newBlob(utf8Bytes, MimeType.CSV).getDataAsString('UTF-8');
+    const expected  = getExpectedHeaders_(accountInfo.csv_format_rules);
     validateCsvHeader_(csvText, expected);
     Logger.log('[CSV] ヘッダー検証完了');
 
@@ -287,12 +378,13 @@ function sendInvoiceData(csvBase64, summaryData, remarks) {
     const datasetId = config.bqDatasetId;
     const now       = new Date();
 
-    // ── ① Drive 保存（元バイト列のまま保存）────────────────────────────────
+    // ── ① Drive 保存（rawCsvBase64: 元ファイルのバイト列をそのまま保存）──────
+    const rawBytes    = Utilities.base64Decode(rawCsvBase64);
     const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
     const userFolder  = getOrCreateSubFolder_(rootFolder, String(accountInfo.wholesaler_id));
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
     const fileName    = formatTimestamp_(now) + '_original.csv';
-    const saveBlob    = Utilities.newBlob(csvBytes, MimeType.CSV, fileName);
+    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
     const csvFile     = monthFolder.createFile(saveBlob);
     const csvUrl      = csvFile.getUrl();
     Logger.log('[Drive] 保存完了: ' + csvUrl);
@@ -304,9 +396,9 @@ function sendInvoiceData(csvBase64, summaryData, remarks) {
       return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
     }
 
-    // ── ③ 生CSV を BQ Load Job で staging テーブルへ投入 ─────────────────
+    // ── ③ 生CSV を BQ Load Job で staging テーブルへ投入（utf8Bytes を使用）──
     Logger.log('[BQ] Load Job 投入: stagingId=' + stagingId);
-    const jobId = loadCsvToBq_(projectId, datasetId, stagingId, csvBytes);
+    const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema);
 
     // ── ④ Load Job 完了待ち（ポーリング）────────────────────────────────
     waitForLoadJob_(projectId, jobId);
@@ -458,11 +550,16 @@ function testSendInvoice_() {
     throw new Error('testSendInvoice_() は development 環境でのみ実行できます (ENV=' + env + ')');
   }
 
-  // デフォルトCSVフォーマットに合わせたサンプルCSV（UTF-8）
+  // デフォルトCSVフォーマット（11列）に合わせたサンプルCSV（UTF-8）
+  // 列順: 取引日,伝票番号,加盟店コード,加盟店名,品目,数量,数量単位,単価,税率区分(%),請求金額（税抜）,備考
   const headers = '取引日,伝票番号,加盟店コード,加盟店名,品目,数量,数量単位,単価,税率区分(%),請求金額（税抜）,備考';
   const dataRow = '2026-05-01,1001,C001,テスト加盟店,テスト品目,1,個,1000,10,1000,テスト備考';
   const dummyCsv = headers + '\r\n' + dataRow + '\r\n';
-  const dummyBase64 = Utilities.base64Encode(dummyCsv);
+  // rawCsvBase64: Drive 保存用（元バイト列そのまま）
+  // utf8CsvBase64: BQ Load Job / ヘッダー検証用（UTF-8 変換済み）
+  // ※ テスト用サンプルは元から UTF-8 のため両者は同値
+  const dummyRawBase64  = Utilities.base64Encode(dummyCsv);
+  const dummyUtf8Base64 = Utilities.base64Encode(dummyCsv);
 
   // フロントから渡される summaryData / remarks のダミー
   const summaryData = {
@@ -478,6 +575,6 @@ function testSendInvoice_() {
   };
   const remarks = { 'C001': 'テスト備考（手動入力）' };
 
-  const result = sendInvoiceData(dummyBase64, summaryData, remarks);
+  const result = sendInvoiceData(dummyRawBase64, dummyUtf8Base64, summaryData, remarks);
   Logger.log('テスト結果: ' + JSON.stringify(result));
 }

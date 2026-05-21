@@ -45,10 +45,12 @@ const STAGING_SCHEMA_ = {
  * @param {string}   datasetId      - BQ データセットID
  * @param {string}   stagingTableId - 宛先テーブルID（UUID付き、ハイフン→アンダースコア済み）
  * @param {number[]} csvBytes       - Utilities.base64Decode() で得た生バイト配列
+ * @param {Object}   [schema]       - BQ スキーマ定義（省略時は STAGING_SCHEMA_ を使用）
+ *                                    csv_format_rules がある場合は buildStagingSchema_() の結果を渡す。
  * @returns {string} 投入した Load Job の jobId
  * @throws {Error} Load Job 投入失敗時
  */
-function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes) {
+function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes, schema) {
   const blob = Utilities.newBlob(csvBytes, 'application/octet-stream');
   const jobResource = {
     configuration: {
@@ -62,7 +64,7 @@ function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes) {
         skipLeadingRows:  1,
         writeDisposition: 'WRITE_TRUNCATE',
         encoding:         'UTF-8',
-        schema:           STAGING_SCHEMA_,
+        schema:           schema || STAGING_SCHEMA_,
       },
     },
   };

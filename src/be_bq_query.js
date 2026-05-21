@@ -25,9 +25,9 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
-    '  id AS wholesaler_invoice_id, wholesaler_invoice_date, wholesaler_name, ' +
+    '  id AS wholesaler_invoice_id, wholesaler_invoice_date, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
-    '  invoice_fee_rate, invoice_fee_amount, payment_amount ' +
+    '  wholesaler_fee_rate, invoice_fee_amount, payment_amount ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
     'WHERE wholesaler_id = @wholesaler_id ' +
     'ORDER BY wholesaler_invoice_date DESC ' +
@@ -52,17 +52,18 @@ function fetchInvoiceDetail_(invoiceId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
-    '  mi.mall_code, mi.customer_code, mi.merchant_name, mi.slip_number, ' +
-    '  mi.tax_amount, mi.total_ex_tax_8, mi.total_ex_tax_10, ' +
-    '  il.transaction_date, il.item_name, il.unit_price, il.quantity, ' +
-    '  il.quantity_unit, il.tax_rate, il.amount_ex_tax, il.tax_amount AS line_tax_amount, ' +
-    '  il.invoice_detail_remark ' +
-    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.merchant_invoices` AS mi ' +
+    '  si.mall_code, si.invoice_number, si.invoice_status, ' +
+    '  si.total_amount, si.subtotal_amount, si.tax_amount, ' +
+    '  si.total_ex_tax_8per, si.consumption_tax_8per, ' +
+    '  si.total_ex_tax_10per, si.consumption_tax_10per, ' +
+    '  il.invoice_item_row, il.transaction_date, il.item_name, il.unit_price, il.quantity, ' +
+    '  il.quantity_unit, il.tax_category, il.line_amount_excluding_tax, il.line_tax_amount, ' +
+    '  il.line_note ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.invoice_lines` AS il ' +
-    '  ON mi.wholesaler_invoice_id = il.wholesaler_invoice_id ' +
-    '  AND mi.mall_code = il.mall_code AND mi.slip_number = il.slip_number ' +
-    'WHERE mi.wholesaler_invoice_id = @invoice_id ' +
-    'ORDER BY mi.mall_code, il.transaction_date';
+    '  ON si.id = il.store_invoice_id ' +
+    'WHERE si.wholesaler_invoice_id = @invoice_id ' +
+    'ORDER BY si.mall_code, il.invoice_item_row';
 
   const params = [
     { name: 'invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
