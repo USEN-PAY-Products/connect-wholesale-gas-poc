@@ -66,12 +66,15 @@ document.addEventListener('DOMContentLoaded', function () {
       .withSuccessHandler(function (result) {
         if (result && result.data) {
           saveAccountInfo(result.data);
+          enableUploadUi_();
         } else {
           console.error('[account] getAccountInfo のレスポンスが不正です:', result);
+          showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
         }
       })
       .withFailureHandler(function (err) {
         console.error('[account] getAccountInfo failed:', err);
+        showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
       })
       .getAccountInfo();
   } else {
@@ -100,8 +103,33 @@ document.addEventListener('DOMContentLoaded', function () {
         { customer_code: '1200', mall_code: 'U234', merchant_name: '焼肉USEN 2号店', is_active: true },
       ],
     });
+    enableUploadUi_();
   }
 });
+
+/**
+ * アカウント情報取得完了後にアップロードUIを有効化する。
+ * DOMContentLoaded 時点では dropZone / fileInput が disabled になっている前提。
+ */
+function enableUploadUi_() {
+  const dz = document.getElementById('dropZone');
+  const fi = document.getElementById('fileInput');
+  const btn = document.getElementById('btnSelectFile');
+  if (dz)  dz.classList.remove('is-disabled');
+  if (fi)  fi.disabled  = false;
+  if (btn) btn.disabled = false;
+}
+
+/**
+ * アカウント情報取得失敗時にアップロードUIをエラー表示に切り替える。
+ * @param {string} message
+ */
+function showUploadUiError_(message) {
+  const dz = document.getElementById('dropZone');
+  if (dz) {
+    dz.innerHTML = '<p class="upload-area__error">' + message + '</p>';
+  }
+}
 
 
 // ---- utils.js ----
@@ -561,7 +589,21 @@ fileInput.addEventListener('change', () => {
 
 /** @param {File} file */
 function handleFile(file) {
-  // ── Step 2: ファイル形式チェック ──────────────────────────────────────────
+  // ── Step 1: アカウント情報取得済みチェック ────────────────────────────────
+  if (!sessionStorage.getItem('shiire_csv_format_rules')) {
+    showToast('アカウント情報を取得中です。しばらく待ってから再度お試しください。');
+    return;
+  }
+
+  // ── Step 2: ファイルサイズチェック（Base64後に sessionStorage quota を超えないよう 3MB 上限）──
+  const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5MB（Base64後≒6.7MB、1.5万行程度まで対応）
+  if (file.size > MAX_CSV_BYTES) {
+    showToast('ファイルサイズが大きすぎます（上限 5MB）。行数を分割して再度お試しください。');
+    resetDropZone();
+    return;
+  }
+
+  // ── Step 3: ファイル形式チェック ──────────────────────────────────────────
   if (!file.name.toLowerCase().endsWith('.csv')) {
     showToast('CSVファイルを選択してください');
     resetDropZone();
@@ -583,12 +625,13 @@ function handleFile(file) {
       const base64 = arrayBufferToBase64_(buffer);
       rawCsvBase64 = base64;
       parsedData   = rows;
-      // リロード対策: sessionStorage に保存
+      // リロード対策: sessionStorage に保存（容量超過時はベストエフォート）
       try {
         sessionStorage.setItem('shiire_parsedData',   JSON.stringify(rows));
         sessionStorage.setItem('shiire_rawCsvBase64', base64);
       } catch (e) {
         console.warn('[state] sessionStorage への保存に失敗しました:', e);
+        showToast('ブラウザの一時保存領域が不足しています。このままページを離れると最初からやり直しになります。');
       }
     } else {
       // エラー: 保持データをクリア
@@ -782,8 +825,8 @@ function validateCsv(csvText) {
           }
           break;
         case 'integer':
-          if (isNaN(Number(val)) || val === '') {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は数値で入力してください`);
+          if (val === '' || !/^-?\d+$/.test(val.trim())) {
+            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は整数で入力してください`);
           } else {
             const num = Number(val);
             // enumチェック
@@ -881,7 +924,6 @@ function resetPage() {
   try {
     sessionStorage.removeItem('shiire_parsedData');
     sessionStorage.removeItem('shiire_rawCsvBase64');
-    sessionStorage.removeItem('shiire_bq_payload');
   } catch (e) {
     console.warn('[state] sessionStorage のクリアに失敗しました:', e);
   }
@@ -1042,10 +1084,9 @@ btnFinalSubmit.addEventListener('click', () => {
   const wholesalerName = sessionStorage.getItem('shiire_wholesaler_name') || '';
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
-    // SessionStorage から取得、失敗時は renderConfirmPage で設定した in-memory キャッシュを使用
-    const bqPayload = JSON.parse(sessionStorage.getItem('shiire_bq_payload') || 'null')
-                      ?? window._bqPayloadCache
-                      ?? null;
+    // renderConfirmPage で設定した in-memory キャッシュを使用
+    // （sessionStorage には保存していないため window._bqPayloadCache のみ参照）
+    const bqPayload = window._bqPayloadCache ?? null;
     if (!bqPayload) {
       hideLoadingOverlay();
       showToast('送信データの準備に失敗しました。確認画面を開き直してから再送信してください。', 'error');
@@ -1188,20 +1229,13 @@ function renderConfirmPage() {
   })(); // ローカル日付（JST）で YYYY-MM-DD を組み立てる（toISOString は UTC のため深夜帯でズレる恐れあり）
 
   // 親テーブル: wholesaler_invoices
-  // BQテーブル間結合用の一意請求IDをフロントで生成する。
-  // フォーマット: WI-<wholesalerId>-<YYYYMMDDHHmmss>-<乱数4桁>
-  const _now = new Date();
-  const _pad = (n, d) => String(n).padStart(d, '0');
-  const _tsStr = _now.getFullYear() + _pad(_now.getMonth() + 1, 2) + _pad(_now.getDate(), 2)
-               + _pad(_now.getHours(), 2) + _pad(_now.getMinutes(), 2) + _pad(_now.getSeconds(), 2);
-  const _rand = _pad(Math.floor(Math.random() * 10000), 4);
-  const wholesalerInvoiceId = 'WI-' + (wholesalerId || '0') + '-' + _tsStr + '-' + _rand;
-
+  // id（UUID）はサーバー側（be_invoice.js）で Utilities.getUuid() により生成する。
+  // wholesaler_invoice_id は否認・修正ループで付与される正式請求書IDのため、アップロード時点では null。
   const wholesalerInvoiceRow = {
     wholesaler_id:             Number(wholesalerId) || -1,
     wholesaler_user_id:        Number(wholesalerUserId) || -1,
     wholesaler_name:           wholesalerName,
-    wholesaler_invoice_id:     wholesalerInvoiceId,
+    wholesaler_invoice_id:     null,
     wholesaler_invoice_date:   invoiceDate,
     wholesaler_total_amount:   totalAmountInTax,
     wholesaler_subtotal_amount: totalAmountExTax,
@@ -1240,7 +1274,7 @@ function renderConfirmPage() {
     }, { tax: 0, exTax8: 0, exTax10: 0 });
 
     merchantInvoiceRows.push({
-      wholesaler_invoice_id: wholesalerInvoiceId,
+      wholesaler_invoice_id: null, // サーバー側で UUID を設定する
       wholesaler_id:         Number(wholesalerId) || -1,
       mall_code:             mallCode,
       customer_code:         customerCode,
@@ -1258,7 +1292,7 @@ function renderConfirmPage() {
       const taxRate   = Number(row['tax_rate']       || 0);
       const taxAmount = Math.floor(amtExTax * taxRate / 100);
       invoiceLineRows.push({
-        wholesaler_invoice_id:  wholesalerInvoiceId,
+        wholesaler_invoice_id:  null, // サーバー側で UUID を設定する
         mall_code:              mallCode,
         slip_number:            slipNumber,
         transaction_date:       String(row['transaction_date'] || ''),
@@ -1274,16 +1308,10 @@ function renderConfirmPage() {
     });
   });
 
-  // BQペイロードを SessionStorage に保存（sendInvoiceData で使用）
-  // 保存失敗時は in-memory 変数で保持し、送信時にそちらを使う
+  // BQペイロードは window に in-memory で保持する。
+  // sessionStorage には保存しない（大量明細時の quota 超過を避けるため）。
+  // GAS は SPA なのでページ遷移がなく window 変数はアップロード→確認→送信を通じて生き続ける。
   const bqPayloadObj = { wholesalerInvoiceRow, merchantInvoiceRows, invoiceLineRows };
-  try {
-    sessionStorage.setItem('shiire_bq_payload', JSON.stringify(bqPayloadObj));
-    console.log('[confirm] BQペイロードを SessionStorage に保存しました');
-  } catch (e) {
-    console.warn('[confirm] BQペイロードのSessionStorage保存に失敗しました（in-memoryで保持します）:', e);
-  }
-  // in-memory キャッシュとして window に保持（SessionStorage 失敗時の送信用）
   window._bqPayloadCache = bqPayloadObj;
 
   // ── 加盟店別リストを描画 ──────────────────────────────────────────────────

@@ -83,22 +83,58 @@ function fetchInvoiceDetail_(invoiceId) {
  */
 function runQuery_(projectId, sql, params) {
   const request = {
-    query:                  sql,
-    useLegacySql:           false,
-    timeoutMs:              30000,
-    queryParameters:        params || [],
+    query:           sql,
+    useLegacySql:    false,
+    timeoutMs:       10000, // 1回あたり10秒待機（jobComplete=false なら繰り返す）
+    queryParameters: params || [],
   };
 
-  const response = BigQuery.Jobs.query(request, projectId);
+  // ── ① ジョブ投入 ─────────────────────────────────────────────────────────
+  var response = BigQuery.Jobs.query(request, projectId);
 
   if (response.errors && response.errors.length > 0) {
     throw new Error('[BQ] クエリエラー: ' + JSON.stringify(response.errors));
   }
 
-  const schema = (response.schema && response.schema.fields) || [];
-  const bqRows = response.rows || [];
+  const jobId = response.jobReference && response.jobReference.jobId;
+  if (!jobId) {
+    throw new Error('[BQ] jobId が取得できませんでした');
+  }
 
-  return bqRows.map(function(row) {
+  // ── ② jobComplete=false の場合はポーリング（最大30回 = 最大5分待機）──────
+  var MAX_POLL = 30;
+  for (var poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
+    Logger.log('[BQ] クエリ実行中... ポーリング ' + (poll + 1) + '/' + MAX_POLL);
+    Utilities.sleep(2000); // 2秒待機してから再取得
+    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+    if (response.errors && response.errors.length > 0) {
+      throw new Error('[BQ] クエリエラー（ポーリング中）: ' + JSON.stringify(response.errors));
+    }
+  }
+
+  if (!response.jobComplete) {
+    throw new Error('[BQ] クエリがタイムアウトしました（jobId: ' + jobId + '）');
+  }
+
+  // ── ③ 全ページ取得（pageToken がある限りループ）─────────────────────────
+  const schema = (response.schema && response.schema.fields) || [];
+  var allBqRows = response.rows || [];
+  var pageToken = response.pageToken;
+
+  while (pageToken) {
+    Logger.log('[BQ] 追加ページ取得中... 取得済み行数: ' + allBqRows.length);
+    var nextPage = BigQuery.Jobs.getQueryResults(projectId, jobId, { pageToken: pageToken });
+    if (nextPage.errors && nextPage.errors.length > 0) {
+      throw new Error('[BQ] ページング中エラー: ' + JSON.stringify(nextPage.errors));
+    }
+    allBqRows = allBqRows.concat(nextPage.rows || []);
+    pageToken = nextPage.pageToken;
+  }
+
+  Logger.log('[BQ] クエリ完了。取得行数: ' + allBqRows.length);
+
+  // ── ④ rows を {カラム名: 値} のオブジェクト配列に変換 ────────────────────
+  return allBqRows.map(function(row) {
     const obj = {};
     (row.f || []).forEach(function(cell, idx) {
       obj[schema[idx].name] = cell.v;

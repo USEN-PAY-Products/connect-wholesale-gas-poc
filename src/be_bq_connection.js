@@ -62,21 +62,36 @@ function insertInvoiceRows_(bqPayload, csvUrl) {
  * @throws {Error} BQ エラー時
  */
 function insertRows_(projectId, datasetId, tableId, rows) {
-  const body = {
-    rows: rows.map(function(row, idx) {
-      // wholesaler_invoice_id が全行に必ず入っていることを前提とする（fe_js.html で生成済み）
-      const invoiceId = row.wholesaler_invoice_id || 'unknown';
-      const insertId  = invoiceId + '_' + tableId + '_' + idx;
-      return { insertId: insertId, json: row };
-    }),
-  };
-  const response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);
-  if (response.insertErrors && response.insertErrors.length > 0) {
-    const details = response.insertErrors.map(function(e) {
-      return 'row[' + e.index + ']: ' + e.errors.map(function(err) {
-        return err.reason + ' - ' + err.message;
-      }).join(', ');
-    }).join(' | ');
-    throw new Error('[BQ] ' + tableId + ' の登録エラー: ' + details);
+  // BQ insertAll の上限（1万行）を超えないよう 5,000 行ずつバッチ分割する。
+  // 1加盟店最大1,000行 × 5加盟店 = 5,000行/バッチが目安。
+  var BATCH_SIZE = 5000;
+  for (var batchStart = 0; batchStart < rows.length; batchStart += BATCH_SIZE) {
+    var batch = rows.slice(batchStart, batchStart + BATCH_SIZE);
+    var body = {
+      rows: batch.map(function(row, idx) {
+        // 親テーブルは row.id（UUID）、子・孫テーブルは row.wholesaler_invoice_id（同UUID）を使う。
+        // どちらも未設定の場合は呼び出し元（sendInvoiceData）のバグなので例外にする。
+        var invoiceId = row.id || row.wholesaler_invoice_id;
+        if (!invoiceId) {
+          throw new Error(
+            '[BQ] insertId の生成に必要な id / wholesaler_invoice_id が row[' + (batchStart + idx) + '] に存在しません。' +
+            ' テーブル: ' + tableId
+          );
+        }
+        // insertId にバッチ開始オフセットを含めることで全行ユニークを保証する
+        var insertId = invoiceId + '_' + tableId + '_' + (batchStart + idx);
+        return { insertId: insertId, json: row };
+      }),
+    };
+    var response = BigQuery.Tabledata.insertAll(body, projectId, datasetId, tableId);
+    if (response.insertErrors && response.insertErrors.length > 0) {
+      var details = response.insertErrors.map(function(e) {
+        return 'row[' + (batchStart + e.index) + ']: ' + e.errors.map(function(err) {
+          return err.reason + ' - ' + err.message;
+        }).join(', ');
+      }).join(' | ');
+      throw new Error('[BQ] ' + tableId + ' の登録エラー（バッチ開始行: ' + batchStart + '）: ' + details);
+    }
+    Logger.log('[BQ] ' + tableId + ' バッチ登録完了: ' + batchStart + '〜' + (batchStart + batch.length - 1) + '行目');
   }
 }

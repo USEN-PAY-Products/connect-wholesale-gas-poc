@@ -24,58 +24,14 @@ const STUB_ACCOUNT_INFO = {
 };
 
 // =============================================================================
-// Private utility helpers
+// Private utility helpers は be_utils.js / be_main.js に集約済み。
+// このファイルでは doGet / success_ / error_ / getWholesalerId_ /
+// getOrCreateSubFolder_ / formatTimestamp_ / formatYearMonth_ を定義しない。
 // =============================================================================
 
-function success_(data) {
-  return { status: 'success', data: data };
-}
-
-function error_(message, data) {
-  return { status: 'error', message: message, data: data || null };
-}
-
-function getWholesalerId_() {
-  const email = Session.getActiveUser().getEmail();
-  const atIndex = email.indexOf('@');
-  if (atIndex === -1) throw new Error('ユーザーのメールアドレスが取得できませんでした');
-  // ローカルパート（@より前）を卸IDとして使用し、個人メールアドレス全文の外部漏洩を避ける
-  return email.slice(0, atIndex);
-}
-
-function getOrCreateSubFolder_(parentFolder, name) {
-  const folders = parentFolder.getFoldersByName(name);
-  return folders.hasNext() ? folders.next() : parentFolder.createFolder(name);
-}
-
-function formatTimestamp_(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return (
-    date.getFullYear() +
-    pad(date.getMonth() + 1) +
-    pad(date.getDate()) +
-    '_' +
-    pad(date.getHours()) +
-    pad(date.getMinutes()) +
-    pad(date.getSeconds())
-  );
-}
-
-function formatYearMonth_(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return date.getFullYear() + pad(date.getMonth() + 1);
-}
-
 // =============================================================================
-// 1. doGet
+// 1. doGet は be_main.js で定義済み
 // =============================================================================
-
-function doGet(e) {
-  return HtmlService.createTemplateFromFile('fe_index')
-    .evaluate()
-    .setTitle('Shiire System')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-}
 
 // =============================================================================
 // 2. getAccountInfo

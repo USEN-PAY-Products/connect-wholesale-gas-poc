@@ -59,15 +59,17 @@ function sendInvoiceData(csvBase64, bqPayload) {
     bqPayload.wholesalerInvoiceRow.wholesaler_id        = serverWsId;
     bqPayload.wholesalerInvoiceRow.wholesaler_user_id   = serverWsUserId;
     bqPayload.wholesalerInvoiceRow.wholesaler_name      = serverWsName;
-    // 子テーブル（merchant_invoices）―各行の wholesaler_id もサーバー値で上書き
-    const wholesalerInvoiceId = bqPayload.wholesalerInvoiceRow.wholesaler_invoice_id;
+    // id（UUID）はサーバー側で生成してセット（クライアント値は使わない）
+    const serverInvoiceUuid = Utilities.getUuid();
+    bqPayload.wholesalerInvoiceRow.id = serverInvoiceUuid;
+    // 子テーブル（merchant_invoices）― wholesaler_id と wholesaler_invoice_id をサーバー値で上書き
     (bqPayload.merchantInvoiceRows || []).forEach(function(row) {
       row.wholesaler_id         = serverWsId;
-      row.wholesaler_invoice_id = wholesalerInvoiceId;
+      row.wholesaler_invoice_id = serverInvoiceUuid;
     });
     // 孫テーブル（invoice_lines）― wholesaler_invoice_id をサーバー値で上書き
     (bqPayload.invoiceLineRows || []).forEach(function(row) {
-      row.wholesaler_invoice_id = wholesalerInvoiceId;
+      row.wholesaler_invoice_id = serverInvoiceUuid;
     });
 
     const config = getConfig_();
@@ -150,13 +152,13 @@ function fetchInvoiceDetail(invoiceId) {
 // =============================================================================
 
 /** @type {Array<{date:string, title:string, type:string}>} */
-var MOCK_SCHEDULE_ = [
+const MOCK_SCHEDULE_ = [
   { date: '2026-05-13', title: '請求確定', type: 'billing' },
   { date: '2026-05-27', title: '口座振替', type: 'payment' },
 ];
 
 /** 請求履歴1件分の共通フィールド。id / monthLabel は各エントリで上書きする。 */
-var MOCK_BILLING_BASE_ = {
+const MOCK_BILLING_BASE_ = {
   billingAmount: 99999999,
   subtotalExTax: 90000000,
   taxAmount:     9999999,
@@ -170,7 +172,7 @@ var MOCK_BILLING_BASE_ = {
 };
 
 /** @type {Array<{id:string, monthLabel:string}>} */
-var MOCK_BILLING_ENTRIES_ = [
+const MOCK_BILLING_ENTRIES_ = [
   { id: 'b001', monthLabel: '4月' },
   { id: 'b002', monthLabel: '3月' },
   { id: 'b003', monthLabel: '2月' },

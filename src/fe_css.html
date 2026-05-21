@@ -322,6 +322,20 @@ button { cursor: pointer; font-family: inherit; }
   background: #e8f0fe;
 }
 
+/* ローディング中（アカウント情報取得前）の無効状態 */
+.drop-zone.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.upload-area__error {
+  color: #c62828;
+  font-size: 14px;
+  text-align: center;
+  padding: 16px;
+}
+
 /* 成功状態 */
 .drop-zone.is-success {
   border-color: #2e7d32;
