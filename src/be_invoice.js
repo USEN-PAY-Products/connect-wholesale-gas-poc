@@ -265,8 +265,8 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   const hasField = function(f) { return bqFields.has(f); };
 
   // 任意フィールドの SQL 式（なければ NULL で代替）
-  const sqlQuantityUnit  = hasField('quantity_unit')         ? 's.quantity_unit'         : 'NULL';
-  const sqlDetailRemark  = hasField('invoice_detail_remark') ? 's.invoice_detail_remark' : 'NULL';
+  const sqlQuantityUnit  = hasField('quantity_unit')         ? 's.quantity_unit'         : 'CAST(NULL AS STRING)';
+  const sqlDetailRemark  = hasField('invoice_detail_remark') ? 's.invoice_detail_remark' : 'CAST(NULL AS STRING)';
   // slip_number は ORDER BY 用（なければ transaction_date のみで順序付け）
   const sqlOrderBy = hasField('slip_number')
     ? 'ORDER BY s.transaction_date, s.slip_number'
@@ -319,7 +319,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     '  si.id,',
     '  s.transaction_date, s.item_name, s.quantity, ' + sqlQuantityUnit + ', s.unit_price,',
     '  s.tax_rate, s.amount_ex_tax,',
-    '  FLOOR(s.amount_ex_tax * s.tax_rate / 100),',
+    '  CAST(FLOOR(s.amount_ex_tax * s.tax_rate / 100) AS INT64),',
     '  ' + sqlDetailRemark,
     'FROM ' + stagingRef + ' s',
     'JOIN ' + merchantsRef + ' wm',
@@ -459,6 +459,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
       accountInfo, mallCodeMap, csvUrl, projectId, datasetId
     );
     Logger.log('[BQ] トランザクション SQL 実行: invoiceUuid=' + invoiceUuid);
+    Logger.log('[BQ] SQL全文:\n' + sql);
     runTransactionSql_(projectId, sql);
 
     // ── ⑥ staging テーブルを DROP（TRANSACTION 外）─────────────────────
