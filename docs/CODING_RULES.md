@@ -41,7 +41,7 @@ src/
 
 `fe_index.html` から他の `fe_` ファイルを読み込む際は、GAS の `include()` 関数を使用します（拡張子なしで指定）。
 
-`be_server.js` に以下の関数が定義されていること:
+`be_main.js` に以下の関数が定義されていること:
 
 ```javascript
 function include(filename) {
