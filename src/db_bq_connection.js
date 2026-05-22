@@ -45,10 +45,11 @@ const STAGING_SCHEMA_ = {
  * @param {number[]} csvBytes       - Utilities.base64Decode() で得た生バイト配列
  * @param {Object}   [schema]       - BQ スキーマ定義（省略時は STAGING_SCHEMA_ を使用）
  *                                    csv_format_rules がある場合は buildStagingSchema_() の結果を渡す。
+ * @param {string}   [location]     - BQ リージョン（例: 'asia-northeast1'。未指定時は 'US'）
  * @returns {string} 投入した Load Job の jobId
  * @throws {Error} Load Job 投入失敗時
  */
-function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes, schema) {
+function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes, schema, location) {
   const blob = Utilities.newBlob(csvBytes, 'application/octet-stream');
   const jobResource = {
     configuration: {
@@ -64,6 +65,10 @@ function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes, schema) {
         encoding:         'UTF-8',
         schema:           schema || STAGING_SCHEMA_,
       },
+    },
+    jobReference: {
+      projectId: projectId,
+      location:  location || 'US',
     },
   };
 
@@ -83,13 +88,14 @@ function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes, schema) {
  *
  * @param {string} projectId - GCP プロジェクトID
  * @param {string} jobId     - 待機対象の Load Job ID
+ * @param {string} [location] - BQ リージョン
  * @throws {Error} Load Job 失敗またはタイムアウト時
  */
-function waitForLoadJob_(projectId, jobId) {
+function waitForLoadJob_(projectId, jobId, location) {
   const MAX_POLL      = 60;
   const POLL_INTERVAL = 2000; // ms
   for (let i = 0; i < MAX_POLL; i++) {
-    const job       = BigQuery.Jobs.get(projectId, jobId);
+    const job       = BigQuery.Jobs.get(projectId, jobId, location ? { location: location } : {});
     const state     = job.status && job.status.state;
     const errResult = job.status && job.status.errorResult;
 

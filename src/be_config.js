@@ -7,6 +7,7 @@
 //   DRIVE_ROOT_FOLDER_ID   … 監査証跡 CSV の保存先 Drive フォルダ ID
 //   GCP_PROJECT_ID         … BigQuery の GCP プロジェクト ID
 //   BQ_DATASET_ID          … BigQuery のデータセット ID（例: connect_db）
+//   BQ_LOCATION            … BigQuery のリージョン（例: asia-northeast1。未設定時は US フォールバック）
 //   STUB_ACCOUNT_INFO_MODE … 'true' = getAccountInfo をスタブ返却（API未整備時）
 //                            'false' = バックオフィスAPIを実際に呼び出す
 //
@@ -21,6 +22,7 @@ function getConfig_() {
   const driveFolderId  = props.getProperty('DRIVE_ROOT_FOLDER_ID');
   const gcpProjectId   = props.getProperty('GCP_PROJECT_ID');
   const bqDatasetId    = props.getProperty('BQ_DATASET_ID');
+  const bqLocation     = props.getProperty('BQ_LOCATION') || 'US';
 
   // DRIVE_ROOT_FOLDER_ID / GCP_PROJECT_ID / BQ_DATASET_ID は常に必須。
   // ACCOUNT_API_URL / API_KEY は STUB_ACCOUNT_INFO_MODE=false のときのみ必要。
@@ -43,6 +45,7 @@ function getConfig_() {
     driveFolderId:      driveFolderId,
     gcpProjectId:       gcpProjectId,
     bqDatasetId:        bqDatasetId,
+    bqLocation:         bqLocation,
     stubAccountInfoMode: stubAccountInfoMode,
   };
 }
@@ -107,6 +110,11 @@ function setupScriptProperties(forceOverwrite) {
 /** BQ_DATASET_ID を connect_db に更新する */
 function overwriteBqDatasetId() {
   overwriteScriptProperty_('BQ_DATASET_ID', 'connect_db');
+}
+
+/** BQ_LOCATION を asia-northeast1 に更新する */
+function overwriteBqLocation() {
+  overwriteScriptProperty_('BQ_LOCATION', 'asia-northeast1');
 }
 
 /** GCP_PROJECT_ID を更新する（値は関数内を直接編集してから実行） */

@@ -425,6 +425,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
     const datasetId = config.bqDatasetId;
+    const location  = config.bqLocation;
     const now       = new Date();
 
     // ── ① Drive 保存（rawCsvBase64: 元ファイルのバイト列をそのまま保存）──────
@@ -447,10 +448,10 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
 
     // ── ③ 生CSV を BQ Load Job で staging テーブルへ投入（utf8Bytes を使用）──
     Logger.log('[BQ] Load Job 投入: stagingId=' + stagingId);
-    const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema);
+    const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema, location);
 
-    // ── ④ Load Job 完了待ち（ポーリング）────────────────────────────────
-    waitForLoadJob_(projectId, jobId);
+    // ── ⑤ Load Job 完了待ち（ポーリング）────────────────────────
+    waitForLoadJob_(projectId, jobId, location);
 
     // ── ⑤ BEGIN TRANSACTION で子・孫・親を一括 INSERT ───────────────────
     const sql = buildTransactionSql_(
