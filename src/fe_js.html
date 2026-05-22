@@ -466,10 +466,19 @@ let rawCsvBase64 = null;
 let utf8CsvBase64 = null;
 
 /**
- * パース済みデータ行の配列。各要素はカラム名をキーとしたオブジェクト。
- * @type {Array<{storeCode:string, date:string, item:string, qty:number,
- *              unitPrice:number, taxRate:number, amountExTax:number,
- *              tax:number, note:string}>}
+ * パース済みデータ行の配列。各要素は csv_format_rules のキー（bq_field）をキーとしたオブジェクト。
+ * デフォルトフォーマット（9列）の場合のキー構成は以下の通り。
+ * @type {Array<{
+ *   customer_code:         string,
+ *   transaction_date:      string,
+ *   item_name:             string,
+ *   quantity:              number,
+ *   unit_price:            number,
+ *   tax_rate:              number,
+ *   amount_ex_tax:         number,
+ *   tax_amount:            number,
+ *   invoice_detail_remark: string,
+ * }>}
  */
 let parsedData = null;
 
