@@ -18,16 +18,22 @@
         <div class="summary-block summary-block--left">
           <div class="summary-block__row summary-block__row--main">
             <span class="summary-block__label">請求金額</span>
-            <span class="summary-block__value summary-block__value--main" id="summaryAmountInTax">--</span>
+            <span class="summary-block__value summary-block__value--main">
+              <span id="summaryAmountInTax" class="summary-value-display">0</span>円
+            </span>
           </div>
           <div class="summary-block__divider"></div>
           <div class="summary-block__row">
             <span class="summary-block__label">小計（税抜）</span>
-            <span class="summary-block__value" id="summaryAmountExTax">--</span>
+            <span class="summary-block__value">
+              <span id="summaryAmountExTax" class="summary-value-display">0</span>円
+            </span>
           </div>
           <div class="summary-block__row">
             <span class="summary-block__label">税額</span>
-            <span class="summary-block__value" id="summaryTax">--</span>
+            <span class="summary-block__value">
+              <span id="summaryTax" class="summary-value-display">0</span>円
+            </span>
           </div>
         </div>
 
@@ -40,26 +46,30 @@
           </div>
           <div class="summary-block__row">
             <span class="summary-block__tax-rate" id="summaryRate10">10%</span>
-            <span class="summary-block__value" id="summaryExTax10">--</span>
-            <span class="summary-block__value" id="summaryTax10">--</span>
+            <span class="summary-block__value"><span id="summaryExTax10" class="summary-value-display">0</span>円</span>
+            <span class="summary-block__value"><span id="summaryTax10" class="summary-value-display">0</span>円</span>
           </div>
           <div class="summary-block__row">
             <span class="summary-block__tax-rate" id="summaryRate8">8%</span>
-            <span class="summary-block__value" id="summaryExTax8">--</span>
-            <span class="summary-block__value" id="summaryTax8">--</span>
+            <span class="summary-block__value"><span id="summaryExTax8" class="summary-value-display">0</span>円</span>
+            <span class="summary-block__value"><span id="summaryTax8" class="summary-value-display">0</span>円</span>
           </div>
         </div>
 
         <!-- 右ブロック：振込金額 -->
         <div class="summary-block summary-block--right">
           <div class="summary-block__row">
-            <span class="summary-block__label">手数料（5%）</span>
-            <span class="summary-block__value" id="summaryFee">--</span>
+            <span class="summary-block__label">手数料（<span id="summaryFeeRate">-</span>%）</span>
+            <span class="summary-block__value">
+              <span id="summaryFee" class="summary-value-display">0</span>円
+            </span>
           </div>
           <div class="summary-block__divider"></div>
           <div class="summary-block__row">
             <span class="summary-block__label">振込金額</span>
-            <span class="summary-block__value summary-block__value--transfer" id="summaryTransfer">--</span>
+            <span class="summary-block__value summary-block__value--transfer">
+              <span id="summaryTransfer" class="summary-value-display">0</span>円
+            </span>
           </div>
         </div>
 

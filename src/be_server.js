@@ -1,259 +1,106 @@
 // =============================================================================
-// Private utility helpers
+// ★ STUB MODE ★
+// BQテーブルおよびバックオフィスAPIの準備が完了するまで true にしておく。
+// 準備が完了したら false に変更して clasp push する。
 // =============================================================================
+/** Drive保存・BQ書き込みのスタブ。false = 本番動作。 */
+const STUB_MODE = false;
+// ★ getAccountInfo のスタブ切り替えは Script Properties "STUB_ACCOUNT_INFO_MODE" で行う。
+// GAS エディタ → プロジェクトの設定 → スクリプトプロパティ で 'true' / 'false' を設定。
+// be_config.js の getConfig_().stubAccountInfoMode がその値を読み込む。
 
-function success_(data) {
-  return { status: 'success', data: data };
-}
-
-function error_(message, data) {
-  return { status: 'error', message: message, data: data || null };
-}
-
-function getWholesalerId_() {
-  const email = Session.getActiveUser().getEmail();
-  const atIndex = email.indexOf('@');
-  if (atIndex === -1) throw new Error('ユーザーのメールアドレスが取得できませんでした');
-  // ローカルパート（@より前）を卸IDとして使用し、個人メールアドレス全文の外部漏洩を避ける
-  return email.slice(0, atIndex);
-}
-
-function getOrCreateSubFolder_(parentFolder, name) {
-  const folders = parentFolder.getFoldersByName(name);
-  return folders.hasNext() ? folders.next() : parentFolder.createFolder(name);
-}
-
-function formatTimestamp_(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return (
-    date.getFullYear() +
-    pad(date.getMonth() + 1) +
-    pad(date.getDate()) +
-    '_' +
-    pad(date.getHours()) +
-    pad(date.getMinutes()) +
-    pad(date.getSeconds())
-  );
-}
-
-function formatYearMonth_(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return date.getFullYear() + pad(date.getMonth() + 1);
-}
-
-// =============================================================================
-// 1. doGet
-// =============================================================================
-
-function doGet(e) {
-  return HtmlService.createTemplateFromFile('fe_index')
-    .evaluate()
-    .setTitle('Shiire System')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-}
-
-// =============================================================================
-// 2. sendInvoiceData
-// =============================================================================
-
-function sendInvoiceData(jsonData, csvContent) {
-  try {
-    const config = getConfig_();
-    const wholesalerId = getWholesalerId_();
-    const now = new Date();
-
-    // Save CSV audit trail to Drive
-    const rootFolder      = DriveApp.getFolderById(config.driveFolderId);
-    const userFolder      = getOrCreateSubFolder_(rootFolder, wholesalerId);
-    const monthFolder     = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
-    const fileName        = formatTimestamp_(now) + '_original.csv';
-    const csvFile         = monthFolder.createFile(fileName, csvContent, MimeType.CSV);
-    const originalFileUrl = csvFile.getUrl();
-
-    // Build payload
-    // jsonData は配列（parsedData）のため、専用キー rows に入れてマージする
-    const payload = {
-      wholesaler_id:     wholesalerId,
-      original_file_url: originalFileUrl,
-      rows:              jsonData
-    };
-
-    const options = {
-      method:             'post',
-      contentType:        'application/json',
-      payload:            JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-
-    const response     = UrlFetchApp.fetch(config.postUrl, options);
-    const responseCode = response.getResponseCode();
-    const rawText      = response.getContentText();
-    let responseBody;
-    try {
-      responseBody = JSON.parse(rawText);
-    } catch (_) {
-      responseBody = rawText; // 非JSONレスポンスは生テキストのまま保持
-    }
-
-    if (responseCode < 200 || responseCode >= 300) {
-      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
-    }
-    return success_(responseBody);
-  } catch (err) {
-    throw new Error('sendInvoiceData failed: ' + err.message);
-  }
-}
-
-// =============================================================================
-// 3. fetchInvoices
-// =============================================================================
-
-function fetchInvoices() {
-  try {
-    const config = getConfig_();
-    const wholesalerId = getWholesalerId_();
-    const url = config.getUrl + '?wholesaler_id=' + encodeURIComponent(wholesalerId);
-
-    const response     = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
-    const responseCode = response.getResponseCode();
-    const rawText      = response.getContentText();
-    let responseBody;
-    try {
-      responseBody = JSON.parse(rawText);
-    } catch (_) {
-      responseBody = rawText;
-    }
-
-    if (responseCode < 200 || responseCode >= 300) {
-      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
-    }
-    return success_(responseBody);
-  } catch (err) {
-    throw new Error('fetchInvoices failed: ' + err.message);
-  }
-}
-
-// =============================================================================
-// 4. fetchInvoiceDetail
-// =============================================================================
-
-function fetchInvoiceDetail(invoiceId) {
-  try {
-    const config = getConfig_();
-    const wholesalerId = getWholesalerId_();
-    const url =
-      config.getUrl +
-      '?invoice_id='    + encodeURIComponent(invoiceId) +
-      '&wholesaler_id=' + encodeURIComponent(wholesalerId);
-
-    const response     = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
-    const responseCode = response.getResponseCode();
-    const rawText      = response.getContentText();
-    let responseBody;
-    try {
-      responseBody = JSON.parse(rawText);
-    } catch (_) {
-      responseBody = rawText;
-    }
-
-    if (responseCode < 200 || responseCode >= 300) {
-      throw new Error('BackOffice API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
-    }
-    return success_(responseBody);
-  } catch (err) {
-    throw new Error('fetchInvoiceDetail failed: ' + err.message);
-  }
-}
-
-
-// =============================================================================
-// 5 & 6. モックデータ定数  ── BackOffice API 実装後に削除する
-//   ※ フロント側フォールバック (app.js) と同一のデータ形式を維持すること
-// =============================================================================
-
-/** @type {Array<{date:string, title:string, type:string}>} */
-var MOCK_SCHEDULE_ = [
-  { date: '2026-05-13', title: '請求確定', type: 'billing' },
-  { date: '2026-05-27', title: '口座振替', type: 'payment' },
-];
-
-/**
- * 請求履歴1件分の共通フィールド。
- * id / monthLabel は各エントリで上書きする。
- */
-var MOCK_BILLING_BASE_ = {
-  billingAmount: 99999999,
-  subtotalExTax: 90000000,
-  taxAmount:     9999999,
-  breakdown: [
-    { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
-    { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
+/** getAccountInfo のスタブ返却値。実際のAPIレスポンス構造に合わせる。 */
+const STUB_ACCOUNT_INFO = {
+  wholesaler_id:      1,
+  wholesaler_user_id: '00000000-0000-0000-0000-000000000001',
+  wholesaler_name:    '（スタブ）卸業者サンプル',
+  user_name:          'スタブ 太郎',
+  fee_rate:           5,
+  merchant_mappings: [
+    { customer_code: 'C001', mall_code: 'MALL-001', merchant_name: 'サンプル加盟店A', is_active: true },
+    { customer_code: 'C002', mall_code: 'MALL-002', merchant_name: 'サンプル加盟店B', is_active: true },
   ],
-  fee:            9999999,
-  transferAmount: 990000000,
-  status:        '支払完了',
+  csv_format_rules: null,   // null = デフォルトフォーマットを使用
 };
 
-/** @type {Array<{id:string, monthLabel:string}>} 月ラベルとIDのみ列挙 */
-var MOCK_BILLING_ENTRIES_ = [
-  { id: 'b001', monthLabel: '4月' },
-  { id: 'b002', monthLabel: '3月' },
-  { id: 'b003', monthLabel: '2月' },
-  { id: 'b004', monthLabel: '1月' },
-];
-
 // =============================================================================
-// 5. getMockScheduleData
+// Private utility helpers は be_utils.js / be_main.js に集約済み。
+// このファイルでは doGet / success_ / error_ / getWholesalerId_ /
+// getOrCreateSubFolder_ / formatTimestamp_ / formatYearMonth_ を定義しない。
 // =============================================================================
 
-function getMockScheduleData() {
+// =============================================================================
+// 1. doGet は be_main.js で定義済み
+// =============================================================================
+
+// =============================================================================
+// 2. getAccountInfo
+// =============================================================================
+
+/**
+ * バックオフィスAPIまたはスタブからアカウント情報オブジェクトを返す内部ヘルパー。
+ * sendInvoiceData など複数箇所から呼ばれる。
+ *
+ * @returns {Object} STUB_ACCOUNT_INFO またはAPIレスポンスの data 相当オブジェクト
+ * @throws {Error} API エラー時
+ */
+function getServerAccountInfo_() {
+  const config = getConfig_();
+
+  if (config.stubAccountInfoMode) {
+    Logger.log('[STUB] getServerAccountInfo_: スタブデータを返します');
+    return STUB_ACCOUNT_INFO;
+  }
+
+  // TODO: アカウント情報取得API本格実装時に認証フィールド（email等）を追加する
+  const payload = {
+    api_key: config.apiKey,
+  };
+
+  const options = {
+    method:             'post',
+    contentType:        'application/json',
+    payload:            JSON.stringify(payload),
+    muteHttpExceptions: true,
+  };
+
+  const response     = UrlFetchApp.fetch(config.accountApiUrl, options);
+  const responseCode = response.getResponseCode();
+  const rawText      = response.getContentText();
+  let responseBody;
   try {
-    return success_(MOCK_SCHEDULE_);
-  } catch (err) {
-    throw new Error('getMockScheduleData failed: ' + err.message);
+    responseBody = JSON.parse(rawText);
+  } catch (_) {
+    responseBody = rawText;
   }
+
+  if (responseCode < 200 || responseCode >= 300) {
+    throw new Error('AccountInfo API error (HTTP ' + responseCode + '): ' + JSON.stringify(responseBody));
+  }
+  if (responseBody && responseBody.status === 'error') {
+    throw new Error('AccountInfo API error (' + responseBody.error_type + '): ' + JSON.stringify(responseBody));
+  }
+
+  // API が { status: 'success', data: {...} } 形式の場合は data 部分のみ返す。
+  // data プロパティがない場合はレスポンス全体をそのまま返す（後方互換）。
+  return (responseBody && responseBody.data !== undefined) ? responseBody.data : responseBody;
 }
 
-// =============================================================================
-// 6. getMockBillingHistory
-// =============================================================================
-
-function getMockBillingHistory() {
+/**
+ * バックオフィスGASのアカウント情報取得APIを呼び出し、卸情報を返す。
+ * フロントエンドの DOMContentLoaded 時に google.script.run 経由で呼ばれる。
+ *
+ * @returns {{ status: 'success', data: Object }}
+ * @throws {Error} API エラー時
+ */
+function getAccountInfo() {
   try {
-    var items = MOCK_BILLING_ENTRIES_.map(function(entry) {
-      return Object.assign({}, MOCK_BILLING_BASE_, entry);
-    });
-    return success_(items);
+    return success_(getServerAccountInfo_());
   } catch (err) {
-    throw new Error('getMockBillingHistory failed: ' + err.message);
+    throw new Error('getAccountInfo failed: ' + err.message);
   }
 }
 
-// --- Script Propertiesセットアップヘルパー・テスト用関数は config.js に移動済み ---
 
-// --- テスト用関数（動作確認が終わったら消してOK） ---
-// Script Property "ENV" が "development" のときのみ実行可能にする
-function testSendInvoice_() {
-  const env = PropertiesService.getScriptProperties().getProperty('ENV');
-  if (env !== 'development') {
-    throw new Error('testSendInvoice_() は development 環境でのみ実行できます (ENV=' + env + ')');
-  }
-  const dummyJson = [
-    {
-      storeCode:   'A001',
-      date:        '2026-05-01',
-      item:        'テスト品目',
-      qty:         2,
-      unitPrice:   500,
-      taxRate:     10,
-      amountExTax: 1000,
-      tax:         100,
-      note:        'テスト備考',
-    },
-  ];
-  const dummyCsv =
-    '加盟店コード,日付,品目,数量,単価,税率区分(%),請求金額（税抜）,消費税,備考\r\n' +
-    'A001,2026-05-01,テスト品目,2,500,10,1000,100,テスト備考\r\n';
-  const result = sendInvoiceData(dummyJson, dummyCsv);
-  console.log('テスト結果:', result);
-}
+// --- 請求登録・取得系の公開関数は be_invoice.js で定義 ---
+
