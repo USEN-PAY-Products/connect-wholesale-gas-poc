@@ -20,16 +20,14 @@
  */
 const STAGING_SCHEMA_ = {
   fields: [
-    { name: 'transaction_date',      type: 'DATE'    },
-    { name: 'slip_number',           type: 'INTEGER' },
     { name: 'customer_code',         type: 'STRING'  },
-    { name: 'merchant_name',         type: 'STRING'  },
+    { name: 'transaction_date',      type: 'DATE'    },
     { name: 'item_name',             type: 'STRING'  },
     { name: 'quantity',              type: 'INTEGER' },
-    { name: 'quantity_unit',         type: 'STRING'  },
     { name: 'unit_price',            type: 'INTEGER' },
     { name: 'tax_rate',              type: 'INTEGER' },
     { name: 'amount_ex_tax',         type: 'INTEGER' },
+    { name: 'tax_amount',            type: 'INTEGER' },
     { name: 'invoice_detail_remark', type: 'STRING'  },
   ],
 };

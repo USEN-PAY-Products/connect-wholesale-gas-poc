@@ -47,16 +47,14 @@ function getCsvFormatRules() {
   // ⚠️ 列順・csv_header は be_invoice.js の getExpectedHeaders_() および
   //    be_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
   return {
-    transaction_date:      { csv_header: '取引日',          type: 'date',    required: true  },
-    slip_number:           { csv_header: '伝票番号',         type: 'integer', required: true  },
-    customer_code:         { csv_header: '加盟店コード',     type: 'string',  required: true  },
-    merchant_name:         { csv_header: '加盟店名',         type: 'string',  required: true  },
+    customer_code:         { csv_header: '顧客コード',       type: 'string',  required: true  },
+    transaction_date:      { csv_header: '日付',             type: 'date',    required: true  },
     item_name:             { csv_header: '品目',             type: 'string',  required: true  },
     quantity:              { csv_header: '数量',             type: 'integer', required: true  },
-    quantity_unit:         { csv_header: '数量単位',         type: 'string',  required: false },
     unit_price:            { csv_header: '単価',             type: 'integer', required: true  },
     tax_rate:              { csv_header: '税率区分(%)',       type: 'integer', required: true, enum: [8, 10] },
     amount_ex_tax:         { csv_header: '請求金額（税抜）', type: 'integer', required: true  },
+    tax_amount:            { csv_header: '消費税',           type: 'integer', required: true  },
     invoice_detail_remark: { csv_header: '備考',             type: 'string',  required: false },
   };
 }

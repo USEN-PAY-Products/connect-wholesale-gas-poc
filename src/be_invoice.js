@@ -97,8 +97,8 @@ function getExpectedHeaders_(csvFormatRules) {
     return Object.values(csvFormatRules).map((rule) => rule.csv_header);
   }
   return [
-    '取引日', '伝票番号', '加盟店コード', '加盟店名', '品目',
-    '数量', '数量単位', '単価', '税率区分(%)', '請求金額（税抜）', '備考',
+    '顧客コード', '日付', '品目', '数量', '単価',
+    '税率区分(%)', '請求金額（税抜）', '消費税', '備考',
   ];
 }
 
@@ -250,12 +250,16 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
 
   // csv_format_rules に存在する bq_field のセット（カスタムフォーマット判定に使用）
-  // デフォルト（null）の場合は全フィールドが存在するものとして扱う
+  // デフォルト（null）の場合はデフォルト staging フィールドセットを使用する
+  const DEFAULT_STAGING_FIELDS_ = new Set([
+    'transaction_date', 'customer_code', 'item_name', 'quantity',
+    'unit_price', 'tax_rate', 'amount_ex_tax', 'tax_amount', 'invoice_detail_remark',
+  ]);
   const csvRules = accountInfo.csv_format_rules;
   const bqFields = csvRules && Object.keys(csvRules).length > 0
     ? new Set(Object.values(csvRules).map(function(r) { return r.bq_field; }))
-    : null; // null = デフォルトフォーマット（全フィールドあり）
-  const hasField = function(f) { return bqFields === null || bqFields.has(f); };
+    : DEFAULT_STAGING_FIELDS_;
+  const hasField = function(f) { return bqFields.has(f); };
 
   // 任意フィールドの SQL 式（なければ NULL で代替）
   const sqlQuantityUnit  = hasField('quantity_unit')         ? 's.quantity_unit'         : 'NULL';
@@ -594,8 +598,8 @@ function testSendInvoice_() {
 
   // デフォルトCSVフォーマット（11列）に合わせたサンプルCSV（UTF-8）
   // 列順: 取引日,伝票番号,加盟店コード,加盟店名,品目,数量,数量単位,単価,税率区分(%),請求金額（税抜）,備考
-  const headers = '取引日,伝票番号,加盟店コード,加盟店名,品目,数量,数量単位,単価,税率区分(%),請求金額（税抜）,備考';
-  const dataRow = '2026-05-01,1001,C001,テスト加盟店,テスト品目,1,個,1000,10,1000,テスト備考';
+  const headers = '顧客コード,日付,品目,数量,単価,税率区分(%),請求金額（税抜）,消費税,備考';
+  const dataRow = 'C001,2026-05-01,テスト品目,1,1000,10,1000,100,テスト備考';
   const dummyCsv = headers + '\r\n' + dataRow + '\r\n';
   // rawCsvBase64: Drive 保存用（元バイト列そのまま）
   // utf8CsvBase64: BQ Load Job / ヘッダー検証用（UTF-8 変換済み）
