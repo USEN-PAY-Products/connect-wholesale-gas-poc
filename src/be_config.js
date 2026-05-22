@@ -6,7 +6,7 @@
 //   API_KEY                … バックオフィスAPIの認証キー
 //   DRIVE_ROOT_FOLDER_ID   … 監査証跡 CSV の保存先 Drive フォルダ ID
 //   GCP_PROJECT_ID         … BigQuery の GCP プロジェクト ID
-//   BQ_DATASET_ID          … BigQuery のデータセット ID（例: invoice_db）
+//   BQ_DATASET_ID          … BigQuery のデータセット ID（例: connect_db）
 //   STUB_ACCOUNT_INFO_MODE … 'true' = getAccountInfo をスタブ返却（API未整備時）
 //                            'false' = バックオフィスAPIを実際に呼び出す
 //
@@ -86,7 +86,7 @@ function setupScriptProperties(forceOverwrite) {
     'API_KEY':              'YOUR_SECRET_API_KEY',                            // APIキーに変更してください
     'DRIVE_ROOT_FOLDER_ID': '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro',            // 本番フォルダ ID に変更してください
     'GCP_PROJECT_ID':       'usenpay-connect-dev',                            // GCP プロジェクト ID
-    'BQ_DATASET_ID':        'invoice_db',                                     // BigQuery データセット ID
+    'BQ_DATASET_ID':        'connect_db',                                     // BigQuery データセット ID
     'ENV':                  'development',                                    // 本番では 'production' に変更してください
     'STUB_ACCOUNT_INFO_MODE': 'true',                                         // バックオフィスAPI整備後に 'false' に変更してください
   });

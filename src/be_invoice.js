@@ -32,7 +32,12 @@ function parseCsvLine_(line) {
   const result = [];
   let i = 0;
   while (i <= line.length) {
-    if (i === line.length) { result.push(''); break; }
+    if (i === line.length) {
+      // 末尾カンマがある場合のみ空フィールドを追加する。
+      // クォートフィールド終端後など、カンマなしで行末に達した場合は追加しない。
+      if (i > 0 && line[i - 1] === ',') result.push('');
+      break;
+    }
     if (line[i] === '"') {
       let val = '';
       i++;
@@ -221,12 +226,21 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   if (!Number.isInteger(wsId) || wsId <= 0) {
     throw new Error('[buildTransactionSql_] wholesaler_id が不正です: ' + wsId);
   }
-  // 単体合計値の有限性・非負・NaN検証
+  // 卸合計値の有限性・非負・NaN検証
   const numFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8','feeAmount','paymentAmount'];
   numFields.forEach(function(f) {
     const v = Number(wt[f] || 0);
     if (!isFinite(v)) throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' が数値ではありません: ' + wt[f]);
     if (v < 0) throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' に負数は許可されていません: ' + v);
+  });
+  // 加盟店合計値の有限性・非負・NaN検証
+  const merchantNumFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'];
+  summaryData.merchantTotals.forEach(function(m, idx) {
+    merchantNumFields.forEach(function(f) {
+      const v = Number(m[f] || 0);
+      if (!isFinite(v)) throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' が数値ではありません: ' + m[f]);
+      if (v < 0) throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' に負数は許可されていません: ' + v);
+    });
   });
 
   // SQL 文字列内のシングルクォートを '' でエスケープする（SQLインジェクション対策）

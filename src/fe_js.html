@@ -769,8 +769,9 @@ function parseCsvLine(line) {
   let i = 0;
   while (i <= line.length) {
     if (i === line.length) {
-      // 末尾カンマの後の空フィールドを処理
-      result.push('');
+      // 末尾カンマがある場合のみ空フィールドを追加する。
+      // クォートフィールド終端後など、カンマなしで行末に達した場合は追加しない。
+      if (i > 0 && line[i - 1] === ',') result.push('');
       break;
     }
     if (line[i] === '"') {
@@ -1362,6 +1363,35 @@ function renderConfirmPage() {
   const list = document.getElementById('confirmStoreList');
   list.innerHTML = '';
 
+  /**
+   * 全カードの tax8/tax10 input を合算してサマリー欄を再計算する。
+   * tax8/tax10 input 変更時に呼ぶ。
+   */
+  const recalcSummary_ = () => {
+    let totalExTax = 0, totalTax8 = 0, totalTax10 = 0;
+    document.querySelectorAll('.store-accordion').forEach(c => {
+      const subSpan = c.querySelector('[data-field="subtotalAmount"]');
+      const t8El    = c.querySelector('[data-field="tax8"]');
+      const t10El   = c.querySelector('[data-field="tax10"]');
+      totalExTax += Number(String(subSpan ? subSpan.textContent : '0').replace(/[^0-9.-]/g, '')) || 0;
+      totalTax8  += Number(t8El  ? t8El.value  : 0) || 0;
+      totalTax10 += Number(t10El ? t10El.value : 0) || 0;
+    });
+    const totalTax   = totalTax8 + totalTax10;
+    const totalInTax = totalExTax + totalTax;
+    const fRate      = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
+    const fee        = Math.floor(totalInTax * fRate / 100);
+    const pay        = totalInTax - fee;
+    const fmt = n => n.toLocaleString('ja-JP');
+    document.getElementById('summaryAmountInTax').textContent = fmt(totalInTax);
+    document.getElementById('summaryAmountExTax').textContent = fmt(totalExTax);
+    document.getElementById('summaryTax').textContent         = fmt(totalTax);
+    document.getElementById('summaryFee').textContent         = fmt(fee);
+    document.getElementById('summaryTransfer').textContent    = fmt(pay);
+    document.getElementById('summaryTax8').textContent        = fmt(totalTax8);
+    document.getElementById('summaryTax10').textContent       = fmt(totalTax10);
+  };
+
   // 列ヘッダー行
   const colHeader = document.createElement('div');
   colHeader.className = 'store-list-header';
@@ -1425,6 +1455,29 @@ function renderConfirmPage() {
     header.addEventListener('click', toggleAccordion);
     header.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAccordion(); }
+    });
+
+    // tax8/tax10 input 変更時: カード内の taxAmount・totalAmount を更新し全体サマリーも再計算
+    const tax8Input       = header.querySelector('[data-field="tax8"]');
+    const tax10Input      = header.querySelector('[data-field="tax10"]');
+    const taxAmountSpan   = header.querySelector('[data-field="taxAmount"]');
+    const totalAmountSpan = header.querySelector('[data-field="totalAmount"]');
+    const subtotalSpan    = header.querySelector('[data-field="subtotalAmount"]');
+    const recalcCard_ = () => {
+      const newTax8  = Number(tax8Input.value)  || 0;
+      const newTax10 = Number(tax10Input.value) || 0;
+      const newTax   = newTax8 + newTax10;
+      const subTotal = Number(String(subtotalSpan.textContent).replace(/[^0-9.-]/g, '')) || 0;
+      const newTotal = subTotal + newTax;
+      taxAmountSpan.textContent   = newTax.toLocaleString('ja-JP');
+      totalAmountSpan.textContent = newTotal.toLocaleString('ja-JP');
+      recalcSummary_();
+    };
+    // input クリック時にアコーディオンが開閉しないよう伝播を止める
+    [tax8Input, tax10Input].forEach(el => {
+      el.addEventListener('click',  e => e.stopPropagation());
+      el.addEventListener('keydown', e => e.stopPropagation());
+      el.addEventListener('input',   recalcCard_);
     });
 
     const body = document.createElement('div');

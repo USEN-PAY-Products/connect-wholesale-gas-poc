@@ -12,7 +12,7 @@ const STUB_MODE = false;
 /** getAccountInfo のスタブ返却値。実際のAPIレスポンス構造に合わせる。 */
 const STUB_ACCOUNT_INFO = {
   wholesaler_id:      1,
-  wholesaler_user_id: 1,
+  wholesaler_user_id: '00000000-0000-0000-0000-000000000001',
   wholesaler_name:    '（スタブ）卸業者サンプル',
   user_name:          'スタブ 太郎',
   fee_rate:           5,
@@ -52,11 +52,9 @@ function getServerAccountInfo_() {
     return STUB_ACCOUNT_INFO;
   }
 
-  const email  = Session.getActiveUser().getEmail();
-
+  // TODO: アカウント情報取得API本格実装時に認証フィールド（email等）を追加する
   const payload = {
-    api_key:             config.apiKey,
-    wholesaler_user_id:  email,
+    api_key: config.apiKey,
   };
 
   const options = {
