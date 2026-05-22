@@ -452,10 +452,17 @@ const toastClose     = document.getElementById('toastClose');
 // Upload page: State（バックエンド送信用データ保持）
 // =============================================================================
 
-/** 読み込んだCSVの元バイト列をBase64エンコードした文字列（DriveにSJISなど元ファイルそのまま保存するため） */
+/**
+ * 読み込んだCSVの元バイト列をBase64エンコードした文字列（DriveにSJISなど元ファイルそのまま保存するため）。
+ * ⚠️ メモリのみ保持。sessionStorage には保存しない（容量超過防止）。
+ * リロード時は再アップロードが必要。
+ */
 let rawCsvBase64 = null;
 
-/** decodeBuffer_() で UTF-8 化した CSV テキストを Base64 エンコードした文字列（BQ Load Job 投入用） */
+/**
+ * decodeBuffer_() で UTF-8 化した CSV テキストを Base64 エンコードした文字列（BQ Load Job 投入用）。
+ * ⚠️ メモリのみ保持。sessionStorage には保存しない（容量超過防止）。
+ */
 let utf8CsvBase64 = null;
 
 /**
@@ -466,17 +473,13 @@ let utf8CsvBase64 = null;
  */
 let parsedData = null;
 
-// sessionStorage からリロード時に復元（GAS セッションタイムアウト対策）
+// parsedData のみ sessionStorage から復元する（確認画面の表示用）。
+// rawCsvBase64 / utf8CsvBase64 はメモリのみ保持のため、リロード後は送信不可。
 try {
-  const _saved   = sessionStorage.getItem('shiire_parsedData');
-  const _rawB64   = sessionStorage.getItem('shiire_rawCsvBase64');
-  const _utf8B64  = sessionStorage.getItem('shiire_utf8CsvBase64');
-  if (_saved)   parsedData    = JSON.parse(_saved);
-  if (_rawB64)  rawCsvBase64  = _rawB64;
-  if (_utf8B64) utf8CsvBase64 = _utf8B64;
+  const _saved = sessionStorage.getItem('shiire_parsedData');
+  if (_saved) parsedData = JSON.parse(_saved);
 
   // 型バリデーション: 想定外の値は捨ててセッションをクリア
-  // 新フォーマット（csv_format_rules ベース）は customer_code と amount_ex_tax / tax_rate が必須キー
   const isValidRow = r =>
     r !== null && typeof r === 'object' &&
     'customer_code' in r &&
@@ -485,25 +488,8 @@ try {
 
   if (parsedData !== null && (!Array.isArray(parsedData) || !parsedData.every(isValidRow))) {
     console.warn('[state] sessionStorage の parsedData が不正な形式です。破棄します。');
-    parsedData     = null;
-    rawCsvBase64   = null;
-    utf8CsvBase64  = null;
+    parsedData = null;
     sessionStorage.removeItem('shiire_parsedData');
-    sessionStorage.removeItem('shiire_rawCsvBase64');
-    sessionStorage.removeItem('shiire_utf8CsvBase64');
-  }
-
-  // 3変数の整合性チェック: どれか1つでも欠けていたら全クリア
-  // （変更前の古いセッションデータや部分的な保存失敗への対処）
-  if ((parsedData !== null || rawCsvBase64 !== null || utf8CsvBase64 !== null) &&
-      !(parsedData !== null && rawCsvBase64 !== null && utf8CsvBase64 !== null)) {
-    console.warn('[state] sessionStorage の復元データが不完全です。破棄します。');
-    parsedData    = null;
-    rawCsvBase64  = null;
-    utf8CsvBase64 = null;
-    sessionStorage.removeItem('shiire_parsedData');
-    sessionStorage.removeItem('shiire_rawCsvBase64');
-    sessionStorage.removeItem('shiire_utf8CsvBase64');
   }
 } catch (e) {
   console.warn('[state] sessionStorage の復元に失敗しました:', e);
@@ -623,15 +609,7 @@ function handleFile(file) {
     return;
   }
 
-  // ── Step 2: ファイルサイズチェック（Base64後に sessionStorage quota を超えないよう 5MB 上限）──
-  const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5MB（Base64後≒6.7MB、1.5万行程度まで対応）
-  if (file.size > MAX_CSV_BYTES) {
-    showToast('ファイルサイズが大きすぎます（上限 5MB）。行数を分割して再度お試しください。');
-    resetDropZone();
-    return;
-  }
-
-  // ── Step 3: ファイル形式チェック ──────────────────────────────────────────
+  // ── Step 2: ファイル形式チェック ──────────────────────────────────────────
   if (!file.name.toLowerCase().endsWith('.csv')) {
     showToast('CSVファイルを選択してください');
     resetDropZone();
@@ -649,22 +627,17 @@ function handleFile(file) {
     const { errors, rows } = validateCsv(text);
 
     if (errors.length === 0) {
-      // 成功: 元バイト列をBase64で保持（Drive保存時に元ファイルをそのまま再現するため）
-      const base64     = arrayBufferToBase64_(buffer);
+      // 成功: Base64はメモリのみ保持（sessionStorageには保存しない・容量超過防止）
+      rawCsvBase64  = arrayBufferToBase64_(buffer);
       // BQ Load Job は UTF-8 を前提とするため、decodeBuffer_() で変換済みの text を
       // UTF-8 として再エンコードした Base64 を別途保持する
-      const utf8Base64 = stringToBase64Utf8_(text);
-      rawCsvBase64  = base64;
-      utf8CsvBase64 = utf8Base64;
+      utf8CsvBase64 = stringToBase64Utf8_(text);
       parsedData    = rows;
-      // リロード対策: sessionStorage に保存（容量超過時はベストエフォート）
+      // parsedData のみ sessionStorage に保存（確認画面の表示用。リロード後は送信不可）
       try {
-        sessionStorage.setItem('shiire_parsedData',    JSON.stringify(rows));
-        sessionStorage.setItem('shiire_rawCsvBase64',  base64);
-        sessionStorage.setItem('shiire_utf8CsvBase64', utf8Base64);
+        sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows));
       } catch (e) {
         console.warn('[state] sessionStorage への保存に失敗しました:', e);
-        showToast('ブラウザの一時保存領域が不足しています。このままページを離れると最初からやり直しになります。');
       }
     } else {
       // エラー: 保持データをクリア
@@ -673,8 +646,6 @@ function handleFile(file) {
       parsedData    = null;
       try {
         sessionStorage.removeItem('shiire_parsedData');
-        sessionStorage.removeItem('shiire_rawCsvBase64');
-        sessionStorage.removeItem('shiire_utf8CsvBase64');
       } catch (e) {
         console.warn('[state] sessionStorage のクリアに失敗しました:', e);
       }
@@ -1004,8 +975,6 @@ function resetPage() {
   parsedData    = null;
   try {
     sessionStorage.removeItem('shiire_parsedData');
-    sessionStorage.removeItem('shiire_rawCsvBase64');
-    sessionStorage.removeItem('shiire_utf8CsvBase64');
   } catch (e) {
     console.warn('[state] sessionStorage のクリアに失敗しました:', e);
   }
@@ -1293,7 +1262,8 @@ function renderConfirmPage() {
   // データがなければアップロード画面へ戻す
   if (!parsedData || parsedData.length === 0 || !rawCsvBase64 || !utf8CsvBase64) {
     if (parsedData && parsedData.length > 0 && (!rawCsvBase64 || !utf8CsvBase64)) {
-      showToast('送信に必要なデータが復元できませんでした。CSVを再度アップロードしてください。', 'error');
+      // リロードで Base64 が消えた場合（parsedData は残っているが送信不可）
+      showToast('ページがリロードされたため、CSVを再度アップロードしてください。', 'error');
     }
     location.hash = '#upload';
     return;

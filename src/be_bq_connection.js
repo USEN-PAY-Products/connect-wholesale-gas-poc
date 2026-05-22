@@ -168,15 +168,35 @@ function dropStagingTable_(projectId, datasetId, stagingTableId) {
   const request = {
     query:        sql,
     useLegacySql: false,
-    timeoutMs:    30000,
+    timeoutMs:    10000,
   };
 
-  const response = BigQuery.Jobs.query(request, projectId);
+  let response = BigQuery.Jobs.query(request, projectId);
   if (response.errors && response.errors.length > 0) {
     throw new Error(
       '[BQ] staging テーブルの DROP に失敗しました（テーブル名: ' + stagingTableId +
       '）。手動で DROP してください。詳細: ' + JSON.stringify(response.errors)
     );
+  }
+
+  const jobId = response.jobReference && response.jobReference.jobId;
+  if (!jobId) throw new Error('[BQ] jobId が取得できませんでした（staging DROP）');
+
+  const MAX_POLL = 30;
+  for (let poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
+    Logger.log('[BQ] staging DROP 実行中... ポーリング ' + (poll + 1) + '/' + MAX_POLL);
+    Utilities.sleep(2000);
+    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+    if (response.errors && response.errors.length > 0) {
+      throw new Error(
+        '[BQ] staging テーブルの DROP に失敗しました（ポーリング中、テーブル名: ' + stagingTableId +
+        '）。手動で DROP してください。詳細: ' + JSON.stringify(response.errors)
+      );
+    }
+  }
+
+  if (!response.jobComplete) {
+    throw new Error('[BQ] staging DROP がタイムアウトしました（jobId: ' + jobId + '）。手動で DROP してください。');
   }
   Logger.log('[BQ] staging テーブル DROP 完了: ' + stagingTableId);
 }

@@ -487,7 +487,9 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
  */
 function fetchInvoices() {
   try {
-    // TODO: return success_(fetchInvoicesByWholesaler_(getWholesalerId_()));
+    // TODO: BackOffice API 実装時は getServerAccountInfo_() 由来の数値 wholesaler_id を使うこと。
+    //       getWholesalerId_()（メールのローカルパート）は型が異なるため使用不可。
+    //       例: return success_(fetchInvoicesByWholesaler_(getServerAccountInfo_().wholesaler_id));
     return getMockBillingHistory();
   } catch (err) {
     throw new Error('fetchInvoices failed: ' + err.message);

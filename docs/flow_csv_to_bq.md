@@ -32,16 +32,22 @@
 
 ```mermaid
 flowchart TD
-    A([CSVファイル選択 / D&D]) --> B{ファイルサイズ\n> 5MB?}
-    B -- Yes --> C[エラートースト表示\n処理中断]
-    B -- No --> D{.csv 拡張子?}
-    D -- No --> C
-    D -- Yes --> E[FileReader.readAsArrayBuffer]
-    E --> F[decodeBuffer_\nSJIS/UTF-8 自動判定]
-    F --> G[validateCsv\nヘッダー・データ行検証]
-    G --> H{バリデーション\nエラー?}
-    H -- あり --> I[エラーリスト表示\n確認画面ボタン disabled]
-    H -- なし --> J[parsedData / rawCsvBase64 /\nutf8CsvBase64 を\nメモリ + sessionStorage に保存]
+    A([CSVファイル選択 / D&D]) --> B{.csv 拡張子?}
+    B -- No --> C[エラートースト表示
+処理中断]
+    B -- Yes --> E[FileReader.readAsArrayBuffer]
+    E --> F[decodeBuffer_
+SJIS/UTF-8 自動判定]
+    F --> G[validateCsv
+ヘッダー・データ行検証]
+    G --> H{バリデーション
+エラー?}
+    H -- あり --> I[エラーリスト表示
+確認画面ボタン disabled]
+    H -- なし --> J[parsedData / rawCsvBase64 /
+utf8CsvBase64 を
+メモリのみ保持
+parsedData のみ sessionStorage に保存]
     J --> K[確認画面ボタン活性化]
 ```
 
@@ -164,6 +170,10 @@ sequenceDiagram
 
     Note over GAS,BQ: ⑥ staging テーブル DROP（TRANSACTION 外）
     GAS->>BQ: DROP TABLE IF EXISTS staging_invoice_lines_{uuid}
+    loop 最大30回 (2秒間隔)
+        GAS->>BQ: getQueryResults ポーリング
+        BQ-->>GAS: jobComplete
+    end
     Note over GAS: DROP 失敗は握り潰す（登録は成功済み）
 
     GAS-->>FE: success_({ csv_url, invoice_uuid })
