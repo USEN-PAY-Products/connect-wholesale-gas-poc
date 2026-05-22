@@ -281,8 +281,8 @@ BQ のマルチステートメントトランザクション内では named para
 | `src/fe_js.html` | CSV読み込み・バリデーション・確認画面描画・送信処理 |
 | `src/fe_page_confirm.html` | 確認画面 HTML テンプレート |
 | `src/be_invoice.js` | `sendInvoiceData` 公開関数・SQL組み立て・Drive保存 |
-| `src/be_bq_connection.js` | Load Job投入・ポーリング・トランザクション実行・staging DROP |
-| `src/be_bq_query.js` | BQ 参照系クエリ（請求一覧・詳細） |
+| `src/db_bq_connection.js` | Load Job投入・ポーリング・トランザクション実行・staging DROP |
+| `src/db_bq_query.js` | BQ 参照系クエリ（請求一覧・詳細） |
 | `src/be_server.js` | GASエントリポイント・アカウント情報取得 |
 | `src/be_config.js` | Script Properties 読み込み・上書きヘルパー |
 | `src/be_utils.js` | `success_()` / `getOrCreateSubFolder_()` 等のユーティリティ |

@@ -1,5 +1,5 @@
 // =============================================================================
-// be_bq_query.js
+// db_bq_query.js
 //
 // BigQuery からのデータ取得クエリロジックを管理するファイル。
 // BackOffice API 実装後に、fetchInvoices / fetchInvoiceDetail の

@@ -18,6 +18,8 @@ src/
 ├── be_config.js             # Back-end: 環境設定（ScriptPropertiesの取得・管理）
 ├── be_utils.js              # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付フォーマット）
 ├── be_invoice.js            # Back-end: 請求ドメイン（sendInvoiceData, fetchInvoices, fetchInvoiceDetail）
+├── db_bq_connection.js      # DB: BQ Load Job投入・ポーリング・トランザクション実行・staging DROP
+├── db_bq_query.js           # DB: BQ 参照系クエリ（請求一覧・詳細）
 ├── fe_index.html            # Front-end: SPAのルートHTML（GASテンプレート）
 ├── fe_css.html              # Front-end: 共通スタイルシート（styleタグ）
 ├── fe_js.html               # Front-end: クライアントJS全結合（scriptタグ）
@@ -32,7 +34,8 @@ src/
 
 | プレフィックス | 対象 | 内容 |
 |---|---|---|
-| `be_` | Back-end | サーバー側ロジック（`.js`） |
+| `db_` | DB層 | DBアクセス・クエリ実行などのデータアクセス層（`.js`） |
+| `be_` | Back-end | 画面遷移/API/業務ロジックなどのバックエンド層（`.js`） |
 | `fe_` | Front-end | ブラウザ側UI・CSS・JS（`.html`） |
 | `fe_page_` | 画面単位 | 特定ページのコンテンツ（`fe_page_xxx.html`） |
 | `fe_part_` | 部品単位 | 複数画面で共有するパーツ（`fe_part_xxx.html`） |
@@ -55,6 +58,9 @@ function include(filename) {
 
 | ファイル | 責務 |
 |---|---|
+| `db_bq_connection.js` | BQ Load Job投入・ポーリング・トランザクション実行・staging DROP |
+| `db_bq_query.js` | BQ 参照系クエリ（請求一覧・詳細） |
+| `db_xxx.js` | 新しいDBアクセス処理を追加する際は `db_` を冠した新ファイルを作成する |
 | `be_main.js` | エントリーポイントのみ。`doGet` と `include` だけを置く |
 | `be_config.js` | ScriptProperties の取得・初期設定のみ |
 | `be_utils.js` | 全ファイルから使う汎用ヘルパー（レスポンス整形・Drive操作・日付変換など） |
@@ -63,6 +69,7 @@ function include(filename) {
 
 ### ファイル追加ルール
 
+- **DBアクセス処理を追加する**: 既存の `db_` ファイルに追記する。新しいDBアクセス層が必要な場合は `db_yyy.js` を新規作成する。
 - **バックエンドのロジックを追加する**: 責務に対応する既存の `be_` ファイルに追記する。新しいドメイン（例: 支払い・店舗管理など）が生まれた場合は `be_yyy.js` を新規作成する。
 - **新しい画面を追加する**: `fe_page_xxx.html` を新規作成し、`fe_index.html` に include タグを追加する。
 - **新しいパーツを追加する**: `fe_part_xxx.html` を新規作成し、必要な箇所で include する。

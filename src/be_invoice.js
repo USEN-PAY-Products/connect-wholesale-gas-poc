@@ -13,8 +13,8 @@
 // 依存:
 //   be_config.js        … getConfig_()
 //   be_utils.js         … success_(), getOrCreateSubFolder_(), formatTimestamp_(), formatYearMonth_()
-//   be_bq_connection.js … loadCsvToBq_(), waitForLoadJob_(), runTransactionSql_(), dropStagingTable_()
-//   be_bq_query.js      … fetchInvoicesByWholesaler_(), fetchInvoiceDetail_()
+//   db_bq_connection.js … loadCsvToBq_(), waitForLoadJob_(), runTransactionSql_(), dropStagingTable_()
+//   db_bq_query.js      … fetchInvoicesByWholesaler_(), fetchInvoiceDetail_()
 // =============================================================================
 
 // =============================================================================
@@ -117,7 +117,7 @@ function getExpectedHeaders_(csvFormatRules) {
  */
 function buildStagingSchema_(csvFormatRules) {
   if (!csvFormatRules || Object.keys(csvFormatRules).length === 0) {
-    return null; // STAGING_SCHEMA_（固定11列）を使用
+    return null; // STAGING_SCHEMA_（固定9列）を使用
   }
 
   // buildTransactionSql_ の INSERT SELECT / JOIN で参照する必須フィールド
@@ -176,6 +176,9 @@ function buildMallCodeMap_(mappings, merchantTotals) {
     if (!(cc in map)) {
       throw new Error('summaryData に未登録の customerCode が含まれています: "' + cc + '"');
     }
+    if (!map[cc]) {
+      throw new Error('mall_code が未設定の customerCode が含まれています: "' + cc + '"');
+    }
   });
   return map;
 }
@@ -185,7 +188,7 @@ function buildMallCodeMap_(mappings, merchantTotals) {
  * BEGIN TRANSACTION 〜 COMMIT を含む SQL 全文を返す。
  *
  * ⚠️ SQL インジェクション対策:
- *   BQ の named parameter（@param_name）は単一ステートメントでは機能する（be_bq_query.js 参照）が、
+ *   BQ の named parameter（@param_name）は単一ステートメントでは機能する（db_bq_query.js 参照）が、
  *   BEGIN TRANSACTION 〜 COMMIT を含むマルチステートメントスクリプト内では使用できない。
  *   （BQ の仕様制限）
  *   そのため、ユーザー入力値には次の対策を併用する:
@@ -401,7 +404,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     }
 
     // ── csv_format_rules から staging スキーマを生成（カスタム対応）────────
-    // null の場合は loadCsvToBq_ 内で STAGING_SCHEMA_（固定11列）にフォールバック。
+    // null の場合は loadCsvToBq_ 内で STAGING_SCHEMA_（固定9列）にフォールバック。
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
 
     // ── merchant_mappings で customerCode を検証し mall_code マップを構築 ──
@@ -480,7 +483,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
 
 /**
  * ログインユーザーの請求一覧を返す。
- * 現在はモックデータを返す。BackOffice API 実装後に be_bq_query.js の
+ * 現在はモックデータを返す。BackOffice API 実装後に db_bq_query.js の
  * fetchInvoicesByWholesaler_() を呼び出す実装に差し替えること。
  *
  * @returns {{ status: 'success', data: Array<Object> }}
@@ -504,7 +507,7 @@ function fetchInvoices() {
 /**
  * 指定した請求IDの詳細データを返す。
  * 現在は null を返す（詳細画面未実装）。BackOffice API 実装後に
- * be_bq_query.js の fetchInvoiceDetail_() を呼び出す実装に差し替えること。
+ * db_bq_query.js の fetchInvoiceDetail_() を呼び出す実装に差し替えること。
  *
  * @param {string|number} invoiceId - 取得対象の請求管理番号
  * @returns {{ status: 'success', data: Object|null }}
@@ -598,8 +601,8 @@ function testSendInvoice_() {
     throw new Error('testSendInvoice_() は development 環境でのみ実行できます (ENV=' + env + ')');
   }
 
-  // デフォルトCSVフォーマット（11列）に合わせたサンプルCSV（UTF-8）
-  // 列順: 取引日,伝票番号,加盟店コード,加盟店名,品目,数量,数量単位,単価,税率区分(%),請求金額（税抜）,備考
+  // デフォルトCSVフォーマット（9列）に合わせたサンプルCSV（UTF-8）
+  // 列順: 顧客コード,日付,品目,数量,単価,税率区分(%),請求金額（税抜）,消費税,備考
   const headers = '顧客コード,日付,品目,数量,単価,税率区分(%),請求金額（税抜）,消費税,備考';
   const dataRow = 'C001,2026-05-01,テスト品目,1,1000,10,1000,100,テスト備考';
   const dummyCsv = headers + '\r\n' + dataRow + '\r\n';

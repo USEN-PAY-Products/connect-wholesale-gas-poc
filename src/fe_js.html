@@ -45,7 +45,7 @@ function getCsvFormatRules() {
   } catch (_) {}
   // デフォルトフォーマット（csv_format_rules が空の卸向け）
   // ⚠️ 列順・csv_header は be_invoice.js の getExpectedHeaders_() および
-  //    be_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
+  //    db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
   return {
     customer_code:         { csv_header: '顧客コード',       type: 'string',  required: true  },
     transaction_date:      { csv_header: '日付',             type: 'date',    required: true  },
@@ -1343,8 +1343,8 @@ function renderConfirmPage() {
       const t8El    = c.querySelector('[data-field="tax8"]');
       const t10El   = c.querySelector('[data-field="tax10"]');
       totalExTax += Number(String(subSpan ? subSpan.textContent : '0').replace(/[^0-9.-]/g, '')) || 0;
-      totalTax8  += Number(t8El  ? t8El.value  : 0) || 0;
-      totalTax10 += Number(t10El ? t10El.value : 0) || 0;
+      totalTax8  += Math.max(0, Math.trunc(Number(t8El  ? t8El.value  : 0) || 0));
+      totalTax10 += Math.max(0, Math.trunc(Number(t10El ? t10El.value : 0) || 0));
     });
     const totalTax   = totalTax8 + totalTax10;
     const totalInTax = totalExTax + totalTax;
@@ -1433,8 +1433,10 @@ function renderConfirmPage() {
     const totalAmountSpan = header.querySelector('[data-field="totalAmount"]');
     const subtotalSpan    = header.querySelector('[data-field="subtotalAmount"]');
     const recalcCard_ = () => {
-      const newTax8  = Number(tax8Input.value)  || 0;
-      const newTax10 = Number(tax10Input.value) || 0;
+      const newTax8  = Math.max(0, Math.trunc(Number(tax8Input.value)  || 0));
+      const newTax10 = Math.max(0, Math.trunc(Number(tax10Input.value) || 0));
+      tax8Input.value  = newTax8;
+      tax10Input.value = newTax10;
       const newTax   = newTax8 + newTax10;
       const subTotal = Number(String(subtotalSpan.textContent).replace(/[^0-9.-]/g, '')) || 0;
       const newTotal = subTotal + newTax;
