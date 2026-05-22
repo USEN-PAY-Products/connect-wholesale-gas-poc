@@ -10,14 +10,17 @@
  */
 function saveAccountInfo(data) {
   try {
-    sessionStorage.setItem('shiire_wholesaler_id',    String(data.wholesaler_id   ?? ''));
-    sessionStorage.setItem('shiire_wholesaler_user_id', String(data.wholesaler_user_id ?? ''));
-    sessionStorage.setItem('shiire_wholesaler_name',  String(data.wholesaler_name ?? ''));
-    sessionStorage.setItem('shiire_user_name',        String(data.user_name       ?? ''));
-    sessionStorage.setItem('shiire_invoice_fee_rate', String(data.fee_rate ?? 0));
-    sessionStorage.setItem('shiire_merchant_mappings',  JSON.stringify(data.merchant_mappings  || []));
-    sessionStorage.setItem('shiire_csv_format_rules',   JSON.stringify(data.csv_format_rules   || null));
+    sessionStorage.setItem('shiire_wholesaler_id',        String(data.wholesaler_id        ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_user_id',   String(data.wholesaler_user_id   ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_name',      String(data.wholesaler_name      ?? ''));
+    sessionStorage.setItem('shiire_invoice_fee_rate',     String(data.fee_rate             ?? 0));
+    sessionStorage.setItem('shiire_tax_rounding_method',  String(data.tax_rounding_method  ?? ''));
+    sessionStorage.setItem('shiire_merchant_mappings',    JSON.stringify(data.merchant_mappings  || []));
+    sessionStorage.setItem('shiire_csv_format_rules',     JSON.stringify(data.csv_format_rules   || null));
     console.log('[account] SessionStorage に卸情報を保存しました:', data.wholesaler_name);
+    // ヘッダーの企業名を更新
+    const headerName = document.getElementById('headerWholesalerName');
+    if (headerName) headerName.textContent = data.wholesaler_name ?? '';
   } catch (e) {
     console.warn('[account] SessionStorage への保存に失敗しました:', e);
   }
@@ -25,7 +28,7 @@ function saveAccountInfo(data) {
 
 /**
  * SessionStorage から merchant_mappings を取得する。
- * @returns {Array<{customer_code:string, mall_code:string, merchant_name:string, is_active:boolean}>}
+ * @returns {Array<{customer_code:string, mall_code:string, store_name:string}>}
  */
 function getMerchantMappings() {
   try {
@@ -64,6 +67,8 @@ function getCsvFormatRules() {
 // =============================================================================
 
 document.addEventListener('DOMContentLoaded', function () {
+  showLoadingOverlay('読み込み中...');
+
   if (typeof google !== 'undefined' && google.script && google.script.run) {
     google.script.run
       .withSuccessHandler(function (result) {
@@ -74,40 +79,37 @@ document.addEventListener('DOMContentLoaded', function () {
           console.error('[account] getAccountInfo のレスポンスが不正です:', result);
           showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
         }
+        navigate(); // アカウント情報確定後にルーティング実行
       })
       .withFailureHandler(function (err) {
         console.error('[account] getAccountInfo failed:', err);
-        showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
+        const msg = String(err.message || err);
+        if (msg.indexOf('UNAUTHORIZED') !== -1) {
+          showUploadUiError_('このアカウントは登録されていないか、無効化されています。管理者にお問い合わせください。');
+        } else {
+          showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
+        }
+        hideLoadingOverlay();
+        navigate(); // エラー時もルーティングは実行する
       })
       .getAccountInfo();
   } else {
     // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
     console.warn('[account] google.script.run が利用できません。モックデータを使用します。');
     saveAccountInfo({
-      wholesaler_id:      1,
-      wholesaler_name:    'ベジクル',
-      wholesaler_user_id: '00000000-0000-0000-0000-000000000001',
-      user_name:          '卸 担当者A',
-      fee_rate:           3,
-      csv_format_rules: {
-        transaction_date:      { csv_header: '伝票日付',    type: 'date',    required: true },
-        slip_number:           { csv_header: '伝票番号',    type: 'integer', required: true },
-        customer_code:         { csv_header: '得意先コード', type: 'string',  required: true },
-        merchant_name:         { csv_header: '請求先名',    type: 'string',  required: true },
-        item_name:             { csv_header: '商品名',      type: 'string',  required: true, max_length: 250 },
-        quantity:              { csv_header: '売上数量',    type: 'integer', required: true },
-        quantity_unit:         { csv_header: '数量単位',    type: 'string',  required: false },
-        unit_price:            { csv_header: '単価',        type: 'integer', required: true },
-        amount_ex_tax:         { csv_header: '金額',        type: 'integer', required: true },
-        tax_rate:              { csv_header: '消費税率',    type: 'integer', required: true, enum: [8, 10] },
-        invoice_detail_remark: { csv_header: '備考',        type: 'string',  required: false },
-      },
+      wholesaler_id:       1,
+      wholesaler_name:     'ベジクル',
+      wholesaler_user_id:  '00000000-0000-0000-0000-000000000001',
+      fee_rate:            3,
+      tax_rounding_method: 'round_down',
+      csv_format_rules:    null, // NULL = デフォルトフォーマットを使用（本番BQと同一）
       merchant_mappings: [
-        { customer_code: '1189', mall_code: 'U123', merchant_name: '焼肉USEN 1号店', is_active: true },
-        { customer_code: '1200', mall_code: 'U234', merchant_name: '焼肉USEN 2号店', is_active: true },
+        { customer_code: 'C001', mall_code: 'MALL-001', store_name: 'テスト加盟店1' },
+        { customer_code: 'C002', mall_code: 'MALL-002', store_name: 'テスト加盟店2' },
       ],
     });
     enableUploadUi_();
+    navigate(); // アカウント情報確定後にルーティング実行
   }
 });
 
@@ -229,16 +231,20 @@ function initHomePage() {
       })
       .getMockScheduleData();
 
-    // 請求履歴取得
+    // 請求履歴取得（BQ直接取得: wholesaler_id は sessionStorage から引数として渡す）
+    const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
+    showLoadingOverlay('請求情報を取得中...');
     google.script.run
       .withSuccessHandler(function(result) {
+        hideLoadingOverlay();
         renderBillingHistory(result && result.data ? result.data : []);
       })
       .withFailureHandler(function(err) {
-        console.error('[home] getMockBillingHistory failed:', err);
+        console.error('[home] fetchInvoices failed:', err);
+        hideLoadingOverlay();
         renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
       })
-      .getMockBillingHistory();
+      .fetchInvoices(wholesalerId);
   } else {
     // ローカル確認用フォールバック
     // NOTE: 以下のデータは server.js の MOCK_SCHEDULE_ / MOCK_BILLING_BASE_ / MOCK_BILLING_ENTRIES_
@@ -250,23 +256,28 @@ function initHomePage() {
     ];
     /** server.js MOCK_BILLING_BASE_ と同一 */
     const billingBase = {
-      billingAmount: 99999999, subtotalExTax: 90000000, taxAmount: 9999999,
-      breakdown: [
-        { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
-        { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
-      ],
-      fee: 9999999, transferAmount: 990000000, status: '支払完了',
+      wholesaler_total_amount:    99999999,
+      wholesaler_subtotal_amount: 90000000,
+      wholesaler_tax_amount:      9999999,
+      wholesaler_total_ex_tax_10:    49999999,
+      wholesaler_consumption_tax_10: 4999999,
+      wholesaler_total_ex_tax_8:     50000000,
+      wholesaler_consumption_tax_8:  4000000,
+      wholesaler_fee_rate:        0.01,
+      invoice_fee_amount:         9999999,
+      payment_amount:             990000000,
     };
     /** server.js MOCK_BILLING_ENTRIES_ と同一 */
     const mockBilling = [
-      { id: 'b001', monthLabel: '4月' },
-      { id: 'b002', monthLabel: '3月' },
-      { id: 'b003', monthLabel: '2月' },
-      { id: 'b004', monthLabel: '1月' },
+      { wholesaler_invoice_id: 'b001', wholesaler_invoice_date: '2026-04-30' },
+      { wholesaler_invoice_id: 'b002', wholesaler_invoice_date: '2026-03-31' },
+      { wholesaler_invoice_id: 'b003', wholesaler_invoice_date: '2026-02-28' },
+      { wholesaler_invoice_id: 'b004', wholesaler_invoice_date: '2026-01-31' },
     ].map(entry => Object.assign({}, billingBase, entry));
     buildScheduleMap(mockSchedule);
     renderCalendar();
     renderBillingHistory(mockBilling);
+    hideLoadingOverlay();
   }
 }
 
@@ -356,15 +367,18 @@ function renderCalendar() {
 /**
  * 請求履歴リストを描画する
  * @param {Array<{
- *   id: string,
- *   monthLabel: string,
- *   billingAmount: number,
- *   subtotalExTax: number,
- *   taxAmount: number,
- *   breakdown: Array<{rate: number, subtotalExTax: number, taxAmount: number}>,
- *   fee: number,
- *   transferAmount: number,
- *   status: string
+ *   wholesaler_invoice_id: string,
+ *   wholesaler_invoice_date: string,
+ *   wholesaler_total_amount: number,
+ *   wholesaler_subtotal_amount: number,
+ *   wholesaler_tax_amount: number,
+ *   wholesaler_total_ex_tax_10: number,
+ *   wholesaler_consumption_tax_10: number,
+ *   wholesaler_total_ex_tax_8: number,
+ *   wholesaler_consumption_tax_8: number,
+ *   wholesaler_fee_rate: number,
+ *   invoice_fee_amount: number,
+ *   payment_amount: number
  * }>} items
  */
 function renderBillingHistory(items) {
@@ -383,22 +397,30 @@ function renderBillingHistory(items) {
 
     const fmt = n => Number(n).toLocaleString('ja-JP');
 
-    // 内訳：グリッド表形式（内訳 | 小計ラベル | 税額ラベル → 10% | 値 | 値 → 8% | 値 | 値）
-    const rateItems = (item.breakdown || []);
-    const breakdownDataRows = rateItems.map(b => `
+    // wholesaler_invoice_date（例: '2026-04-30'）から「4月」形式に変換
+    const monthLabel = item.wholesaler_invoice_date
+      ? String(Number(item.wholesaler_invoice_date.slice(5, 7))) + '月'
+      : '';
+
+    // 税率別内訳を4カラムから組み立てる
+    const breakdown = [
+      { rate: 10, subtotalExTax: item.wholesaler_total_ex_tax_10,  taxAmount: item.wholesaler_consumption_tax_10 },
+      { rate: 8,  subtotalExTax: item.wholesaler_total_ex_tax_8,   taxAmount: item.wholesaler_consumption_tax_8 },
+    ];
+    const breakdownDataRows = breakdown.map(b => `
       <div class="bc-breakdown__cell bc-breakdown__rate">${escapeHtml(String(b.rate))}%</div>
       <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.subtotalExTax)}円</div>
       <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.taxAmount)}円</div>
     `).join('');
 
     card.innerHTML = `
-      <div class="bc-month">${escapeHtml(item.monthLabel)}</div>
+      <div class="bc-month">${escapeHtml(monthLabel)}</div>
 
       <div class="bc-billing">
         <div class="bc-billing__label">請求金額</div>
-        <div class="bc-billing__amount">${fmt(item.billingAmount)}円</div>
-        <div class="bc-billing__sub">小計（税抜）<span>${fmt(item.subtotalExTax)}円</span></div>
-        <div class="bc-billing__sub">税額<span>${fmt(item.taxAmount)}円</span></div>
+        <div class="bc-billing__amount">${fmt(item.wholesaler_total_amount)}円</div>
+        <div class="bc-billing__sub">小計（税抜）<span>${fmt(item.wholesaler_subtotal_amount)}円</span></div>
+        <div class="bc-billing__sub">税額<span>${fmt(item.wholesaler_tax_amount)}円</span></div>
       </div>
 
       <div class="bc-divider"></div>
@@ -415,11 +437,11 @@ function renderBillingHistory(items) {
       <div class="bc-divider"></div>
 
       <div class="bc-fee">
-        <div class="bc-fee__row">手数料<span>${fmt(item.fee)}円</span></div>
-        <div class="bc-fee__row">振込金額<span>${fmt(item.transferAmount)}円</span></div>
+        <div class="bc-fee__row">手数料<span>${fmt(item.invoice_fee_amount)}円</span></div>
+        <div class="bc-fee__row">振込金額<span>${fmt(item.payment_amount)}円</span></div>
       </div>
 
-      <button type="button" class="bc-detail-link" data-id="${escapeHtml(item.id)}">詳細を見る &gt;</button>
+      <button type="button" class="bc-detail-link" data-id="${escapeHtml(item.wholesaler_invoice_id)}">詳細を見る &gt;</button>
     `;
 
     // 詳細リンク: invoiceId をハッシュクエリに含めて #detail へ遷移
@@ -1387,10 +1409,10 @@ function renderConfirmPage() {
     const mapping  = mappingMap[customerCode] || {};
     // 加盟店表示名の解決ロジック:
     // 1. CSVに merchant_name 列がある（カスタムフォーマット）→ CSVの値を使用
-    // 2. CSVに merchant_name 列がない（デフォルトフォーマット）→ merchant_mappings から customer_code で検索
+    // 2. CSVに merchant_name 列がない（デフォルトフォーマット）→ merchant_mappings から customer_code で検索（store_name キー）
     // 3. どちらも取得できない場合 → customer_code をそのまま表示
     const merchantNameFromCsv = String(rows[0]['merchant_name'] || '');
-    const merchantNameFromMap  = (mappingMap[customerCode] || {}).merchant_name || '';
+    const merchantNameFromMap  = (mappingMap[customerCode] || {}).store_name || '';
     const displayName          = merchantNameFromCsv || merchantNameFromMap || customerCode;
 
     const st = rows.reduce((acc, r) => {
@@ -1589,7 +1611,6 @@ function navigate() {
   console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
 }
 
-// ハッシュ変化時・初回ロード時にルーティング実行
+// ハッシュ変化時にルーティング実行（初回ロードは getAccountInfo 完了後に呼ぶ）
 window.addEventListener('hashchange', navigate);
-window.addEventListener('DOMContentLoaded', navigate);
 </script>
