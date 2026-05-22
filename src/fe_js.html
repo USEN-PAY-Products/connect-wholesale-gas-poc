@@ -79,6 +79,7 @@ document.addEventListener('DOMContentLoaded', function () {
           console.error('[account] getAccountInfo のレスポンスが不正です:', result);
           showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
         }
+        hideLoadingOverlay();
         navigate(); // アカウント情報確定後にルーティング実行
       })
       .withFailureHandler(function (err) {
@@ -109,6 +110,7 @@ document.addEventListener('DOMContentLoaded', function () {
       ],
     });
     enableUploadUi_();
+    hideLoadingOverlay();
     navigate(); // アカウント情報確定後にルーティング実行
   }
 });
@@ -231,52 +233,32 @@ function initHomePage() {
       })
       .getMockScheduleData();
 
-    // 請求履歴取得（BQ直接取得: wholesaler_id は sessionStorage から引数として渡す）
+    // 請求履歴取得（BQ直接取得: wholesaler_id はサーバー側で確定するため引数不要）
     const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
-    showLoadingOverlay('請求情報を取得中...');
-    google.script.run
-      .withSuccessHandler(function(result) {
-        hideLoadingOverlay();
-        renderBillingHistory(result && result.data ? result.data : []);
-      })
-      .withFailureHandler(function(err) {
-        console.error('[home] fetchInvoices failed:', err);
-        hideLoadingOverlay();
-        renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
-      })
-      .fetchInvoices(wholesalerId);
+    // 通常は getAccountInfo 成功後にここへ到達するため必ず取れるが、念のため防衛チェック
+    if (!wholesalerId) {
+      console.error('[home] wholesaler_id が sessionStorage にありません。請求一覧を取得できません。');
+      renderBillingHistory([]);
+    } else {
+      showLoadingOverlay('請求情報を取得中...');
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoadingOverlay();
+          renderBillingHistory(result && result.data ? result.data : []);
+        })
+        .withFailureHandler(function(err) {
+          console.error('[home] fetchInvoices failed:', err);
+          hideLoadingOverlay();
+          renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
+        })
+        .fetchInvoices();
+    }
   } else {
-    // ローカル確認用フォールバック
-    // NOTE: 以下のデータは server.js の MOCK_SCHEDULE_ / MOCK_BILLING_BASE_ / MOCK_BILLING_ENTRIES_
-    //       と同一形式を維持すること。BackOffice API 実装後は両方まとめて削除する。
-    console.warn('[home] google.script.run が利用できません。モックデータを使用します。');
-    const mockSchedule = [
-      { date: '2026-05-13', title: '請求確定', type: 'billing' },
-      { date: '2026-05-27', title: '口座振替', type: 'payment' },
-    ];
-    /** server.js MOCK_BILLING_BASE_ と同一 */
-    const billingBase = {
-      wholesaler_total_amount:    99999999,
-      wholesaler_subtotal_amount: 90000000,
-      wholesaler_tax_amount:      9999999,
-      wholesaler_total_ex_tax_10:    49999999,
-      wholesaler_consumption_tax_10: 4999999,
-      wholesaler_total_ex_tax_8:     50000000,
-      wholesaler_consumption_tax_8:  4000000,
-      wholesaler_fee_rate:        0.01,
-      invoice_fee_amount:         9999999,
-      payment_amount:             990000000,
-    };
-    /** server.js MOCK_BILLING_ENTRIES_ と同一 */
-    const mockBilling = [
-      { wholesaler_invoice_id: 'b001', wholesaler_invoice_date: '2026-04-30' },
-      { wholesaler_invoice_id: 'b002', wholesaler_invoice_date: '2026-03-31' },
-      { wholesaler_invoice_id: 'b003', wholesaler_invoice_date: '2026-02-28' },
-      { wholesaler_invoice_id: 'b004', wholesaler_invoice_date: '2026-01-31' },
-    ].map(entry => Object.assign({}, billingBase, entry));
-    buildScheduleMap(mockSchedule);
+    // ローカル確認用フォールバック（GAS 環境外: BQ・GAS APIは使用不可のため空データで描画）
+    console.warn('[home] google.script.run が利用できません。空データで描画します。');
+    buildScheduleMap([]);
     renderCalendar();
-    renderBillingHistory(mockBilling);
+    renderBillingHistory([]);
     hideLoadingOverlay();
   }
 }

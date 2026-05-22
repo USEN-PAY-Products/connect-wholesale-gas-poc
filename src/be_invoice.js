@@ -5,7 +5,7 @@
 //
 // 公開関数:
 //   sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks)
-//   fetchInvoices(wholesalerId)   ← wholesalerId はフロントの sessionStorage から引数で渡す
+//   fetchInvoices()            ← サーバー側で wholesaler_id を確定（引数不要）
 //   fetchInvoiceDetail(invoiceId)
 //   getMockScheduleData()    ← BackOffice API 実装後に削除
 //
@@ -352,7 +352,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
 
 /**
  * CSV を Drive に保存し、BigQuery の 3 テーブルにトランザクション登録する。
- * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_name> / <YYYYMM> / <タイムスタンプ>_original.csv
+ * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_id>_<wholesaler_name> / <YYYYMM> / <タイムスタンプ>_original.csv
  *
  * フロー:
  *   ① Drive に CSV を保存（元ファイル保全）
@@ -430,7 +430,8 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     // ── ① Drive 保存（rawCsvBase64: 元ファイルのバイト列をそのまま保存）──────
     const rawBytes    = Utilities.base64Decode(rawCsvBase64);
     const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
-    const userFolder  = getOrCreateSubFolder_(rootFolder, String(accountInfo.wholesaler_name));
+    const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
+    const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
     const fileName    = formatTimestamp_(now) + '_original.csv';
     const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
@@ -483,13 +484,15 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
 
 /**
  * ログインユーザーの請求一覧を BQ から取得して返す。
- * wholesaler_id はフロントの sessionStorage から引数として受け取る。
+ * wholesaler_id はサーバー側で getServerAccountInfo_() から取得する（引数は無視）。
+ * フロントから渡された引数を使わないことで sessionStorage 改ざんによる他卸データ取得を防ぐ。
  *
- * @param {string|number} wholesalerId - sessionStorage['shiire_wholesaler_id'] の値
  * @returns {{ status: 'success', data: Array<Object> }}
  */
-function fetchInvoices(wholesalerId) {
+function fetchInvoices() {
   try {
+    const accountInfo  = getServerAccountInfo_();
+    const wholesalerId = accountInfo.wholesaler_id;
     return success_(fetchInvoicesByWholesaler_(wholesalerId));
   } catch (err) {
     throw new Error('fetchInvoices failed: ' + err.message);
