@@ -226,25 +226,43 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   if (!Number.isInteger(wsId) || wsId <= 0) {
     throw new Error('[buildTransactionSql_] wholesaler_id が不正です: ' + wsId);
   }
-  // 卸合計値の有限性・非負・NaN検証
+  // 卸合計値の有限性・非負・整数・NaN検証
   const numFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8','feeAmount','paymentAmount'];
   numFields.forEach(function(f) {
     const v = Number(wt[f] || 0);
     if (!isFinite(v)) throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' が数値ではありません: ' + wt[f]);
     if (v < 0) throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' に負数は許可されていません: ' + v);
+    if (!Number.isInteger(v)) throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' は整数である必要があります: ' + v);
   });
-  // 加盟店合計値の有限性・非負・NaN検証
+  // 加盟店合計値の有限性・非負・整数・NaN検証
   const merchantNumFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'];
   summaryData.merchantTotals.forEach(function(m, idx) {
     merchantNumFields.forEach(function(f) {
       const v = Number(m[f] || 0);
       if (!isFinite(v)) throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' が数値ではありません: ' + m[f]);
       if (v < 0) throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' に負数は許可されていません: ' + v);
+      if (!Number.isInteger(v)) throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' は整数である必要があります: ' + v);
     });
   });
 
   // SQL 文字列内のシングルクォートを '' でエスケープする（SQLインジェクション対策）
   const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+
+  // csv_format_rules に存在する bq_field のセット（カスタムフォーマット判定に使用）
+  // デフォルト（null）の場合は全フィールドが存在するものとして扱う
+  const csvRules = accountInfo.csv_format_rules;
+  const bqFields = csvRules && Object.keys(csvRules).length > 0
+    ? new Set(Object.values(csvRules).map(function(r) { return r.bq_field; }))
+    : null; // null = デフォルトフォーマット（全フィールドあり）
+  const hasField = function(f) { return bqFields === null || bqFields.has(f); };
+
+  // 任意フィールドの SQL 式（なければ NULL で代替）
+  const sqlQuantityUnit  = hasField('quantity_unit')         ? 's.quantity_unit'         : 'NULL';
+  const sqlDetailRemark  = hasField('invoice_detail_remark') ? 's.invoice_detail_remark' : 'NULL';
+  // slip_number は ORDER BY 用（なければ transaction_date のみで順序付け）
+  const sqlOrderBy = hasField('slip_number')
+    ? 'ORDER BY s.transaction_date, s.slip_number'
+    : 'ORDER BY s.transaction_date';
 
   // テーブル参照
   const storeRef     = '`' + projectId + '.' + datasetId + '.store_invoices`';
@@ -289,12 +307,12 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     '   tax_category, line_amount_excluding_tax, line_tax_amount, line_note)',
     'SELECT',
     '  GENERATE_UUID(),',
-    '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY s.transaction_date, s.slip_number),',
+    '  ROW_NUMBER() OVER (PARTITION BY si.id ' + sqlOrderBy + '),',
     '  si.id,',
-    '  s.transaction_date, s.item_name, s.quantity, s.quantity_unit, s.unit_price,',
+    '  s.transaction_date, s.item_name, s.quantity, ' + sqlQuantityUnit + ', s.unit_price,',
     '  s.tax_rate, s.amount_ex_tax,',
     '  FLOOR(s.amount_ex_tax * s.tax_rate / 100),',
-    '  s.invoice_detail_remark',
+    '  ' + sqlDetailRemark,
     'FROM ' + stagingRef + ' s',
     'JOIN ' + merchantsRef + ' wm',
     '  ON wm.customer_code = s.customer_code',
@@ -341,6 +359,15 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
  *   - wholesaler_id / wholesaler_user_id / mall_code はサーバー側で取得（改ざん防止）
  *   - summaryData.customerCode が merchant_mappings に存在するかをサーバー側で検証
  *   - 金額・備考はフロント確定値をそのまま使用（卸が確認画面で承認した値）
+ *
+ * 【TODO: 本番実装時の宿題】
+ *   summaryData の金額はクライアント確定値のため、悪意ある改ざんを完全には防げない。
+ *   POC では以下の理由で割り切る:
+ *     - 操作者は卸業者自身（自分が損する改ざんをする動機がない）
+ *     - 登録後に backoffice_review_status='PENDING_REVIEW' でバックオフィスが目視確認する
+ *     - staging テーブルの明細と金額の突合は、バックオフィス承認フロー内で実施する設計とする
+ *   本番実装時は Load Job 完了後に BQ で staging を再集計し、
+ *   summaryData との差異が許容範囲を超えた場合はエラーにする仕組みを検討すること。
  *
  * @param {string} rawCsvBase64  - 元CSVのBase64（元ファイルのバイト列そのまま。Drive保存に使用）
  * @param {string} utf8CsvBase64 - UTF-8変換済みCSVのBase64（ヘッダー検証・BQ Load Jobに使用）

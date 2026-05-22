@@ -92,3 +92,54 @@ function setupScriptProperties(forceOverwrite) {
   });
   console.log('[setupScriptProperties] Script Properties を設定しました（ENV=development）。');
 }
+
+// =============================================================================
+// 個別プロパティ上書き用ヘルパー
+// GAS エディタから直接実行して特定のプロパティだけ更新する場合に使う。
+// 例: BQ_DATASET_ID だけ変えたい、API_KEY だけ差し替えたい、など。
+//
+// 使い方:
+//   1. GAS エディタ上部のドロップダウンで実行したい関数を選択して実行。
+//   2. または overwriteScriptProperty_('BQ_DATASET_ID', 'connect_db') のように
+//      任意のキーと値を渡して Script Editor の実行ボタンで呼ぶ。
+// =============================================================================
+
+/** BQ_DATASET_ID を connect_db に更新する */
+function overwriteBqDatasetId() {
+  overwriteScriptProperty_('BQ_DATASET_ID', 'connect_db');
+}
+
+/** GCP_PROJECT_ID を更新する（値は関数内を直接編集してから実行） */
+function overwriteGcpProjectId() {
+  overwriteScriptProperty_('GCP_PROJECT_ID', 'usenpay-connect-dev');
+}
+
+/** STUB_ACCOUNT_INFO_MODE を false（本番モード）に切り替える */
+function disableStubAccountInfoMode() {
+  overwriteScriptProperty_('STUB_ACCOUNT_INFO_MODE', 'false');
+}
+
+/** STUB_ACCOUNT_INFO_MODE を true（スタブモード）に戻す */
+function enableStubAccountInfoMode() {
+  overwriteScriptProperty_('STUB_ACCOUNT_INFO_MODE', 'true');
+}
+
+/**
+ * Script Property を1件だけ上書きする内部ヘルパー。
+ * ENV=production の環境では実行を拒否する。
+ *
+ * @param {string} key   - プロパティキー
+ * @param {string} value - 設定する値
+ */
+function overwriteScriptProperty_(key, value) {
+  const props = PropertiesService.getScriptProperties();
+  const env   = props.getProperty('ENV');
+  if (env === 'production') {
+    throw new Error(
+      '[overwriteScriptProperty_] ENV=production の環境では実行できません。' +
+      '本番の設定変更は GAS UI（プロジェクトの設定 → スクリプトプロパティ）から直接行ってください。'
+    );
+  }
+  props.setProperty(key, value);
+  console.log('[overwriteScriptProperty_] ' + key + ' = ' + value + ' に更新しました。');
+}

@@ -88,20 +88,21 @@ document.addEventListener('DOMContentLoaded', function () {
     saveAccountInfo({
       wholesaler_id:      1,
       wholesaler_name:    'ベジクル',
-      wholesaler_user_id: 1,
+      wholesaler_user_id: '00000000-0000-0000-0000-000000000001',
       user_name:          '卸 担当者A',
       fee_rate:           3,
       csv_format_rules: {
-        transaction_date: { csv_header: '伝票日付',   type: 'date',    required: true },
-        slip_number:      { csv_header: '伝票番号',   type: 'integer', required: true },
-        customer_code:    { csv_header: '得意先コード', type: 'string', required: true },
-        merchant_name:    { csv_header: '請求先名',   type: 'string',  required: true },
-        item_name:        { csv_header: '商品名',     type: 'string',  required: true, max_length: 250 },
-        quantity:         { csv_header: '売上数量',   type: 'integer', required: true },
-        unit:             { csv_header: '数量単位',   type: 'string',  required: true },
-        unit_price:       { csv_header: '単価',       type: 'integer', required: true },
-        amount_ex_tax:    { csv_header: '金額',       type: 'integer', required: true },
-        tax_rate:         { csv_header: '消費税率',   type: 'integer', required: true, enum: [8, 10] },
+        transaction_date:      { csv_header: '伝票日付',    type: 'date',    required: true },
+        slip_number:           { csv_header: '伝票番号',    type: 'integer', required: true },
+        customer_code:         { csv_header: '得意先コード', type: 'string',  required: true },
+        merchant_name:         { csv_header: '請求先名',    type: 'string',  required: true },
+        item_name:             { csv_header: '商品名',      type: 'string',  required: true, max_length: 250 },
+        quantity:              { csv_header: '売上数量',    type: 'integer', required: true },
+        quantity_unit:         { csv_header: '数量単位',    type: 'string',  required: false },
+        unit_price:            { csv_header: '単価',        type: 'integer', required: true },
+        amount_ex_tax:         { csv_header: '金額',        type: 'integer', required: true },
+        tax_rate:              { csv_header: '消費税率',    type: 'integer', required: true, enum: [8, 10] },
+        invoice_detail_remark: { csv_header: '備考',        type: 'string',  required: false },
       },
       merchant_mappings: [
         { customer_code: '1189', mall_code: 'U123', merchant_name: '焼肉USEN 1号店', is_active: true },
@@ -1444,8 +1445,8 @@ function renderConfirmPage() {
       `<span class="slh-col slh-col--amount"><span class="amount-display" data-field="totalAmount">${storeTotal.toLocaleString('ja-JP')}</span></span>` +
       `<span class="slh-col slh-col--extax"><span class="amount-display" data-field="subtotalAmount">${storeAmountExTax.toLocaleString('ja-JP')}</span></span>` +
       `<span class="slh-col slh-col--tax"><span class="amount-display" data-field="taxAmount">${storeTax.toLocaleString('ja-JP')}</span></span>` +
-      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" aria-label="${escapeHtml(displayName)} 消費税内訳（8%）（円）" /></span>` +
-      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" aria-label="${escapeHtml(displayName)} 消費税内訳（10%）（円）" /></span>` +
+      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 消費税内訳（8%）（円）" /></span>` +
+      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 消費税内訳（10%）（円）" /></span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
     const toggleAccordion = () => {
