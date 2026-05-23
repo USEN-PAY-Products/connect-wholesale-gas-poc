@@ -105,32 +105,91 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
 }
 
 /**
- * 請求IDに紐づく加盟店別明細を BQ から取得する。
- * TODO: BackOffice API 実装後に fetchInvoiceDetail() からこの関数を呼び出す。
+ * 請求IDに紐づく親サマリー（wholesaler_invoices 1行）を BQ から取得する。
  *
- * @param {string|number} invoiceId - 請求管理番号（wholesaler_invoice_id）
- * @returns {Array<Object>} 明細行の配列
+ * @param {string} invoiceId - 卸インボイスID
+ * @returns {Object|null} 親レコード。見つからない場合は null。
  * @throws {Error} クエリ失敗時
  */
-function fetchInvoiceDetail_(invoiceId) {
+function fetchInvoiceDetailSummary_(invoiceId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
-    '  si.mall_code, si.invoice_number, si.invoice_status, ' +
-    '  si.total_amount, si.subtotal_amount, si.tax_amount, ' +
-    '  si.total_ex_tax_8per, si.consumption_tax_8per, ' +
-    '  si.total_ex_tax_10per, si.consumption_tax_10per, ' +
-    '  il.invoice_item_row, il.transaction_date, il.item_name, il.unit_price, il.quantity, ' +
-    '  il.quantity_unit, il.tax_category, il.line_amount_excluding_tax, il.line_tax_amount, ' +
-    '  il.line_note ' +
-    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
-    'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.invoice_lines` AS il ' +
-    '  ON si.id = il.store_invoice_id ' +
-    'WHERE si.wholesaler_invoice_id = @invoice_id ' +
-    'ORDER BY si.mall_code, il.invoice_item_row';
+    '  id, wholesaler_invoice_date, ' +
+    '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
+    '  wholesaler_total_ex_tax_10, wholesaler_consumption_tax_10, ' +
+    '  wholesaler_total_ex_tax_8, wholesaler_consumption_tax_8, ' +
+    '  wholesaler_fee_rate, invoice_fee_amount, payment_amount, handover_matter ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
+    'WHERE id = @invoice_id ' +
+    'LIMIT 1';
 
   const params = [
     { name: 'invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
+  ];
+
+  const rows = runQuery_(config.gcpProjectId, sql, params);
+  return rows && rows.length > 0 ? rows[0] : null;
+}
+
+/**
+ * 請求IDに紐づく加盟店別サマリー（store_invoices）を BQ から取得する。
+ * RETURNED ステータスの店舗を先頭に、それ以外は mall_code 昇順で返す。
+ *
+ * @param {string} invoiceId - 卸インボイスID
+ * @returns {Array<Object>} 加盟店サマリー行の配列
+ * @throws {Error} クエリ失敗時
+ */
+function fetchStoreInvoicesByParent_(invoiceId) {
+  const config = getConfig_();
+  const sql =
+    'SELECT ' +
+    '  si.id AS store_invoice_id, ' +
+    '  si.mall_code, ' +
+    '  s.store_name, ' +
+    '  si.invoice_number, ' +
+    '  si.backoffice_review_status, ' +
+    '  si.total_amount, si.subtotal_amount, si.tax_amount, ' +
+    '  si.total_ex_tax_10per, si.consumption_tax_10per, ' +
+    '  si.total_ex_tax_8per, si.consumption_tax_8per, ' +
+    '  si.backoffice_handover, si.wholesaler_handover, si.backoffice_remark ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
+    'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
+    '  ON s.mall_code = si.mall_code ' +
+    'WHERE si.wholesaler_invoice_id = @invoice_id ' +
+    'ORDER BY ' +
+    '  CASE si.backoffice_review_status WHEN \'RETURNED\' THEN 0 ELSE 1 END ASC, ' +
+    '  si.mall_code ASC';
+
+  const params = [
+    { name: 'invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
+  ];
+
+  return runQuery_(config.gcpProjectId, sql, params);
+}
+
+/**
+ * 加盟店インボイスIDに紐づく明細（invoice_lines）を BQ から取得する（最大1000件）。
+ * アコーディオンのオンデマンド読み込みに使用する。
+ *
+ * @param {string} storeInvoiceId - 加盟店インボイスID
+ * @returns {Array<Object>} 明細行の配列
+ * @throws {Error} クエリ失敗時
+ */
+function fetchInvoiceLinesByStore_(storeInvoiceId) {
+  const config = getConfig_();
+  const sql =
+    'SELECT ' +
+    '  invoice_item_row, transaction_date, item_name, ' +
+    '  quantity, quantity_unit, unit_price, tax_category, ' +
+    '  line_amount_excluding_tax, line_tax_amount, line_note ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.invoice_lines` ' +
+    'WHERE store_invoice_id = @store_invoice_id ' +
+    'ORDER BY invoice_item_row ASC ' +
+    'LIMIT 1000';
+
+  const params = [
+    { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },
   ];
 
   return runQuery_(config.gcpProjectId, sql, params);

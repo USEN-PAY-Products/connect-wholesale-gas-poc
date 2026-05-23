@@ -499,18 +499,39 @@ function fetchInvoices() {
 
 /**
  * 指定した請求IDの詳細データを返す。
- * 現在は null を返す（詳細画面未実装）。BackOffice API 実装後に
- * db_bq_query.js の fetchInvoiceDetail_() を呼び出す実装に差し替えること。
+ * 親サマリー（wholesaler_invoices 1行）と加盟店一覧（store_invoices）を一括取得する。
+ * 孫明細（invoice_lines）はアコーディオン開閉時にオンデマンドで getInvoiceLinesByStore() を呼ぶ設計。
  *
- * @param {string|number} invoiceId - 取得対象の請求管理番号
- * @returns {{ status: 'success', data: Object|null }}
+ * @param {string} invoiceId - 取得対象の卸インボイスID
+ * @returns {{ status: 'success', data: { summary: Object, stores: Array<Object> } | null }}
  */
 function fetchInvoiceDetail(invoiceId) {
   try {
-    // TODO: return success_(fetchInvoiceDetail_(invoiceId));
-    return success_(null);
+    if (!invoiceId) throw new Error('invoiceId が指定されていません');
+    getServerAccountInfo_(); // ログインユーザーの権限検証
+    const summary = fetchInvoiceDetailSummary_(invoiceId);
+    if (!summary) return success_(null);
+    const stores = fetchStoreInvoicesByParent_(invoiceId);
+    return success_({ summary: summary, stores: stores });
   } catch (err) {
     throw new Error('fetchInvoiceDetail failed: ' + err.message);
+  }
+}
+
+/**
+ * 加盟店インボイスIDに紐づく明細（孫レコード）を最大1000件返す。
+ * 詳細画面のアコーディオンがクリックされたタイミングでオンデマンドに呼ばれる。
+ *
+ * @param {string} storeInvoiceId - 加盟店インボイスID（store_invoices.id）
+ * @returns {{ status: 'success', data: Array<Object> }}
+ */
+function getInvoiceLinesByStore(storeInvoiceId) {
+  try {
+    if (!storeInvoiceId) throw new Error('storeInvoiceId が指定されていません');
+    getServerAccountInfo_(); // ログインユーザーの権限検証
+    return success_(fetchInvoiceLinesByStore_(storeInvoiceId));
+  } catch (err) {
+    throw new Error('getInvoiceLinesByStore failed: ' + err.message);
   }
 }
 
