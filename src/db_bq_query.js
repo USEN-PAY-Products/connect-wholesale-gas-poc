@@ -64,7 +64,14 @@ function fetchAccountInfoByEmail_(email) {
     wholesaler_name:     first.wholesaler_name,
     fee_rate:            Number(first.fee_rate),
     tax_rounding_method: first.tax_rounding_method,
-    csv_format_rules:    first.csv_format_rules ? JSON.parse(first.csv_format_rules) : null,
+    csv_format_rules:    (function() {
+      try {
+        return first.csv_format_rules ? JSON.parse(first.csv_format_rules) : null;
+      } catch (e) {
+        Logger.log('[fetchAccountInfoByEmail_] csv_format_rules のパースに失敗しました。デフォルトフォーマットを使用します: ' + e.message);
+        return null;
+      }
+    })(),
     merchant_mappings:   merchantMappings,
   };
 }
