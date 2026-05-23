@@ -18,11 +18,15 @@ function saveAccountInfo(data) {
     sessionStorage.setItem('shiire_merchant_mappings',    JSON.stringify(data.merchant_mappings  || []));
     sessionStorage.setItem('shiire_csv_format_rules',     JSON.stringify(data.csv_format_rules   || null));
     console.log('[account] SessionStorage に卸情報を保存しました:', data.wholesaler_name);
-    // ヘッダーの企業名を更新
+  } catch (e) {
+    console.warn('[account] SessionStorage への保存に失敗しました:', e);
+  }
+  // DOM更新は sessionStorage 保存の成否に関わらず実行する
+  try {
     const headerName = document.getElementById('headerWholesalerName');
     if (headerName) headerName.textContent = data.wholesaler_name ?? '';
   } catch (e) {
-    console.warn('[account] SessionStorage への保存に失敗しました:', e);
+    console.warn('[account] ヘッダー企業名の更新に失敗しました:', e);
   }
 }
 
@@ -95,23 +99,11 @@ document.addEventListener('DOMContentLoaded', function () {
       })
       .getAccountInfo();
   } else {
-    // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
-    console.warn('[account] google.script.run が利用できません。モックデータを使用します。');
-    saveAccountInfo({
-      wholesaler_id:       1,
-      wholesaler_name:     'ベジクル',
-      wholesaler_user_id:  '00000000-0000-0000-0000-000000000001',
-      fee_rate:            3,
-      tax_rounding_method: 'round_down',
-      csv_format_rules:    null, // NULL = デフォルトフォーマットを使用（本番BQと同一）
-      merchant_mappings: [
-        { customer_code: 'C001', mall_code: 'MALL-001', store_name: 'テスト加盟店1' },
-        { customer_code: 'C002', mall_code: 'MALL-002', store_name: 'テスト加盟店2' },
-      ],
-    });
-    enableUploadUi_();
+    // GAS 環境外での実行は非対応
+    console.error('[account] google.script.run が利用できません。GAS Webアプリとして実行してください。');
+    showUploadUiError_('この画面はGAS Webアプリとして実行してください。');
     hideLoadingOverlay();
-    navigate(); // アカウント情報確定後にルーティング実行
+    navigate();
   }
 });
 
@@ -233,30 +225,22 @@ function initHomePage() {
       })
       .getMockScheduleData();
 
-    // 請求履歴取得（BQ直接取得: wholesaler_id はサーバー側で確定するため引数不要）
-    const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
-    // 通常は getAccountInfo 成功後にここへ到達するため必ず取れるが、念のため防衛チェック
-    if (!wholesalerId) {
-      console.error('[home] wholesaler_id が sessionStorage にありません。請求一覧を取得できません。');
-      renderBillingHistory([]);
-    } else {
-      showLoadingOverlay('請求情報を取得中...');
-      google.script.run
-        .withSuccessHandler(function(result) {
-          hideLoadingOverlay();
-          renderBillingHistory(result && result.data ? result.data : []);
-        })
-        .withFailureHandler(function(err) {
-          console.error('[home] fetchInvoices failed:', err);
-          hideLoadingOverlay();
-          renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
-        })
-        .fetchInvoices();
-    }
+    // 請求履歴取得（BQ直接取得: wholesaler_id はサーバー側でログインユーザーから確定するため引数不要）
+    showLoadingOverlay('請求情報を取得中...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        hideLoadingOverlay();
+        renderBillingHistory(result && result.data ? result.data : []);
+      })
+      .withFailureHandler(function(err) {
+        console.error('[home] fetchInvoices failed:', err);
+        hideLoadingOverlay();
+        renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
+      })
+      .fetchInvoices();
   } else {
-    // ローカル確認用フォールバック（GAS 環境外: BQ・GAS APIは使用不可のため空データで描画）
-    console.warn('[home] google.script.run が利用できません。空データで描画します。');
-    buildScheduleMap([]);
+    // GAS 環境外での実行は非対応
+    console.error('[home] google.script.run が利用できません。GAS Webアプリとして実行してください。');
     renderCalendar();
     renderBillingHistory([]);
     hideLoadingOverlay();
@@ -512,14 +496,31 @@ try {
 // Upload page: Toast helpers
 // =============================================================================
 
-/** @param {string} message @param {'error'|'success'} [type='error'] */
-function showToast(message, type = 'error') {
+/** 自動非表示タイマーID */
+let _toastTimer = null;
+
+/**
+ * @param {string} message
+ * @param {'error'|'success'} [type='error']
+ * @param {number} [autoHideMs] - 自動非表示までのミリ秒。省略時: success=4000ms, error=0（自動非表示なし）
+ */
+function showToast(message, type = 'error', autoHideMs) {
   document.getElementById('toastMessage').textContent = message;
   toast.classList.remove('hidden', 'toast--error', 'toast--success');
   toast.classList.add(`toast--${type}`);
+
+  // 既存タイマーをクリア
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+
+  // 自動非表示: success はデフォルト4秒、error は明示指定がある場合のみ
+  const delay = autoHideMs !== undefined ? autoHideMs : (type === 'success' ? 4000 : 0);
+  if (delay > 0) {
+    _toastTimer = setTimeout(hideToast, delay);
+  }
 }
 
 function hideToast() {
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
   toast.classList.add('hidden');
 }
 
@@ -986,6 +987,7 @@ function resetPage() {
   rawCsvBase64  = null;
   utf8CsvBase64 = null;
   parsedData    = null;
+  homeInitialized = false; // 登録完了後に #home へ戻ったとき請求一覧を再取得する
   try {
     sessionStorage.removeItem('shiire_parsedData');
   } catch (e) {
