@@ -198,6 +198,8 @@ let homeInitialized = false;
 
 function initHomePage() {
   if (homeInitialized) return;
+  // アカウント情報が未取得の場合（getAccountInfo失敗時など）はスキップ
+  if (!sessionStorage.getItem('shiire_wholesaler_id')) return;
   homeInitialized = true;
 
   // カレンダーナビゲーションボタンのイベント登録
