@@ -81,7 +81,8 @@ document.addEventListener('DOMContentLoaded', function () {
           enableUploadUi_();
         } else {
           console.error('[account] getAccountInfo のレスポンスが不正です:', result);
-          showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
+          showErrorPage_('system');
+          location.hash = '#error'; // エラーページへ強制
         }
         hideLoadingOverlay();
         navigate(); // アカウント情報確定後にルーティング実行
@@ -90,10 +91,11 @@ document.addEventListener('DOMContentLoaded', function () {
         console.error('[account] getAccountInfo failed:', err);
         const msg = String(err.message || err);
         if (msg.indexOf('UNAUTHORIZED') !== -1) {
-          showUploadUiError_('このアカウントは登録されていないか、無効化されています。管理者にお問い合わせください。');
+          showErrorPage_('unauthorized');
         } else {
-          showUploadUiError_('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
+          showErrorPage_('system');
         }
+        location.hash = '#error'; // エラーページへ強制
         hideLoadingOverlay();
         navigate(); // エラー時もルーティングは実行する
       })
@@ -101,7 +103,8 @@ document.addEventListener('DOMContentLoaded', function () {
   } else {
     // GAS 環境外での実行は非対応
     console.error('[account] google.script.run が利用できません。GAS Webアプリとして実行してください。');
-    showUploadUiError_('この画面はGAS Webアプリとして実行してください。');
+    showErrorPage_('env');
+    location.hash = '#error'; // エラーページへ強制
     hideLoadingOverlay();
     navigate();
   }
@@ -121,14 +124,31 @@ function enableUploadUi_() {
 }
 
 /**
- * アカウント情報取得失敗時にアップロードUIをエラー表示に切り替える。
- * @param {string} message
+ * アカウント情報取得失敗時にエラーページの表示内容を設定する。
+ * navigate() の前に location.hash = '#error' をセットして呼ぶこと。
+ * @param {'unauthorized'|'system'|'env'} type - エラーの種類
  */
-function showUploadUiError_(message) {
-  const dz = document.getElementById('dropZone');
-  if (dz) {
-    dz.innerHTML = '<p class="upload-area__error">' + message + '</p>';
+function showErrorPage_(type) {
+  const banner   = document.getElementById('errorPageBannerText');
+  const message  = document.getElementById('errorPageMessage');
+  const sub      = document.getElementById('errorPageSub');
+
+  if (type === 'unauthorized') {
+    // デフォルトの文言をそのまま使用（fe_page_error.html の HTML のまま）
+    return;
   }
+
+  if (type === 'env') {
+    if (banner)  banner.textContent  = '環境エラー';
+    if (message) message.innerHTML   = 'この画面はGAS Webアプリとして実行してください。';
+    if (sub)     sub.textContent     = '';
+    return;
+  }
+
+  // type === 'system'
+  if (banner)  banner.textContent  = 'システムエラーが発生しました。';
+  if (message) message.innerHTML   = 'アカウント情報の取得に失敗しました。<br>ページを再読み込みしてください。';
+  if (sub)     sub.textContent     = '問題が続く場合は、下記窓口までご連絡ください。';
 }
 
 
@@ -1546,6 +1566,7 @@ const ROUTES = {
   '#upload':  'pageUpload',
   '#confirm': 'pageConfirm',
   '#detail':  'pageDetail',
+  '#error':   'pageError',
 };
 
 /** デフォルトルート */
