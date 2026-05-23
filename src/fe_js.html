@@ -24,7 +24,7 @@ function saveAccountInfo(data) {
   // DOM更新は sessionStorage 保存の成否に関わらず実行する
   try {
     const headerName = document.getElementById('headerWholesalerName');
-    if (headerName) headerName.textContent = data.wholesaler_name ?? '';
+    if (headerName) headerName.textContent = data.wholesaler_name || '―';
   } catch (e) {
     console.warn('[account] ヘッダー企業名の更新に失敗しました:', e);
   }

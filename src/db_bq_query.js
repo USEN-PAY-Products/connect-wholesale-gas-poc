@@ -79,7 +79,7 @@ function fetchAccountInfoByEmail_(email) {
 /**
  * 卸業者IDに紐づく請求一覧を BQ から取得する。
  *
- * @param {string} wholesalerId - 卸業者ID
+ * @param {number} wholesalerId - 卸業者ID
  * @returns {Array<Object>} 請求一覧行の配列
  * @throws {Error} クエリ失敗時
  */

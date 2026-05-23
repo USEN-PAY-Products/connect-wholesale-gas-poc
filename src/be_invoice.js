@@ -439,13 +439,6 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     const csvUrl      = csvFile.getUrl();
     Logger.log('[Drive] 保存完了: ' + csvUrl);
 
-    // ── STUB MODE: Drive 保存のみ、BQ 書き込みスキップ ───────────────────
-    if (STUB_MODE) {
-      Logger.log('[STUB] Drive 保存完了: ' + csvUrl);
-      Logger.log('[STUB] BQ 書き込みはスキップします（STUB_MODE=true）');
-      return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
-    }
-
     // ── ③ 生CSV を BQ Load Job で staging テーブルへ投入（utf8Bytes を使用）──
     Logger.log('[BQ] Load Job 投入: stagingId=' + stagingId);
     const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema, location);
