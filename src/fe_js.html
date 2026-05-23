@@ -125,7 +125,7 @@ function enableUploadUi_() {
 
 /**
  * アカウント情報取得失敗時にエラーページの表示内容を設定する。
- * navigate() の前に location.hash = '#error' をセットして呼ぶこと。
+ * この関数を呼んだ後に location.hash = '#error' → navigate() の順で実行すること。
  * @param {'unauthorized'|'system'|'env'} type - エラーの種類
  */
 function showErrorPage_(type) {
