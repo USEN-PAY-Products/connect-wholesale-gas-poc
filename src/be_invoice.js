@@ -352,7 +352,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
 
 /**
  * CSV を Drive に保存し、BigQuery の 3 テーブルにトランザクション登録する。
- * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_id> / <YYYYMM> / <タイムスタンプ>_original.csv
+ * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_id>_<wholesaler_name> / <YYYYMM> / <タイムスタンプ>_original.csv
  *
  * フロー:
  *   ① Drive に CSV を保存（元ファイル保全）
@@ -430,7 +430,8 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     // ── ① Drive 保存（rawCsvBase64: 元ファイルのバイト列をそのまま保存）──────
     const rawBytes    = Utilities.base64Decode(rawCsvBase64);
     const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
-    const userFolder  = getOrCreateSubFolder_(rootFolder, String(accountInfo.wholesaler_id));
+    const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
+    const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
     const fileName    = formatTimestamp_(now) + '_original.csv';
     const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
