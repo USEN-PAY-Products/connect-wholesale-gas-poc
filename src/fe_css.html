@@ -336,6 +336,87 @@ button { cursor: pointer; font-family: inherit; }
   padding: 16px;
 }
 
+/* エラーページ */
+.error-page {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 16px;
+}
+
+.error-page__card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  max-width: 560px;
+  width: 100%;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.error-page__banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fdecea;
+  border-bottom: 1px solid #f5c6c6;
+  color: #c62828;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 14px 20px;
+}
+
+.error-page__body {
+  padding: 24px 24px 8px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #333;
+}
+
+.error-page__body p {
+  margin: 0 0 12px;
+}
+
+.error-page__sub {
+  color: #555;
+}
+
+.error-page__contact {
+  text-align: center;
+  margin-top: 16px;
+}
+
+.error-page__tel {
+  color: #1565c0;
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.error-page__tel:hover {
+  text-decoration: underline;
+}
+
+.error-page__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.error-page__back-link {
+  color: #1565c0;
+  font-size: 14px;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.error-page__back-link:hover {
+  text-decoration: underline;
+}
+
 /* 成功状態 */
 .drop-zone.is-success {
   border-color: #2e7d32;
