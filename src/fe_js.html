@@ -56,7 +56,11 @@ function getCsvFormatRules() {
       // 全列（system_column が null のものも含む）を変換対象にする。
       if (Array.isArray(raw.columns)) {
         const converted = {};
-        raw.columns.forEach(col => {
+        // index 昇順にソートしてから変換する。
+        // validateCsv() は Object.keys(rules) の順序を CSV の列順として扱うため、
+        // columns 配列が index 順でない場合にヘッダー照合・データパースの列ずれが起きる。
+        const sortedColumns = raw.columns.slice().sort((a, b) => a.index - b.index);
+        sortedColumns.forEach(col => {
           // system_column が null（JS の null）または文字列 "null"（GAS の JSON 変換由来）の
           // 両方を null 扱いにする。null 列はプレースホルダーキーを使用する。
           const hasSystemColumn = col.system_column !== null
@@ -387,10 +391,10 @@ function renderCalendar() {
  *   wholesaler_total_amount: number,
  *   wholesaler_subtotal_amount: number,
  *   wholesaler_tax_amount: number,
- *   wholesaler_total_ex_tax_10: number,
- *   wholesaler_consumption_tax_10: number,
- *   wholesaler_total_ex_tax_8: number,
- *   wholesaler_consumption_tax_8: number,
+ *   wholesaler_standard_tax_target_amount: number,
+ *   wholesaler_standard_tax_amount: number,
+ *   wholesaler_reduced_tax_target_amount: number,
+ *   wholesaler_reduced_tax_amount: number,
  *   wholesaler_fee_rate: number,
  *   invoice_fee_amount: number,
  *   payment_amount: number
@@ -419,8 +423,8 @@ function renderBillingHistory(items) {
 
     // 税率別内訳を4カラムから組み立てる
     const breakdown = [
-      { rate: 10, subtotalExTax: item.wholesaler_total_ex_tax_10,  taxAmount: item.wholesaler_consumption_tax_10 },
-      { rate: 8,  subtotalExTax: item.wholesaler_total_ex_tax_8,   taxAmount: item.wholesaler_consumption_tax_8 },
+      { rate: 10, subtotalExTax: item.wholesaler_standard_tax_target_amount, taxAmount: item.wholesaler_standard_tax_amount },
+      { rate: 8,  subtotalExTax: item.wholesaler_reduced_tax_target_amount,  taxAmount: item.wholesaler_reduced_tax_amount },
     ];
     const breakdownDataRows = breakdown.map(b => `
       <div class="bc-breakdown__cell bc-breakdown__rate">${escapeHtml(String(b.rate))}%</div>
@@ -1776,10 +1780,10 @@ function renderDetailSummary_(s) {
           <div class="detail-amount-divider"></div>
           <div class="detail-amount-section-label">内訳</div>
           <div class="detail-amount-row">
-            <span>税内訳（10%）</span><span>${fmt(s.wholesaler_consumption_tax_10)}円</span>
+            <span>税内訳（10%）</span><span>${fmt(s.wholesaler_standard_tax_amount)}円</span>
           </div>
           <div class="detail-amount-row">
-            <span>税内訳（8%）</span><span>${fmt(s.wholesaler_consumption_tax_8)}円</span>
+            <span>税内訳（8%）</span><span>${fmt(s.wholesaler_reduced_tax_amount)}円</span>
           </div>
         </div>
       </div>
@@ -1869,8 +1873,8 @@ function buildDetailAccordion_(store, openByDefault) {
     '<span class="dsl-col dsl-col--amount">'  + fmt(store.total_amount)    + '円</span>' +
     '<span class="dsl-col dsl-col--extax">'   + fmt(store.subtotal_amount)  + '円</span>' +
     '<span class="dsl-col dsl-col--tax">'     + fmt(store.tax_amount)       + '円</span>' +
-    '<span class="dsl-col dsl-col--tax10">'   + fmt(store.consumption_tax_10per) + '円</span>' +
-    '<span class="dsl-col dsl-col--tax8">'    + fmt(store.consumption_tax_8per) + '円</span>' +
+    '<span class="dsl-col dsl-col--tax10">'   + fmt(store.standard_tax_amount) + '円</span>' +
+    '<span class="dsl-col dsl-col--tax8">'    + fmt(store.reduced_tax_amount) + '円</span>' +
     '<span class="dsl-col dsl-col--status">'  + getDetailStatusBadge_(store.backoffice_review_status) + '</span>' +
     '<span class="dsl-col dsl-col--toggle"><i class="fa-solid fa-chevron-down dsl-accordion__icon"></i></span>';
 

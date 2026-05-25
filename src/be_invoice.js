@@ -133,7 +133,7 @@ function buildStagingSchema_(csvFormatRules) {
       return Math.max(max, col.index);
     }, 0);
     const fields = [];
-    for (var i = 0; i <= maxIndex; i++) {
+    for (let i = 0; i <= maxIndex; i++) {
       fields.push({ name: 'string_field_' + i, type: 'STRING' });
     }
     return { fields: fields };
