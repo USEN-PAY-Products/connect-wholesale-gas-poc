@@ -574,6 +574,23 @@ function resetDropZone() {
 }
 
 /**
+ * dropZone を CSV 解析中スピナー表示に切り替える。
+ * handleFile() の FileReader 起動「前」に呼び出し、解析中であることをユーザーに伝える。
+ * @param {string} fileName - 選択されたファイル名
+ */
+function setDropZoneAnalyzing(fileName) {
+  dropZone.innerHTML = `
+    <div class="drop-zone__spinner"></div>
+    <p class="drop-zone__analyzing-text">CSVを確認中...</p>
+    <p class="drop-zone__analyzing-sub" id="dropZoneAnalyzingName"></p>
+  `;
+  // XSS対策: ファイル名は textContent で挿入
+  dropZone.querySelector('#dropZoneAnalyzingName').textContent = fileName;
+  dropZone.classList.remove('is-disabled', 'is-success', 'drag-over');
+  dropZone.classList.add('is-analyzing');
+}
+
+/**
  * dropZone を成功表示に切り替える
  * @param {string} fileName
  */
@@ -655,6 +672,13 @@ function handleFile(file) {
   hideToast();
 
   // ── Step 3: CSVを読み込んでパース＆バリデーション ────────────────────────
+  // ファイル選択直後にドロップゾーンを「解析中」スピナーへ切り替える。
+  // すぐに結果が出るとユーザーが「本当に確認したの？」と不安になるため、
+  // 最低 MIN_ANALYZE_MS だけスピナーを表示してから結果を描画する。
+  setDropZoneAnalyzing(file.name);
+  const analyzeStartMs = Date.now();
+  const MIN_ANALYZE_MS = 600; // スピナーの最小表示時間 (ms)
+
   const reader = new FileReader();
 
   reader.onload = e => {
@@ -687,10 +711,17 @@ function handleFile(file) {
       }
     }
 
-    renderErrors(errors, file.name);
+    // スピナーが最低表示時間に達するまで待ってから結果を描画する
+    const elapsed   = Date.now() - analyzeStartMs;
+    const remaining = Math.max(0, MIN_ANALYZE_MS - elapsed);
+    setTimeout(() => {
+      dropZone.classList.remove('is-analyzing');
+      renderErrors(errors, file.name);
+    }, remaining);
   };
 
   reader.onerror = () => {
+    dropZone.classList.remove('is-analyzing');
     showToast('ファイルの読み込みに失敗しました');
     resetDropZone();
   };

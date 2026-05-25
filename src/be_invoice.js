@@ -412,8 +412,15 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     // ── ② ヘッダー検証（utf8CsvBase64 を使用。データ行は読まない）──────────
     const utf8Bytes = Utilities.base64Decode(utf8CsvBase64);
     const csvText   = Utilities.newBlob(utf8Bytes, MimeType.CSV).getDataAsString('UTF-8');
-    const expected  = getExpectedHeaders_(accountInfo.csv_format_rules);
-    validateCsvHeader_(csvText, expected);
+    // csv_format_rules の形式により検証関数を切り替える。
+    //   新形式（columns 配列）: be_csv_mapper.js の validateCsvHeaderByRules_() を使用
+    //   旧形式（キー名オブジェクト）: 既存の validateCsvHeader_() をそのまま使用
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      validateCsvHeaderByRules_(csvText, accountInfo.csv_format_rules); // be_csv_mapper.js
+    } else {
+      const expected = getExpectedHeaders_(accountInfo.csv_format_rules);
+      validateCsvHeader_(csvText, expected);
+    }
     Logger.log('[CSV] ヘッダー検証完了');
 
     // ── UUID 生成（全テーブルの結合キー）──────────────────────────────────
@@ -447,10 +454,22 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     waitForLoadJob_(projectId, jobId, location);
 
     // ── ⑤ BEGIN TRANSACTION で子・孫・親を一括 INSERT ───────────────────
-    const sql = buildTransactionSql_(
-      invoiceUuid, stagingId, summaryData, remarks,
-      accountInfo, mallCodeMap, csvUrl, projectId, datasetId
-    );
+    // csv_format_rules の形式により SQL 組み立て関数を切り替える。
+    //   新形式（columns 配列）: be_csv_mapper.js の buildMappedTransactionSql_() を使用
+    //   旧形式（キー名オブジェクト）: 既存の buildTransactionSql_() をそのまま使用
+    let sql;
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      sql = buildMappedTransactionSql_({                    // be_csv_mapper.js
+        invoiceUuid, stagingId, summaryData, remarks,
+        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        csvFormatRules: accountInfo.csv_format_rules,
+      });
+    } else {
+      sql = buildTransactionSql_(                           // 既存（旧形式）
+        invoiceUuid, stagingId, summaryData, remarks,
+        accountInfo, mallCodeMap, csvUrl, projectId, datasetId
+      );
+    }
     Logger.log('[BQ] トランザクション SQL 実行: invoiceUuid=' + invoiceUuid);
     Logger.log('[BQ] SQL全文:\n' + sql);
     runTransactionSql_(projectId, sql);
