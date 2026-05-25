@@ -267,10 +267,39 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     '  si.id                                                              AS store_invoice_id',
   ];
 
+  // system_column のホワイトリスト。
+  // 有効な値は invoice_lines テーブルの DDL カラム名で固定されており、
+  // DDL 変更なしに増えることはない。
+  // ddlCol = SYSTEM_COL_TO_DDL[sc] || sc で SQL に直接埋め込むため、
+  // 想定外の値（スペース・記号など）がカラム名インジェクションの起点にならないよう
+  // ここで許可識別子を明示し、それ以外は即エラーにする。
+  // ⚠️ invoice_lines にカラムを追加した場合はここも合わせて更新すること。
+  const ALLOWED_SYSTEM_COLUMNS = new Set([
+    'customer_code',
+    'transaction_date',
+    'item_name',
+    'quantity',
+    'quantity_unit',
+    'unit_price',
+    'amount_ex_tax',
+    'tax_rate',
+    'invoice_detail_remark',
+  ]);
+
   columns.forEach(function(col) {
     const sc = col.system_column;
     if (!sc || sc === null || sc === 'null') return;  // マッピングなし列は除外
     if (sc === 'customer_code') return;               // JOIN キーとして使用するだけ（INSERT不要）
+
+    // ホワイトリスト検証: 許可外の system_column は SQL インジェクションのリスクがあるため即エラー
+    if (!ALLOWED_SYSTEM_COLUMNS.has(sc)) {
+      throw new Error(
+        '[CsvMapper] system_column に未知の値が指定されています: "' + sc + '"。' +
+        'csv_format_rules.columns[].system_column には以下の値のみ使用できます: ' +
+        Array.from(ALLOWED_SYSTEM_COLUMNS).join(', ') + '。' +
+        'invoice_lines に新しいカラムを追加した場合は ALLOWED_SYSTEM_COLUMNS にも追加してください。'
+      );
+    }
 
     const ddlCol   = SYSTEM_COL_TO_DDL[sc] || sc;
     const fieldRef = 's.string_field_' + col.index;

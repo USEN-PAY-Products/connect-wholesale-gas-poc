@@ -41,11 +41,6 @@ function getMerchantMappings() {
 }
 
 /**
- * SessionStorage から csv_format_rules を取得する。
- * null の場合はデフォルトフォーマット定義を返す。
- * @returns {Object}
- */
-/**
  * デフォルト卸向け固定9列の columns 定義。
  * csv_format_rules が null（csv_format_rules 未設定の卸）が使用する。
  * ⚠️ 列順・csv_header は db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること

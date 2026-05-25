@@ -15,43 +15,259 @@
 //   be_csv_mapper.js    … isNewFormatRules_(), validateCsvHeaderByRules_(), buildMappedTransactionSql_()
 //   db_bq_connection.js … loadCsvToBq_(), waitForLoadJob_(), runTransactionSql_(), dropStagingTable_()
 //   db_bq_query.js      … fetchInvoicesByWholesaler_(), fetchInvoiceDetail_()
-// =============================================================================
 
 // =============================================================================
 // 請求登録
 // =============================================================================
 
 /**
+ * CSV の1行をフィールド配列にパースする（RFC 4180 準拠、状態機械ベース）。
+ * デフォルト卸のヘッダー行検証にのみ使用する。
+ *
+ * @param {string} line - 改行を含まない1行
+ * @returns {string[]}
+ */
+function parseCsvLine_(line) {
+  const result = [];
+  let i = 0;
+  while (i <= line.length) {
+    if (i === line.length) {
+      if (i > 0 && line[i - 1] === ',') result.push('');
+      break;
+    }
+    if (line[i] === '"') {
+      let val = '';
+      i++;
+      while (i < line.length) {
+        if (line[i] === '"' && line[i + 1] === '"') { val += '"'; i += 2; }
+        else if (line[i] === '"') { i++; break; }
+        else { val += line[i++]; }
+      }
+      result.push(val.trim());
+      if (line[i] === ',') i++;
+    } else {
+      const end = line.indexOf(',', i);
+      if (end === -1) { result.push(line.slice(i).trim()); break; }
+      result.push(line.slice(i, end).trim());
+      i = end + 1;
+    }
+  }
+  return result;
+}
+
+/**
+ * CSV のヘッダー行のみを検証する（列数・列名チェック）。
+ * デフォルト卸（csv_format_rules が null）の場合に使用する。
+ *
+ * @param {string}   csvText  - CSV テキスト（UTF-8）
+ * @param {string[]} expected - 期待するヘッダー列名の配列（順序込み）
+ * @throws {Error} ヘッダー不正時
+ */
+function validateCsvHeader_(csvText, expected) {
+  const firstNewline = csvText.indexOf('\n');
+  const headerLine   = firstNewline === -1 ? csvText : csvText.slice(0, firstNewline);
+  const cols         = parseCsvLine_(headerLine.replace(/^\uFEFF/, '').replace(/\r$/, ''));
+  if (cols.length !== expected.length) {
+    throw new Error(
+      'CSVヘッダーの列数が不正です（' + cols.length + '列 / 期待値: ' + expected.length + '列）'
+    );
+  }
+  expected.forEach((name, idx) => {
+    if (cols[idx] !== name) {
+      throw new Error(
+        'CSVヘッダー ' + (idx + 1) + '列目が不正: 期待値="' + name + '" 実際="' + cols[idx] + '"'
+      );
+    }
+  });
+}
+
+/**
+ * デフォルト9列フォーマット用の期待ヘッダー列名配列を返す。
+ * db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること。
+ *
+ * @returns {string[]}
+ */
+function getExpectedHeaders_() {
+  return [
+    '顧客コード', '日付', '品目', '数量', '単価',
+    '税率区分(%)', '請求金額（税抜）', '消費税', '備考',
+  ];
+}
+
+/**
+ * デフォルト9列フォーマット（csv_format_rules が null の卸）向け
+ * BQ マルチステートメント・トランザクション SQL を組み立てる。
+ * staging テーブルは STAGING_SCHEMA_（固定9列・名前付きカラム）前提で参照する。
+ *
+ * @param {string} invoiceUuid
+ * @param {string} stagingId
+ * @param {Object} summaryData
+ * @param {Object} remarks
+ * @param {Object} accountInfo
+ * @param {Object} mallCodeMap
+ * @param {string} csvUrl
+ * @param {string} projectId
+ * @param {string} datasetId
+ * @returns {string}
+ */
+function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, accountInfo, mallCodeMap, csvUrl, projectId, datasetId) {
+  const wsId     = Number(accountInfo.wholesaler_id);
+  const wsUserId = String(accountInfo.wholesaler_user_id);
+  const feeRate  = Number(accountInfo.fee_rate || 0);
+  const wt       = summaryData.wholesalerTotal;
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(invoiceUuid)) throw new Error('[buildTransactionSql_] invoiceUuid の形式が不正です: ' + invoiceUuid);
+  if (!UUID_RE.test(wsUserId))    throw new Error('[buildTransactionSql_] wholesaler_user_id の形式が不正です: ' + wsUserId);
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[buildTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+  if (!Number.isInteger(wsId) || wsId <= 0) throw new Error('[buildTransactionSql_] wholesaler_id が不正です: ' + wsId);
+
+  ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8','feeAmount','paymentAmount'].forEach(function(f) {
+    const v = Number(wt[f] || 0);
+    if (!isFinite(v) || v < 0 || !Number.isInteger(v)) {
+      throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
+    }
+  });
+  summaryData.merchantTotals.forEach(function(m, idx) {
+    ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'].forEach(function(f) {
+      const v = Number(m[f] || 0);
+      if (!isFinite(v) || v < 0 || !Number.isInteger(v)) {
+        throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]);
+      }
+    });
+  });
+
+  const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+
+  const storeRef     = '`' + projectId + '.' + datasetId + '.store_invoices`';
+  const linesRef     = '`' + projectId + '.' + datasetId + '.invoice_lines`';
+  const invRef       = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
+  const stagingRef   = '`' + projectId + '.' + datasetId + '.' + stagingId + '`';
+  const merchantsRef = '`' + projectId + '.' + datasetId + '.wholesaler_merchants`';
+
+  const childValues = summaryData.merchantTotals.map((m) => {
+    const childUuid = Utilities.getUuid();
+    const mallCode  = esc(mallCodeMap[String(m.customerCode)] || '');
+    const remark    = esc(remarks[String(m.customerCode)] || '');
+    const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    return (
+      "('" + childUuid + "', '" + invoiceUuid + "', " + wsId + ", '" + mallCode + "', " +
+      Number(m.totalAmount)   + ', ' + Number(m.subtotalAmount) + ', ' + Number(m.taxAmount)  + ', ' +
+      Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
+      Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
+      '0, ' +
+      remarkSql + ", 'PENDING_REVIEW', 1, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+    );
+  });
+
+  const lines = [
+    'BEGIN TRANSACTION;',
+    '',
+    '-- 子: store_invoices（フロントの summaryData.merchantTotals から VALUES 展開）',
+    'INSERT INTO ' + storeRef,
+    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '   total_amount, subtotal_amount, tax_amount,',
+    '   standard_tax_target_amount, standard_tax_amount,',
+    '   reduced_tax_target_amount, reduced_tax_amount,',
+    '   non_taxable_amount, wholesaler_remark,',
+    '   backoffice_review_status, is_latest,',
+    '   final_updated_by, created_at)',
+    'VALUES',
+    childValues.join(',\n') + ';',
+    '',
+    '-- 孫: invoice_lines（staging × wholesaler_merchants × store_invoices JOIN）',
+    '-- staging は STAGING_SCHEMA_（固定9列・名前付きカラム）前提で参照する',
+    'INSERT INTO ' + linesRef,
+    '  (id, invoice_item_row, store_invoice_id,',
+    '   transaction_date, item_name, quantity, quantity_unit, unit_price,',
+    '   tax_category, line_amount_excluding_tax, line_tax_amount, line_note)',
+    'SELECT',
+    '  GENERATE_UUID(),',
+    '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY s.transaction_date),',
+    '  si.id,',
+    '  s.transaction_date, s.item_name, s.quantity, CAST(NULL AS STRING), s.unit_price,',
+    '  s.tax_rate, s.amount_ex_tax,',
+    '  CAST(FLOOR(s.amount_ex_tax * s.tax_rate / 100) AS INT64),',
+    '  s.invoice_detail_remark',
+    'FROM ' + stagingRef + ' s',
+    'JOIN ' + merchantsRef + ' wm',
+    '  ON wm.customer_code = s.customer_code',
+    '  AND wm.wholesaler_id = ' + wsId,
+    '  AND wm.deleted_at IS NULL',
+    'JOIN ' + storeRef + ' si',
+    '  ON si.mall_code = wm.mall_code',
+    "  AND si.wholesaler_invoice_id = '" + invoiceUuid + "';",
+    '',
+    '-- 親: wholesaler_invoices（最後に INSERT。失敗しても子・孫はロールバックされる）',
+    'INSERT INTO ' + invRef,
+    '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+    '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+    '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+    '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+    '   wholesaler_non_taxable_amount,',
+    '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+    '   handover_matter, wholesaler_invoice_csv_url, created_at)',
+    'VALUES',
+    "  ('" + invoiceUuid + "', '" + esc(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
+    '   ' + Number(wt.totalAmount)   + ', ' + Number(wt.subtotalAmount) + ', ' + Number(wt.taxAmount)  + ',',
+    '   ' + Number(wt.exTax10 || 0) + ', ' + Number(wt.tax10 || 0) + ',',
+    '   ' + Number(wt.exTax8  || 0) + ', ' + Number(wt.tax8  || 0) + ',',
+    '   0,',
+    '   ' + feeRate + ', ' + Number(wt.feeAmount) + ', ' + Number(wt.paymentAmount) + ',',
+    "   NULL, '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
+    '',
+    'COMMIT;',
+  ];
+  return lines.join('\n');
+}
+
+/**
  * csv_format_rules から BQ Load Job 用の staging スキーマを動的生成する。
  *
  * 返り値の意味:
- *   undefined … csv_format_rules なし（デフォルト卸）→ loadCsvToBq_ が STAGING_SCHEMA_（固定9列）を使用
- *   Object    … 新形式 → loadCsvToBq_ が明示スキーマを使用
+ *   undefined … csv_format_rules が null / 空（デフォルト卸）
+ *               → loadCsvToBq_ が STAGING_SCHEMA_（固定9列・名前付きカラム）を使用
+ *   Object    … 新形式（columns 配列あり）
+ *               → loadCsvToBq_ が string_field_0〜N の全列 STRING 明示スキーマを使用
+ *               autodetect: true に委ねると BQ が DATE/INT64 等に推論してしまい、
+ *               後段の be_csv_mapper.js（NULLIF/PARSE_DATE 等）が型不一致で失敗するため。
  *
- * 新形式（columns 配列あり）の場合は string_field_0〜N を全列 STRING として明示スキーマを生成する。
- * autodetect: true に委ねると BQ が DATE/INT64 等に推論してしまい、
- * 後段の be_csv_mapper.js（NULLIF/PARSE_DATE 等）が型不一致で失敗するため。
+ * 新形式以外の非 null 値（旧形式・不正値）は throw する。
+ * そのような値が渡された場合は DB 登録前のヘッダー検証でも既に失敗しているはずだが、
+ * 二重防衛として明示的なエラーメッセージで検知する。
  *
  * @param {Object|null} csvFormatRules - accountInfo.csv_format_rules
  * @returns {Object|undefined}
+ * @throws {Error} 新形式でも null でもない不正な csv_format_rules が渡された場合
  */
 function buildStagingSchema_(csvFormatRules) {
+  // null / 未設定 → デフォルト卸。固定スキーマ（STAGING_SCHEMA_）を使用する。
   if (!csvFormatRules || Object.keys(csvFormatRules).length === 0) {
-    return undefined; // → loadCsvToBq_ で STAGING_SCHEMA_（固定9列）にフォールバック
+    return undefined;
   }
 
-  // 新形式（columns 配列を持つ）: 全列 STRING の明示スキーマを生成する。
+  // 新形式（columns 配列あり）→ 全列 STRING の明示スキーマを生成する。
   // autodetect: true に任せると列が DATE/INT64 に推論される可能性があり、
   // 後段の NULLIF(...,'') や PARSE_DATE(...) が型不一致で失敗する。
   // columns の最大 index + 1 列分を string_field_0〜N として STRING で定義する。
-  const maxIndex = csvFormatRules.columns.reduce(function(max, col) {
-    return Math.max(max, col.index);
-  }, 0);
-  const fields = [];
-  for (let i = 0; i <= maxIndex; i++) {
-    fields.push({ name: 'string_field_' + i, type: 'STRING' });
+  if (isNewFormatRules_(csvFormatRules)) { // be_csv_mapper.js
+    const maxIndex = csvFormatRules.columns.reduce(function(max, col) {
+      return Math.max(max, col.index);
+    }, 0);
+    const fields = [];
+    for (let i = 0; i <= maxIndex; i++) {
+      fields.push({ name: 'string_field_' + i, type: 'STRING' });
+    }
+    return { fields: fields };
   }
-  return { fields: fields };
+
+  // 新形式でも null でもない値（不正値）は処理できない。
+  // ヘッダー検証より後に呼ばれるため通常はここに到達しないが、
+  // 二重防衛として明示的に throw する。
+  throw new Error(
+    '[buildStagingSchema_] csv_format_rules が新形式（columns 配列）でも null でもありません。' +
+    'csv_format_rules の内容を確認してください: ' + JSON.stringify(csvFormatRules).slice(0, 200)
+  );
 }
 
 /**
@@ -133,8 +349,8 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     }
 
     // ── csv_format_rules から staging スキーマを生成 ────────────────────────
-    // undefined → loadCsvToBq_ が STAGING_SCHEMA_（固定9列）を使用（デフォルト卸）
-    // Object    → loadCsvToBq_ が明示スキーマを使用（新形式: string_field_0〜N を全列 STRING）
+    // null（デフォルト卸）→ loadCsvToBq_ が STAGING_SCHEMA_（固定9列・名前付きカラム）を使用
+    // 新形式（columns 配列）→ loadCsvToBq_ が string_field_0〜N の全列 STRING 明示スキーマを使用
     //   autodetect: true は使用しない（BQ が DATE/INT64 等に推論すると後段 SQL が型不一致で失敗するため）
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
 
@@ -144,7 +360,14 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     // ── ② ヘッダー検証（utf8CsvBase64 を使用。データ行は読まない）──────────
     const utf8Bytes = Utilities.base64Decode(utf8CsvBase64);
     const csvText   = Utilities.newBlob(utf8Bytes, MimeType.CSV).getDataAsString('UTF-8');
-    validateCsvHeaderByRules_(csvText, accountInfo.csv_format_rules); // be_csv_mapper.js
+    // csv_format_rules の形式によりヘッダー検証関数を切り替える。
+    //   新形式（columns 配列）: be_csv_mapper.js の validateCsvHeaderByRules_() を使用
+    //   null（デフォルト卸）  : 固定9列の validateCsvHeader_() を使用
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      validateCsvHeaderByRules_(csvText, accountInfo.csv_format_rules); // be_csv_mapper.js
+    } else {
+      validateCsvHeader_(csvText, getExpectedHeaders_());
+    }
     Logger.log('[CSV] ヘッダー検証完了');
 
     // ── UUID 生成（全テーブルの結合キー）──────────────────────────────────
@@ -178,11 +401,22 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     waitForLoadJob_(projectId, jobId, location);
 
     // ── ⑤ BEGIN TRANSACTION で子・孫・親を一括 INSERT ───────────────────
-    const sql = buildMappedTransactionSql_({                // be_csv_mapper.js
-      invoiceUuid, stagingId, summaryData, remarks,
-      accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
-      csvFormatRules: accountInfo.csv_format_rules,
-    });
+    // csv_format_rules の形式により SQL 組み立て関数を切り替える。
+    //   新形式（columns 配列）: be_csv_mapper.js の buildMappedTransactionSql_() を使用
+    //   null（デフォルト卸）  : 固定9列前提の buildTransactionSql_() を使用
+    let sql;
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      sql = buildMappedTransactionSql_({                // be_csv_mapper.js
+        invoiceUuid, stagingId, summaryData, remarks,
+        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        csvFormatRules: accountInfo.csv_format_rules,
+      });
+    } else {
+      sql = buildTransactionSql_(
+        invoiceUuid, stagingId, summaryData, remarks,
+        accountInfo, mallCodeMap, csvUrl, projectId, datasetId
+      );
+    }
     Logger.log('[BQ] トランザクション SQL 実行: invoiceUuid=' + invoiceUuid);
     Logger.log('[BQ] SQL全文:\n' + sql);
     runTransactionSql_(projectId, sql);
