@@ -61,8 +61,12 @@
  * 10万行のデータ全体をパースせず、ヘッダー行だけで異常 CSV を即時拒否する。
  *
  * 【検証内容】
- *   1. required: true の全列が CSV ヘッダーに「列名として」存在すること
+ *   1. columns に定義された全列（required の有無を問わず）が CSV ヘッダーに存在すること
  *   2. JSON の index と CSV 上の実際の列位置（0始まり）が完全一致すること（位置ズレ検知）
+ *
+ *   ※ required:false の列も含めて全列を検証する理由:
+ *      string_field_N のマッピングは列位置に依存するため、任意列の位置ずれも
+ *      全列のデータ破損につながる。ヘッダー段階で全列一致を確認する。
  *
  * 【既存コードとの結合点】
  *   be_invoice.js の sendInvoiceData() で utf8CsvBase64 を文字列化した後、
@@ -97,6 +101,18 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   const csvHeaders = parseCsvLineMapper_(headerLine);
   const columns    = csvFormatRules.columns;
   const errors     = [];
+
+  // ── 前提検証: col.index の型・範囲チェック ────────────────────────────────
+  // col.index は 's.string_field_N' の N として SQL に直接埋め込まれるため、
+  // 0 以上の整数であることをループ前に一括検証する。
+  columns.forEach(function(col, i) {
+    if (!Number.isInteger(col.index) || col.index < 0) {
+      throw new Error(
+        '[CsvMapper] columns[' + i + '].index が不正です: ' + JSON.stringify(col.index) + '。' +
+        '0 以上の整数を指定してください。'
+      );
+    }
+  });
 
   // ── 検証0: 列数チェック ───────────────────────────────────────────────────
   // columns[].index は CSV 上の 0 始まり位置を表す。
@@ -192,6 +208,18 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
  */
 function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, wsId, merchantsRef, storeRef) {
   const columns = csvFormatRules.columns;
+
+  // ── 前提検証: col.index の型・範囲チェック ────────────────────────────────
+  // col.index は 's.string_field_N' の N として SQL に直接埋め込まれるため、
+  // 0 以上の整数であることをループ前に一括検証する。
+  columns.forEach(function(col, i) {
+    if (!Number.isInteger(col.index) || col.index < 0) {
+      throw new Error(
+        '[CsvMapper] columns[' + i + '].index が不正です: ' + JSON.stringify(col.index) + '。' +
+        '0 以上の整数を指定してください。'
+      );
+    }
+  });
 
   // system_column → DDL invoice_lines カラム名のマッピング（1:1 でない列のみ定義）
   const SYSTEM_COL_TO_DDL = {
@@ -334,9 +362,9 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
           "    AND " + fieldRef + " != ''\n" +
           '  ) FROM ' + stagingRef + ' s\n' +
           ') > 0 THEN\n' +
-          "  RAISE USING MESSAGE = '列\u300c" + col.csv_header +
+          "  RAISE USING MESSAGE = '列\u300c" + escSql_(col.csv_header) +
             "\u300d(index:" + col.index + ") に存在しない日付または不正な日付が含まれています。" +
-            '有効な ' + (col.format || 'YYYY-MM-DD') + " 形式の日付を入力してください。';\n" +
+            '有効な ' + escSql_(col.format || 'YYYY-MM-DD') + " 形式の日付を入力してください。';\n" +
           'END IF;'
         );
         break;
@@ -356,7 +384,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
             "    AND " + fieldRef + " != ''\n" +
             '  ) FROM ' + stagingRef + ' s\n' +
             ') > 0 THEN\n' +
-            "  RAISE USING MESSAGE = '\u5217\u300c" + col.csv_header +
+            "  RAISE USING MESSAGE = '\u5217\u300c" + escSql_(col.csv_header) +
               "\u300d(index:" + col.index + ") \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002" +
               "\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002';\n" +
             'END IF;'
@@ -398,7 +426,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
       "    AND " + fieldRef + " != ''\n" +
       '  ) FROM ' + stagingRef + ' s\n' +
       ') > 0 THEN\n' +
-      "  RAISE USING MESSAGE = '列\u300c" + col.csv_header +
+      "  RAISE USING MESSAGE = '列\u300c" + escSql_(col.csv_header) +
         "\u300d(index:" + col.index + ") \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002" +
         "\u3053\u306e\u5217\u306f line_tax_amount \u306e\u8a08\u7b97\u306b\u4f7f\u7528\u3059\u308b\u305f\u3081\u6570\u5024\u304c\u5fc5\u9808\u3067\u3059\u3002\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002';\n" +
       'END IF;'

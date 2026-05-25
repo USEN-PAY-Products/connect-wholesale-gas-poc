@@ -914,9 +914,9 @@ function validateCsv(csvText) {
     return { errors, rows };
   }
   const headerErrors = columns
-    .map((col, idx) => {
-      return headerCols[idx] !== col.csv_header
-        ? `ヘッダー行 ${idx + 1}列目: "${col.csv_header}" が期待されますが "${headerCols[idx]}" になっています`
+    .map((col) => {
+      return headerCols[col.index] !== col.csv_header
+        ? `ヘッダー行 ${col.index + 1}列目: "${col.csv_header}" が期待されますが "${headerCols[col.index]}" になっています`
         : null;
     })
     .filter(Boolean);
@@ -942,14 +942,14 @@ function validateCsv(csvText) {
     }
 
     const rowObj = {};
-    columns.forEach((col, idx) => {
+    columns.forEach((col) => {
       // system_column が null（JS の null）または文字列 "null"（GAS の JSON 変換由来）の
       // 両方を null 扱いにする。null 列はプレースホルダーキーを使用する。
       const hasSystemColumn = col.system_column !== null
         && col.system_column !== undefined
         && col.system_column !== 'null';
       const key = hasSystemColumn ? col.system_column : `_col_${col.index}`;
-      const val  = cols[idx];
+      const val  = cols[col.index]; // idx（配列並び順）ではなく col.index（CSV上の列位置）で参照
 
       // 必須チェック
       if (col.required && val === '') {
