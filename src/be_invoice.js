@@ -105,26 +105,38 @@ function getExpectedHeaders_(csvFormatRules) {
  * csv_format_rules から BQ Load Job 用の staging スキーマを動的生成する。
  * 各ルールに bq_field（staging フィールド名）と type（BQ 型）が必要。
  *
- * デフォルトフォーマット（csv_format_rules = null）の場合は null を返し、
- * 呼び出し側で STAGING_SCHEMA_（固定）にフォールバックさせる。
+ * 返り値の意味:
+ *   undefined … csv_format_rules なし（デフォルト卸）→ loadCsvToBq_ が STAGING_SCHEMA_（固定9列）を使用
+ *   Object    … 旧形式カスタム or 新形式 → loadCsvToBq_ が明示スキーマを使用
+ *
+ * 新形式（columns 配列あり）の場合は string_field_0〜N を全列 STRING として明示スキーマを生成する。
+ * autodetect: true に委ねると BQ が DATE/INT64 等に推論してしまい、
+ * 後段の be_csv_mapper.js（NULLIF/PARSE_DATE 等）が型不一致で失敗するため。
  *
  * SQL の SELECT / JOIN で参照する必須フィールドが揃っているかも検証する。
  *
  * @param {Object|null} csvFormatRules - accountInfo.csv_format_rules
- * @returns {Object|null} BQ スキーマオブジェクト、またはデフォルト使用の場合 null
+ * @returns {Object|undefined}
  * @throws {Error} bq_field 未設定 / 必須フィールド不足の場合
  */
 function buildStagingSchema_(csvFormatRules) {
   if (!csvFormatRules || Object.keys(csvFormatRules).length === 0) {
-    return null; // STAGING_SCHEMA_（固定9列）を使用
+    return undefined; // → loadCsvToBq_ で STAGING_SCHEMA_（固定9列）にフォールバック
   }
 
-  // ── 新形式（columns 配列を持つ）の場合はスキーマ自動検出に委ねる ──────────
-  // 新形式では Staging の列は string_field_0, string_field_1, ... として自動生成される。
-  // BQ Load Job の autodetect: true（db_bq_connection.js 側で設定）で対応するため、
-  // ここではスキーマを返さず null にして呼び出し側をフォールバックさせる。
+  // ── 新形式（columns 配列を持つ）の場合は全列 STRING の明示スキーマを生成 ──
+  // autodetect: true に任せると列が DATE/INT64 に推論される可能性があり、
+  // 後段の NULLIF(...,'') や PARSE_DATE(...) が型不一致で失敗する。
+  // columns の最大 index + 1 列分を string_field_0〜N として STRING で定義する。
   if (Array.isArray(csvFormatRules.columns)) {
-    return null;
+    const maxIndex = csvFormatRules.columns.reduce(function(max, col) {
+      return Math.max(max, col.index);
+    }, 0);
+    const fields = [];
+    for (var i = 0; i <= maxIndex; i++) {
+      fields.push({ name: 'string_field_' + i, type: 'STRING' });
+    }
+    return { fields: fields };
   }
 
   // buildTransactionSql_ の INSERT SELECT / JOIN で参照する必須フィールド
@@ -415,10 +427,10 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     }
 
     // ── csv_format_rules から staging スキーマを生成（カスタム対応）────────
-    // 旧形式: bq_field 定義を元に明示的スキーマを生成して loadCsvToBq_ に渡す。
-    // 新形式: null を返す → loadCsvToBq_ 内で autodetect: true を使用し
-    //         string_field_0, string_field_1, ... として自動列名付けされる。
-    // null の場合は loadCsvToBq_ 内で STAGING_SCHEMA_（固定9列）にフォールバック「しない」。
+    // undefined → loadCsvToBq_ が STAGING_SCHEMA_（固定9列）を使用（デフォルト卸）
+    // Object    → loadCsvToBq_ が明示スキーマを使用（旧形式カスタム or 新形式）
+    //   ※新形式は string_field_0〜N を全列 STRING で組み立てた明示スキーマを返す。
+    //     autodetect: true は使用しない（BQ が DATE/INT64 等に推論すると後段 SQL が型不一致で失敗するため）
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
 
     // ── merchant_mappings で customerCode を検証し mall_code マップを構築 ──

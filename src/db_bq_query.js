@@ -89,8 +89,9 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     'SELECT ' +
     '  id AS wholesaler_invoice_id, wholesaler_invoice_date, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
-    '  wholesaler_total_ex_tax_10, wholesaler_consumption_tax_10, ' +
-    '  wholesaler_total_ex_tax_8, wholesaler_consumption_tax_8, ' +
+    '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
+    '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
+    '  wholesaler_non_taxable_amount, ' +
     '  wholesaler_fee_rate, invoice_fee_amount, payment_amount ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
     'WHERE wholesaler_id = @wholesaler_id ' +
@@ -119,8 +120,9 @@ function fetchInvoiceDetailSummary_(invoiceId, wholesalerId) {
     'SELECT ' +
     '  id, wholesaler_invoice_date, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
-    '  wholesaler_total_ex_tax_10, wholesaler_consumption_tax_10, ' +
-    '  wholesaler_total_ex_tax_8, wholesaler_consumption_tax_8, ' +
+    '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
+    '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
+    '  wholesaler_non_taxable_amount, ' +
     '  wholesaler_fee_rate, invoice_fee_amount, payment_amount, handover_matter ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
     'WHERE id = @invoice_id ' +
@@ -156,8 +158,9 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     '  si.invoice_number, ' +
     '  si.backoffice_review_status, ' +
     '  si.total_amount, si.subtotal_amount, si.tax_amount, ' +
-    '  si.total_ex_tax_10per, si.consumption_tax_10per, ' +
-    '  si.total_ex_tax_8per, si.consumption_tax_8per, ' +
+    '  si.standard_tax_target_amount, si.standard_tax_amount, ' +
+    '  si.reduced_tax_target_amount, si.reduced_tax_amount, ' +
+    '  si.non_taxable_amount, ' +
     '  si.backoffice_handover, si.wholesaler_handover, si.backoffice_remark ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +

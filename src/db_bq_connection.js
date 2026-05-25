@@ -51,30 +51,20 @@ const STAGING_SCHEMA_ = {
  */
 function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes, schema, location) {
   const blob = Utilities.newBlob(csvBytes, 'application/octet-stream');
-
-  // schema が null の場合は BQ autodetect に委ねる（新形式: string_field_N 列）。
-  // schema が指定されている場合はそれを使用し、autodetect は無効にする。
-  const useAutodetect = (schema === null);
-  const loadConfig = {
-    destinationTable: {
-      projectId: projectId,
-      datasetId: datasetId,
-      tableId:   stagingTableId,
-    },
-    sourceFormat:     'CSV',
-    skipLeadingRows:  1,
-    writeDisposition: 'WRITE_TRUNCATE',
-    encoding:         'UTF-8',
-  };
-  if (useAutodetect) {
-    loadConfig.autodetect = true;
-  } else {
-    loadConfig.schema = schema || STAGING_SCHEMA_;
-  }
-
   const jobResource = {
     configuration: {
-      load: loadConfig,
+      load: {
+        destinationTable: {
+          projectId: projectId,
+          datasetId: datasetId,
+          tableId:   stagingTableId,
+        },
+        sourceFormat:     'CSV',
+        skipLeadingRows:  1,
+        writeDisposition: 'WRITE_TRUNCATE',
+        encoding:         'UTF-8',
+        schema:           schema || STAGING_SCHEMA_,
+      },
     },
     jobReference: {
       projectId: projectId,

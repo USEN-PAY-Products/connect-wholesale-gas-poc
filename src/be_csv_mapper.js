@@ -234,9 +234,9 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   if (txDateCol) {
     const txFieldRef = 's.string_field_' + txDateCol.index;
     if (txDateCol.format === 'YYYYMMDD') {
-      orderByExpr = "PARSE_DATE('%Y%m%d', " + txFieldRef + ')';
+      orderByExpr = "SAFE.PARSE_DATE('%Y%m%d', " + txFieldRef + ')';
     } else if (txDateCol.format === 'YYYY/MM/DD') {
-      orderByExpr = "PARSE_DATE('%Y/%m/%d', " + txFieldRef + ')';
+      orderByExpr = "SAFE.PARSE_DATE('%Y/%m/%d', " + txFieldRef + ')';
     } else if (!txDateCol.format || txDateCol.format === 'YYYY-MM-DD') {
       orderByExpr = txFieldRef; // ISO 8601 は DATE 型として比較可能
     } else {
@@ -250,7 +250,10 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   }
 
   // ── INSERT カラムリストと SELECT 式を並行して構築 ─────────────────────────
-  const insertColumns = ['id', 'invoice_item_row', 'store_invoice_id'];
+  // dateValidateSqls: 各 date 列ごとの IF...RAISE バリデーション文を収集する。
+  // buildMappedTransactionSql_() がトランザクション冒頭（INSERT 前）に展開する。
+  const insertColumns    = ['id', 'invoice_item_row', 'store_invoice_id'];
+  const dateValidateSqls = [];
   const selectParts   = [
     '  GENERATE_UUID()                                                    AS id',
     '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY ' + orderByExpr + ') AS invoice_item_row',
@@ -268,15 +271,16 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
 
     switch (col.type) {
       case 'date':
-        // 対応フォーマットを明示列挙し、それ以外は即エラーにする。
-        // サイレントに壊れた SQL が生成されるより、GAS 側で早期検知する方が安全。
+        // SAFE 系関数を使い、不正日付（例: 20260230）を実行時エラーではなく NULL に変換する。
+        // NULL 行は後続の dateValidateSqls（IF...RAISE）でトランザクション冒頭に検知・通知する。
+        // これにより全体 INSERT を実行せずに ROLLBACK → 明示的なエラーを返すことができる。
         if (col.format === 'YYYYMMDD') {
-          castExpr = "PARSE_DATE('%Y%m%d', " + fieldRef + ')';
+          castExpr = "SAFE.PARSE_DATE('%Y%m%d', " + fieldRef + ')';
         } else if (col.format === 'YYYY/MM/DD') {
-          castExpr = "PARSE_DATE('%Y/%m/%d', " + fieldRef + ')';
+          castExpr = "SAFE.PARSE_DATE('%Y/%m/%d', " + fieldRef + ')';
         } else if (!col.format || col.format === 'YYYY-MM-DD') {
-          // format 未指定または ISO 8601 → DATE() キャストで対応
-          castExpr = 'DATE(' + fieldRef + ')';
+          // format 未指定または ISO 8601 → SAFE_CAST で対応（DATE() は SAFE 版がない）
+          castExpr = 'SAFE_CAST(' + fieldRef + ' AS DATE)';
         } else {
           throw new Error(
             '[CsvMapper] 列「' + col.csv_header + '」(index:' + col.index + ') の' +
@@ -284,6 +288,21 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
             '対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD'
           );
         }
+        // castExpr はこの時点で確定しているため、SELECT 式と同じ式を再利用して
+        // 不正日付行を COUNTIF → IF...RAISE するバリデーション SQL を収集する。
+        dateValidateSqls.push(
+          'IF (\n' +
+          '  SELECT COUNTIF(\n' +
+          '    ' + castExpr + ' IS NULL\n' +
+          '    AND ' + fieldRef + ' IS NOT NULL\n' +
+          "    AND " + fieldRef + " != ''\n" +
+          '  ) FROM ' + stagingRef + ' s\n' +
+          ') > 0 THEN\n' +
+          "  RAISE USING MESSAGE = '列\u300c" + col.csv_header +
+            "\u300d(index:" + col.index + ") に存在しない日付または不正な日付が含まれています。" +
+            '有効な ' + (col.format || 'YYYY-MM-DD') + " 形式の日付を入力してください。';\n" +
+          'END IF;'
+        );
         break;
       case 'integer':
         // 空セル("") は NULLIF で NULL に変換してから SAFE_CAST する。
@@ -336,7 +355,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     '（うち計算項目: line_tax_amount）'
   );
 
-  return { insertColumns: insertColumns, selectSql: selectSql };
+  return { insertColumns: insertColumns, selectSql: selectSql, dateValidateSqls: dateValidateSqls };
 }
 
 
@@ -464,7 +483,7 @@ function buildMappedTransactionSql_(params) {
   // ── 孫テーブル用の動的 SELECT SQL を生成 ★アドオン核心 ───────────────────
   // buildInvoiceLinesSelectSql_() が INSERT カラムリストと SELECT 文を同時に返す。
   // store_invoice_id は store_invoices との JOIN で取得する（最新DDLに合わせた設計）。
-  const { insertColumns, selectSql } = buildInvoiceLinesSelectSql_(
+  const { insertColumns, selectSql, dateValidateSqls } = buildInvoiceLinesSelectSql_(
     csvFormatRules,
     stagingRef,
     invoiceUuid,
@@ -495,7 +514,7 @@ function buildMappedTransactionSql_(params) {
       '0, '                                             +  // non_taxable_amount
            remarkSql                           + ', '  +  // wholesaler_remark
       "'PENDING_REVIEW', 1, '"                          +  // backoffice_review_status, is_latest
-      escSql_(wsUserId) + "', CURRENT_TIMESTAMP()"      +  // final_updated_by, created_at
+      escSql_(wsUserId) + "', CURRENT_DATETIME('Asia/Tokyo')"  +  // final_updated_by, created_at
       ')'
     );
   });
@@ -504,10 +523,25 @@ function buildMappedTransactionSql_(params) {
   // store_invoice_id は buildInvoiceLinesSelectSql_() 内で store_invoices と JOIN して取得。
   // invoiceUuid は全行共通のため JOIN 条件として埋め込み済み。
 
+  // ── 日付バリデーションブロックを組み立て ─────────────────────────────────
+  // SAFE 系関数は不正日付を NULL に変換するが、NULL のまま INSERT するとデータが汚染される。
+  // トランザクション冒頭に IF...RAISE を挿入することで INSERT 実行前に不正値を検知し、
+  // RAISE → BQ による自動 ROLLBACK でトランザクション全体を安全に中断できる。
+  const dateValidateBlock = dateValidateSqls.length > 0
+    ? [
+        '-- =========================================================',
+        '-- 0. 日付バリデーション（不正日付の早期検知）              ',
+        '--    SAFE 系関数が NULL を返す行が存在すれば RAISE する     ',
+        '--    RAISE は BQ により自動的に ROLLBACK される（BQ 仕様）  ',
+        '-- =========================================================',
+      ].concat(dateValidateSqls).concat([''])
+    : [];
+
   // ── 全体 SQL を結合 ──────────────────────────────────────────────────────
   const sqlLines = [
     'BEGIN TRANSACTION;',
     '',
+    ...dateValidateBlock,
     '-- =========================================================',
     '-- 1. 子テーブル (store_invoices)',
     '--    フロントの summaryData.merchantTotals から VALUES を展開',
@@ -563,7 +597,7 @@ function buildMappedTransactionSql_(params) {
           Number(wt.feeAmount      || 0) + ', ' +
           Number(wt.paymentAmount  || 0) + ',',
     '  NULL,',
-    "  '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP()",
+    "  '" + escSql_(csvUrl) + "', CURRENT_DATETIME('Asia/Tokyo')",
     ');',
     '',
     'COMMIT;',
