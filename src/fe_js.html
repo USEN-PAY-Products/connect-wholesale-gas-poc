@@ -1551,6 +1551,368 @@ function renderConfirmPage() {
 }
 
 
+// ---- detail.js ----
+// =============================================================================
+// Detail page: 請求書詳細画面（アコーディオン連動・オンデマンド読み込み方式）
+// =============================================================================
+
+/** 現在表示中の卸インボイスID（同じ ID の再描画をスキップするためのキャッシュ） */
+let _detailCurrentInvoiceId = null;
+
+/**
+ * 詳細画面を初期化する。
+ * navigate() から invoiceId を受け取り、GAS API でデータを取得・描画する。
+ * 同じ invoiceId が渡された場合は再描画をスキップする。
+ * @param {string|null} invoiceId
+ */
+function initDetailPage(invoiceId) {
+  if (!invoiceId) {
+    renderDetailError_('請求IDが指定されていません。一覧に戻ってやり直してください。');
+    return;
+  }
+  if (_detailCurrentInvoiceId === invoiceId) return; // 同一ページの再描画スキップ
+
+  _detailCurrentInvoiceId = invoiceId;
+  resetDetailPage_();
+
+  showLoadingOverlay('請求詳細を取得中...');
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(function (result) {
+        hideLoadingOverlay();
+        if (!result || !result.data) {
+          renderDetailError_('データが見つかりませんでした。');
+          return;
+        }
+        renderDetailPage_(result.data);
+      })
+      .withFailureHandler(function (err) {
+        hideLoadingOverlay();
+        console.error('[detail] fetchInvoiceDetail failed:', err);
+        renderDetailError_('データの取得中にエラーが発生しました: ' + String(err.message || err));
+      })
+      .fetchInvoiceDetail(invoiceId);
+  } else {
+    hideLoadingOverlay();
+    renderDetailError_('GAS 環境外での実行は非対応です。');
+  }
+}
+
+/**
+ * 詳細画面をリセットする（別の invoiceId に遷移する前に呼ぶ）。
+ */
+function resetDetailPage_() {
+  const summaryCard = document.getElementById('detailSummaryCard');
+  if (summaryCard) {
+    summaryCard.innerHTML =
+      '<div class="detail-loading-placeholder"><i class="fa-solid fa-spinner fa-spin"></i> 読み込み中...</div>';
+  }
+  ['detailReturnedSection', 'detailOtherSection'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
+  ['detailReturnedList', 'detailOtherList'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+}
+
+/**
+ * エラーメッセージをサマリーカードに表示する。
+ * @param {string} message
+ */
+function renderDetailError_(message) {
+  const card = document.getElementById('detailSummaryCard');
+  if (card) {
+    card.innerHTML =
+      '<p class="detail-error-msg"><i class="fa-solid fa-circle-exclamation"></i> ' +
+      escapeHtml(message) + '</p>';
+  }
+}
+
+// =============================================================================
+// Detail page: 描画
+// =============================================================================
+
+/**
+ * 取得データを詳細画面に描画する。
+ * @param {{ summary: Object, stores: Array<Object> }} data
+ */
+function renderDetailPage_(data) {
+  renderDetailSummary_(data.summary);
+  renderDetailStoreList_(data.stores || []);
+}
+
+/**
+ * 親サマリーカードを描画する。
+ * @param {Object} s
+ */
+function renderDetailSummary_(s) {
+  const card = document.getElementById('detailSummaryCard');
+  if (!card || !s) return;
+
+  const fmt = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
+  const date = s.wholesaler_invoice_date
+    ? String(s.wholesaler_invoice_date).replace(/-/g, '/') : '―';
+  const feeRate = s.wholesaler_fee_rate != null
+    ? Number(s.wholesaler_fee_rate).toFixed(1) + '%' : '―';
+
+  card.innerHTML = `
+    <div class="detail-summary-inner">
+      <div class="detail-summary-meta">
+        <h3 class="detail-summary-meta__title">請求基本情報</h3>
+        <div class="detail-meta-row">
+          <span class="detail-meta-label">登録日時</span>
+          <span class="detail-meta-value">${escapeHtml(date)}</span>
+        </div>
+        <div class="detail-meta-row">
+          <span class="detail-meta-label">手数料（${escapeHtml(feeRate)}）</span>
+          <span class="detail-meta-value">${fmt(s.invoice_fee_amount)}円</span>
+        </div>
+        <div class="detail-meta-row">
+          <span class="detail-meta-label">振込予定金額</span>
+          <span class="detail-meta-value">${fmt(s.payment_amount)}円</span>
+        </div>
+        <div class="detail-meta-row--handover">
+          <span class="detail-meta-label detail-meta-label--block">チェック者からの申送事項</span>
+          <textarea class="detail-handover-textarea" readonly placeholder="差戻などが発生した場合は、こちらに申し送り事項が記載される場合があります。">${escapeHtml(s.handover_matter || '')}</textarea>
+          <span class="detail-handover-note">＊ご不明点・ご確認がある場合は、運営窓口【090-XXXX-XXXX】までご連絡ください。</span>
+        </div>
+      </div>
+
+      <div class="detail-summary-amount">
+        <div class="detail-amount-header">請求金額</div>
+        <div class="detail-amount-main-row">
+          <span class="detail-amount-sublabel">合計（税込）</span>
+          <span class="detail-amount-total">${fmt(s.wholesaler_total_amount)}<span class="detail-amount-unit">円</span></span>
+        </div>
+        <div class="detail-amount-rows">
+          <div class="detail-amount-row">
+            <span>小計（税抜）</span><span>${fmt(s.wholesaler_subtotal_amount)}円</span>
+          </div>
+          <div class="detail-amount-row">
+            <span>消費税</span><span>${fmt(s.wholesaler_tax_amount)}円</span>
+          </div>
+          <div class="detail-amount-divider"></div>
+          <div class="detail-amount-section-label">内訳</div>
+          <div class="detail-amount-row">
+            <span>税内訳（10%）</span><span>${fmt(s.wholesaler_consumption_tax_10)}円</span>
+          </div>
+          <div class="detail-amount-row">
+            <span>税内訳（8%）</span><span>${fmt(s.wholesaler_consumption_tax_8)}円</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * backoffice_review_status に対応するステータスバッジ HTML を返す。
+ * @param {string} status
+ * @returns {string}
+ */
+function getDetailStatusBadge_(status) {
+  const MAP = {
+    'PENDING_REVIEW':                  { label: '未検閲',      cls: 'badge--pending'   },
+    'MERCHANT_CONFIRMATION_REQUESTED': { label: '確認依頼中',  cls: 'badge--requested' },
+    'RETURNED':                        { label: '差し戻し',    cls: 'badge--returned'  },
+  };
+  const s = MAP[status] || { label: status || '不明', cls: 'badge--pending' };
+  return '<span class="detail-status-badge ' + escapeHtml(s.cls) + '">' + escapeHtml(s.label) + '</span>';
+}
+
+/**
+ * 加盟店リストを RETURNED / その他で分けてそれぞれのセクションに描画する。
+ * @param {Array<Object>} stores
+ */
+function renderDetailStoreList_(stores) {
+  const returned = stores.filter(function (s) { return s.backoffice_review_status === 'RETURNED'; });
+  const others   = stores.filter(function (s) { return s.backoffice_review_status !== 'RETURNED'; });
+
+  const colHeader =
+    '<div class="dsl-header">' +
+      '<span class="dsl-col dsl-col--name">加盟店名</span>' +
+      '<span class="dsl-col dsl-col--code">顧客コード</span>' +
+      '<span class="dsl-col dsl-col--amount">請求金額</span>' +
+      '<span class="dsl-col dsl-col--extax">小計（税抜）</span>' +
+      '<span class="dsl-col dsl-col--tax">消費税</span>' +
+      '<span class="dsl-col dsl-col--tax10">税内訳（10%）</span>' +
+      '<span class="dsl-col dsl-col--tax8">税内訳（8%）</span>' +
+      '<span class="dsl-col dsl-col--status">ステータス</span>' +
+      '<span class="dsl-col dsl-col--toggle"></span>' +
+    '</div>';
+
+  if (returned.length > 0) {
+    const section = document.getElementById('detailReturnedSection');
+    const list    = document.getElementById('detailReturnedList');
+    if (section) section.classList.remove('hidden');
+    if (list) {
+      list.innerHTML = colHeader;
+      returned.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, true)); });
+    }
+  }
+
+  if (others.length > 0) {
+    const section = document.getElementById('detailOtherSection');
+    const list    = document.getElementById('detailOtherList');
+    if (section) section.classList.remove('hidden');
+    if (list) {
+      list.innerHTML = colHeader;
+      others.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, false)); });
+    }
+  }
+}
+
+/**
+ * 加盟店アコーディオン要素を生成する。
+ * @param {Object}  store
+ * @param {boolean} openByDefault - RETURNED の場合 true（初期状態で展開）
+ * @returns {HTMLElement}
+ */
+function buildDetailAccordion_(store, openByDefault) {
+  const fmt       = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
+  const isReturned = store.backoffice_review_status === 'RETURNED';
+
+  const accordion = document.createElement('div');
+  accordion.className = 'dsl-accordion' +
+    (openByDefault  ? ' is-open'            : '') +
+    (isReturned     ? ' dsl-accordion--returned' : '');
+  accordion.dataset.storeInvoiceId = store.store_invoice_id;
+
+  // ── ヘッダー行 ───────────────────────────────────────────────────────────
+  const header = document.createElement('div');
+  header.className = 'dsl-accordion__header';
+  header.innerHTML =
+    '<span class="dsl-col dsl-col--name dsl-store-name">' + escapeHtml(store.store_name || store.mall_code) + '</span>' +
+    '<span class="dsl-col dsl-col--code">'    + escapeHtml(store.mall_code   || '') + '</span>' +
+    '<span class="dsl-col dsl-col--amount">'  + fmt(store.total_amount)    + '円</span>' +
+    '<span class="dsl-col dsl-col--extax">'   + fmt(store.subtotal_amount)  + '円</span>' +
+    '<span class="dsl-col dsl-col--tax">'     + fmt(store.tax_amount)       + '円</span>' +
+    '<span class="dsl-col dsl-col--tax10">'   + fmt(store.consumption_tax_10per) + '円</span>' +
+    '<span class="dsl-col dsl-col--tax8">'    + fmt(store.consumption_tax_8per) + '円</span>' +
+    '<span class="dsl-col dsl-col--status">'  + getDetailStatusBadge_(store.backoffice_review_status) + '</span>' +
+    '<span class="dsl-col dsl-col--toggle"><i class="fa-solid fa-chevron-down dsl-accordion__icon"></i></span>';
+
+  // ── ボディ ────────────────────────────────────────────────────────────────
+  const body = document.createElement('div');
+  body.className = 'dsl-accordion__body';
+
+  // 差し戻し理由バナー
+  if (isReturned && store.backoffice_handover) {
+    const reason = document.createElement('div');
+    reason.className = 'dsl-returned-reason';
+    reason.innerHTML =
+      '<i class="fa-solid fa-comment-dots"></i>' +
+      '<span class="dsl-returned-reason__label">差し戻しコメント：</span>' +
+      '<span class="dsl-returned-reason__text">' + escapeHtml(store.backoffice_handover) + '</span>';
+    body.appendChild(reason);
+  }
+
+  // 申し送りコメント（wholesaler_handover）
+  if (store.wholesaler_handover) {
+    const note = document.createElement('div');
+    note.className = 'dsl-wholesaler-note';
+    note.innerHTML =
+      '<span class="dsl-wholesaler-note__label">申し送り：</span>' +
+      '<span>' + escapeHtml(store.wholesaler_handover) + '</span>';
+    body.appendChild(note);
+  }
+
+  // 明細コンテナ（オンデマンドで内容を入れる / 閉じたら空にしてメモリ解放）
+  const linesContainer = document.createElement('div');
+  linesContainer.className = 'dsl-lines-container';
+  body.appendChild(linesContainer);
+
+  accordion.appendChild(header);
+  accordion.appendChild(body);
+
+  // ── 開閉ロジック ──────────────────────────────────────────────────────────
+  header.addEventListener('click', function () {
+    const isNowOpen = accordion.classList.contains('is-open');
+    if (isNowOpen) {
+      accordion.classList.remove('is-open');
+      linesContainer.innerHTML = ''; // DOM を空にしてブラウザのメモリを解放
+    } else {
+      accordion.classList.add('is-open');
+      loadDetailInvoiceLines_(store.store_invoice_id, linesContainer);
+    }
+  });
+
+  // RETURNED は最初から開いて明細を取得
+  if (openByDefault) {
+    loadDetailInvoiceLines_(store.store_invoice_id, linesContainer);
+  }
+
+  return accordion;
+}
+
+/**
+ * 指定の加盟店の明細をオンデマンドで取得してコンテナに描画する。
+ * @param {string}      storeInvoiceId
+ * @param {HTMLElement} container
+ */
+function loadDetailInvoiceLines_(storeInvoiceId, container) {
+  container.innerHTML =
+    '<div class="dsl-lines-loading"><i class="fa-solid fa-spinner fa-spin"></i> 明細を取得中...</div>';
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(function (result) {
+        renderDetailLines_((result && result.data) ? result.data : [], container);
+      })
+      .withFailureHandler(function (err) {
+        console.error('[detail] getInvoiceLinesByStore failed:', err);
+        container.innerHTML =
+          '<div class="dsl-lines-error"><i class="fa-solid fa-circle-exclamation"></i> 明細の取得に失敗しました。</div>';
+      })
+      .getInvoiceLinesByStore(storeInvoiceId);
+  } else {
+    container.innerHTML = '<div class="dsl-lines-error">GAS 環境外での実行は非対応です。</div>';
+  }
+}
+
+/**
+ * 明細テーブルを描画する。
+ * @param {Array<Object>} lines
+ * @param {HTMLElement}   container
+ */
+function renderDetailLines_(lines, container) {
+  if (!lines || lines.length === 0) {
+    container.innerHTML = '<p class="dsl-lines-empty">明細データがありません。</p>';
+    return;
+  }
+
+  const fmt = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
+
+  const rows = lines.map(function (line) {
+    const date = line.transaction_date ? String(line.transaction_date).replace(/-/g, '/') : '―';
+    return '<tr>' +
+      '<td>' + escapeHtml(date) + '</td>' +
+      '<td class="dsl-tbl__item">' + escapeHtml(line.item_name || '') + '</td>' +
+      '<td class="dsl-tbl__num">' + fmt(line.quantity) + (line.quantity_unit ? ' ' + escapeHtml(line.quantity_unit) : '') + '</td>' +
+      '<td class="dsl-tbl__num">' + fmt(line.unit_price) + '</td>' +
+      '<td class="dsl-tbl__num">' + escapeHtml(String(line.tax_category || 0)) + '%</td>' +
+      '<td class="dsl-tbl__num">' + fmt(line.line_amount_excluding_tax) + '</td>' +
+      '<td class="dsl-tbl__num">' + fmt(line.line_tax_amount) + '</td>' +
+      '<td class="dsl-tbl__note">' + (line.line_note ? escapeHtml(line.line_note) : '<span class="detail-row__note-empty">―</span>') + '</td>' +
+    '</tr>';
+  }).join('');
+
+  container.innerHTML =
+    '<div class="dsl-lines-scroll">' +
+      '<table class="dsl-lines-table">' +
+        '<thead><tr>' +
+          '<th>取引日</th><th>品目</th><th>数量</th><th>単価</th>' +
+          '<th>税率</th><th>明細金額（税抜）</th><th>消費税</th><th>備考</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+    '</div>';
+}
+
+
 // ---- router.js ----
 // =============================================================================
 // Router: ハッシュベースの簡易 SPA ルーター
@@ -1611,8 +1973,12 @@ function navigate() {
 
   if (targetId === 'pageDetail') {
     const invoiceId = params.get('invoiceId') || null;
-    console.log('[router] 詳細画面: invoiceId =', invoiceId);
-    // TODO: initDetailPage(invoiceId) を呼ぶ
+    initDetailPage(invoiceId);
+  }
+
+  if (targetId !== 'pageDetail') {
+    // 詳細画面以外に遷移したら次回の再描画を許可するためキャッシュをクリア
+    _detailCurrentInvoiceId = null;
   }
 
   console.log(`[router] navigated to ${baseHash} -> #${targetId}`);

@@ -1,16 +1,73 @@
 <div id="pageDetail" class="hidden">
 
-  <main class="main-content">
+  <main class="main-content detail-content">
 
+    <!-- ページヘッダー -->
     <div class="page-header">
-      <h1 class="page-title">請求詳細</h1>
+      <h1 class="page-title">登録済み請求内容</h1>
       <a href="#home" class="btn btn-back">
         <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
       </a>
     </div>
 
-    <div class="card main-card">
-      <p style="color: #9C9C9C; text-align: center; padding: 48px 0;">（このページは現在実装中です）</p>
+    <!-- 親サマリーカード（請求基本情報 + 請求金額） -->
+    <div class="card detail-summary-card" id="detailSummaryCard">
+      <div class="detail-loading-placeholder">
+        <i class="fa-solid fa-spinner fa-spin"></i> 読み込み中...
+      </div>
+    </div>
+
+    <!-- ================================================================
+         差し戻しの一覧 (RETURNED)
+         ================================================================ -->
+    <section class="detail-section hidden" id="detailReturnedSection">
+      <div class="detail-section-header detail-section-header--returned">
+        <div class="detail-section-header__left">
+          <h2 class="detail-section-title detail-section-title--returned">
+            <i class="fa-solid fa-triangle-exclamation"></i> 差し戻しの一覧
+          </h2>
+          <p class="detail-section-desc">
+            差し戻しされた店舗があります。内容を確認し、CSVファイルをアップロードしなおして、請求内容を差し戻しして下さい。
+          </p>
+        </div>
+        <div class="detail-section-header__actions">
+          <button type="button" class="btn btn-outline btn-sm" id="detailBtnDownloadCsv">
+            <i class="fa-solid fa-download"></i> CSVダウンロード
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="detailBtnUploadCsv">
+            <i class="fa-solid fa-upload"></i> CSVアップロード
+          </button>
+        </div>
+      </div>
+
+      <div class="store-list-wrap" id="detailReturnedList">
+        <!-- JS で動的生成 -->
+      </div>
+    </section>
+
+    <!-- ================================================================
+         確認中・承認済みの一覧 (PENDING_REVIEW / MERCHANT_CONFIRMATION_REQUESTED)
+         ================================================================ -->
+    <section class="detail-section hidden" id="detailOtherSection">
+      <div class="detail-section-header">
+        <div class="detail-section-header__left">
+          <h2 class="detail-section-title">確認中・承認済みの一覧</h2>
+          <p class="detail-section-desc">
+            以下の請求書は、UTFでは確認済みか承認済みですので、対象外です。
+          </p>
+        </div>
+      </div>
+
+      <div class="store-list-wrap" id="detailOtherList">
+        <!-- JS で動的生成 -->
+      </div>
+    </section>
+
+    <!-- 下部ボタン -->
+    <div class="detail-bottom-actions">
+      <a href="#home" class="btn btn-back">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </a>
     </div>
 
   </main>
