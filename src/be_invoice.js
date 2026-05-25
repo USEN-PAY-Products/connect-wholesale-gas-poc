@@ -5,10 +5,9 @@
 //
 // 公開関数:
 //   sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks)
-//   fetchInvoices()
+//   fetchInvoices()            ← サーバー側で wholesaler_id を確定（引数不要）
 //   fetchInvoiceDetail(invoiceId)
 //   getMockScheduleData()    ← BackOffice API 実装後に削除
-//   getMockBillingHistory()  ← BackOffice API 実装後に削除
 //
 // 依存:
 //   be_config.js        … getConfig_()
@@ -353,7 +352,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
 
 /**
  * CSV を Drive に保存し、BigQuery の 3 テーブルにトランザクション登録する。
- * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_id> / <YYYYMM> / <タイムスタンプ>_original.csv
+ * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_id>_<wholesaler_name> / <YYYYMM> / <タイムスタンプ>_original.csv
  *
  * フロー:
  *   ① Drive に CSV を保存（元ファイル保全）
@@ -431,20 +430,14 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     // ── ① Drive 保存（rawCsvBase64: 元ファイルのバイト列をそのまま保存）──────
     const rawBytes    = Utilities.base64Decode(rawCsvBase64);
     const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
-    const userFolder  = getOrCreateSubFolder_(rootFolder, String(accountInfo.wholesaler_id));
+    const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
+    const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
     const fileName    = formatTimestamp_(now) + '_original.csv';
     const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
     const csvFile     = monthFolder.createFile(saveBlob);
     const csvUrl      = csvFile.getUrl();
     Logger.log('[Drive] 保存完了: ' + csvUrl);
-
-    // ── STUB MODE: Drive 保存のみ、BQ 書き込みスキップ ───────────────────
-    if (STUB_MODE) {
-      Logger.log('[STUB] Drive 保存完了: ' + csvUrl);
-      Logger.log('[STUB] BQ 書き込みはスキップします（STUB_MODE=true）');
-      return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
-    }
 
     // ── ③ 生CSV を BQ Load Job で staging テーブルへ投入（utf8Bytes を使用）──
     Logger.log('[BQ] Load Job 投入: stagingId=' + stagingId);
@@ -480,22 +473,20 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
 
 // =============================================================================
 // 請求一覧取得
-// TODO: バックオフィスAPI実装後に fetchInvoicesByWholesaler_() に差し替える
 // =============================================================================
 
 /**
- * ログインユーザーの請求一覧を返す。
- * 現在はモックデータを返す。BackOffice API 実装後に db_bq_query.js の
- * fetchInvoicesByWholesaler_() を呼び出す実装に差し替えること。
+ * ログインユーザーの請求一覧を BQ から取得して返す。
+ * wholesaler_id はサーバー側で getServerAccountInfo_() から取得する（引数は無視）。
+ * フロントから渡された引数を使わないことで sessionStorage 改ざんによる他卸データ取得を防ぐ。
  *
  * @returns {{ status: 'success', data: Array<Object> }}
  */
 function fetchInvoices() {
   try {
-    // TODO: BackOffice API 実装時は getServerAccountInfo_() 由来の数値 wholesaler_id を使うこと。
-    //       getWholesalerId_()（メールのローカルパート）は型が異なるため使用不可。
-    //       例: return success_(fetchInvoicesByWholesaler_(getServerAccountInfo_().wholesaler_id));
-    return getMockBillingHistory();
+    const accountInfo  = getServerAccountInfo_();
+    const wholesalerId = accountInfo.wholesaler_id;
+    return success_(fetchInvoicesByWholesaler_(wholesalerId));
   } catch (err) {
     throw new Error('fetchInvoices failed: ' + err.message);
   }
@@ -524,8 +515,7 @@ function fetchInvoiceDetail(invoiceId) {
 }
 
 // =============================================================================
-// モックデータ定数  ── BackOffice API 実装後に削除する
-// ※ フロント側フォールバック（fe_js.html 内の home.js）と同一形式を維持すること
+// モックデータ定数
 // =============================================================================
 
 /** @type {Array<{date:string, title:string, type:string}>} */
@@ -534,30 +524,8 @@ const MOCK_SCHEDULE_ = [
   { date: '2026-05-27', title: '口座振替', type: 'payment' },
 ];
 
-/** 請求履歴1件分の共通フィールド。id / monthLabel は各エントリで上書きする。 */
-const MOCK_BILLING_BASE_ = {
-  billingAmount: 99999999,
-  subtotalExTax: 90000000,
-  taxAmount:     9999999,
-  breakdown: [
-    { rate: 10, subtotalExTax: 49999999, taxAmount: 4999999 },
-    { rate: 8,  subtotalExTax: 50000000, taxAmount: 4000000 },
-  ],
-  fee:            9999999,
-  transferAmount: 990000000,
-  status:        '支払完了',
-};
-
-/** @type {Array<{id:string, monthLabel:string}>} */
-const MOCK_BILLING_ENTRIES_ = [
-  { id: 'b001', monthLabel: '4月' },
-  { id: 'b002', monthLabel: '3月' },
-  { id: 'b003', monthLabel: '2月' },
-  { id: 'b004', monthLabel: '1月' },
-];
-
 // =============================================================================
-// モック公開関数  ── BackOffice API 実装後に削除する
+// モック公開関数
 // =============================================================================
 
 /**
@@ -569,21 +537,6 @@ function getMockScheduleData() {
     return success_(MOCK_SCHEDULE_);
   } catch (err) {
     throw new Error('getMockScheduleData failed: ' + err.message);
-  }
-}
-
-/**
- * 請求履歴のモックを返す。
- * @returns {{ status: 'success', data: Array }}
- */
-function getMockBillingHistory() {
-  try {
-    const items = MOCK_BILLING_ENTRIES_.map(function(entry) {
-      return Object.assign({}, MOCK_BILLING_BASE_, entry);
-    });
-    return success_(items);
-  } catch (err) {
-    throw new Error('getMockBillingHistory failed: ' + err.message);
   }
 }
 

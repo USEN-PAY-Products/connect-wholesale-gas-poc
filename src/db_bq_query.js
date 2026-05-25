@@ -2,22 +2,84 @@
 // db_bq_query.js
 //
 // BigQuery からのデータ取得クエリロジックを管理するファイル。
-// BackOffice API 実装後に、fetchInvoices / fetchInvoiceDetail の
-// モック実装をここの BQ クエリ実装に差し替える。
 //
 // 依存: be_config.js（getConfig_）
 //
 // 公開する内部関数（末尾アンダースコア）:
+//   fetchAccountInfoByEmail_(email)          … メールアドレスからアカウント情報を取得
 //   fetchInvoicesByWholesaler_(wholesalerId) … 卸IDに紐づく請求一覧を取得
 //   fetchInvoiceDetail_(invoiceId)           … 請求IDに紐づく明細を取得
 //   runQuery_(projectId, sql, params)        … 汎用クエリ実行ラッパー
 // =============================================================================
 
 /**
- * 卸業者IDに紐づく請求一覧を BQ から取得する。
- * TODO: BackOffice API 実装後に fetchInvoices() からこの関数を呼び出す。
+ * メールアドレスからアカウント情報を BQ から取得して集約されたオブジェクトを返す。
+ * wholesaler_user → wholesalers → wholesaler_merchants → store を JOIN。
+ * 削除済みユーザー・非アクティブ卸は除外する。
  *
- * @param {string} wholesalerId - 卸業者ID
+ * @param {string} email - GAS Session.getActiveUser().getEmail() の値
+ * @returns {Object|null} アカウント情報オブジェクト。対応ユーザーがいない場合は null。
+ * @throws {Error} クエリ失敗時
+ */
+function fetchAccountInfoByEmail_(email) {
+  const config = getConfig_();
+  const sql =
+    'SELECT ' +
+    '  wu.id                   AS wholesaler_user_id, ' +
+    '  wu.wholesalers_id       AS wholesaler_id, ' +
+    '  w.wholesaler_name, ' +
+    '  w.wholesaler_fee_rate   AS fee_rate, ' +
+    '  w.tax_rounding_method, ' +
+    '  w.csv_format_rules, ' +
+    '  wm.customer_code, ' +
+    '  wm.mall_code, ' +
+    '  s.store_name ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_user` AS wu ' +
+    'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` AS w ' +
+    '  ON w.id = wu.wholesalers_id AND w.wholesaler_status = \'active\' ' +
+    'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` AS wm ' +
+    '  ON wm.wholesaler_id = wu.wholesalers_id AND wm.deleted_at IS NULL ' +
+    'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
+    '  ON s.mall_code = wm.mall_code AND s.store_status = \'active\' ' +
+    'WHERE wu.wholesaler_email = @email ' +
+    '  AND wu.deleted_at IS NULL';
+
+  const params = [
+    { name: 'email', parameterType: { type: 'STRING' }, parameterValue: { value: email } },
+  ];
+
+  const rows = runQuery_(config.gcpProjectId, sql, params);
+  if (!rows || rows.length === 0) return null;
+
+  const first = rows[0];
+  const merchantMappings = rows
+    .filter(function(r) { return r.mall_code; })
+    .map(function(r) {
+      return { customer_code: r.customer_code, mall_code: r.mall_code, store_name: r.store_name };
+    });
+
+  return {
+    wholesaler_id:       Number(first.wholesaler_id),
+    wholesaler_user_id:  first.wholesaler_user_id,
+    wholesaler_name:     first.wholesaler_name,
+    fee_rate:            Number(first.fee_rate),
+    tax_rounding_method: first.tax_rounding_method,
+    csv_format_rules:    (function() {
+      try {
+        return first.csv_format_rules ? JSON.parse(first.csv_format_rules) : null;
+      } catch (e) {
+        Logger.log('[fetchAccountInfoByEmail_] csv_format_rules のパースに失敗しました。デフォルトフォーマットを使用します: ' + e.message);
+        return null;
+      }
+    })(),
+    merchant_mappings:   merchantMappings,
+  };
+}
+
+/**
+ * 卸業者IDに紐づく請求一覧を BQ から取得する。
+ *
+ * @param {number} wholesalerId - 卸業者ID
  * @returns {Array<Object>} 請求一覧行の配列
  * @throws {Error} クエリ失敗時
  */
@@ -27,6 +89,8 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     'SELECT ' +
     '  id AS wholesaler_invoice_id, wholesaler_invoice_date, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
+    '  wholesaler_total_ex_tax_10, wholesaler_consumption_tax_10, ' +
+    '  wholesaler_total_ex_tax_8, wholesaler_consumption_tax_8, ' +
     '  wholesaler_fee_rate, invoice_fee_amount, payment_amount ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
     'WHERE wholesaler_id = @wholesaler_id ' +
