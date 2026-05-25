@@ -66,16 +66,30 @@ const DEFAULT_CSV_COLUMNS_ = [
  * @returns {{ has_header: boolean, columns: Array }|null}
  */
 function getCsvFormatRules() {
+  let raw;
   try {
-    const raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
-    if (raw && Array.isArray(raw.columns) && raw.columns.length > 0) {
-      // index 昇順にソートして返す（columns 配列が index 順でない場合に列ずれが起きるため）
-      const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);
-      return { ...raw, columns: sorted };
-    }
-  } catch (_) {}
-  // csv_format_rules が未設定の卸 → null を返す（DEFAULT_CSV_COLUMNS_ を使用）
-  return null;
+    raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
+  } catch (_) {
+    // JSON パース失敗 → 不正データとして扱う
+    throw new Error('[getCsvFormatRules] csv_format_rules のパースに失敗しました。管理者に連絡してください。');
+  }
+
+  // null / undefined → デフォルト卸（固定9列）
+  if (raw === null || raw === undefined) return null;
+
+  // 新形式（columns 配列あり）→ index 昇順ソートして返す
+  if (typeof raw === 'object' && Array.isArray(raw.columns) && raw.columns.length > 0) {
+    const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);
+    return { ...raw, columns: sorted };
+  }
+
+  // それ以外（旧形式・不正値）→ 明示エラー
+  // バックエンドの buildStagingSchema_() も同条件で throw するため、
+  // フロントで先に検知してユーザーに分かりやすく通知する。
+  throw new Error(
+    '[getCsvFormatRules] csv_format_rules が未対応の形式です。' +
+    '管理者に csv_format_rules の設定を確認してもらってください。'
+  );
 }
 
 // =============================================================================
@@ -494,6 +508,13 @@ let utf8CsvBase64 = null;
 let _analyzeTimer = null;
 
 /**
+ * handleFile() で起動中の FileReader インスタンス。
+ * 連続ファイル選択時に前回の reader.onload が後から走って結果を上書きするのを防ぐため、
+ * 新しい handleFile 呼び出しの先頭で abort() してから破棄する。
+ */
+let _currentReader = null;
+
+/**
  * パース済みデータ行の配列。各要素は csv_format_rules のキー（bq_field）をキーとしたオブジェクト。
  * デフォルトフォーマット（9列）の場合のキー構成は以下の通り。
  * @type {Array<{
@@ -699,13 +720,23 @@ function handleFile(file) {
     clearTimeout(_analyzeTimer);
     _analyzeTimer = null;
   }
+  // 前回の FileReader が読み込み中なら abort して onload が後から発火しないようにする
+  if (_currentReader !== null) {
+    _currentReader.abort();
+    _currentReader = null;
+  }
   setDropZoneAnalyzing(file.name);
   const analyzeStartMs = Date.now();
   const MIN_ANALYZE_MS = 600; // スピナーの最小表示時間 (ms)
 
   const reader = new FileReader();
+  _currentReader = reader; // グローバルに保持して次回の呼び出しで abort できるようにする
 
   reader.onload = e => {
+    // abort 後に遅れて発火した古い onload は無視する
+    if (reader !== _currentReader) return;
+    _currentReader = null;
+
     const buffer = e.target.result;
     const text   = decodeBuffer_(buffer);
     const { errors, rows } = validateCsv(text);
@@ -746,6 +777,8 @@ function handleFile(file) {
   };
 
   reader.onerror = () => {
+    if (reader !== _currentReader) return;
+    _currentReader = null;
     dropZone.classList.remove('is-analyzing');
     showToast('ファイルの読み込みに失敗しました');
     resetDropZone();
@@ -886,7 +919,10 @@ function validateCsv(csvText) {
   const columns  = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
   const mappings = getMerchantMappings();
 
-  const expectedCols = columns.length;
+  // columns.length（配列の要素数）ではなく 最大index+1（CSVの実際の列数）で算出する。
+  // index に欠番がある場合（省略列を配列から抜いているケース）に columns.length だと
+  // 正しいCSVを誤って「列数不一致」と判定してしまうため。
+  const expectedCols = columns.reduce((max, col) => Math.max(max, col.index + 1), 0);
 
   // 有効な customer_code セットを作成
   // is_active が未提供（undefined）の場合は active 扱いにする
@@ -979,10 +1015,18 @@ function validateCsv(csvText) {
             // 例: 2026/03/01（Excel 日本語保存でよく発生）
             dateOk   = /^\d{4}\/\d{2}\/\d{2}$/.test(val);
             dateHint = 'YYYY/MM/DD形式（例: 2026/03/01）';
-          } else {
+          } else if (fmt === 'YYYY-MM-DD' || !col.format) {
             // デフォルト: YYYY-MM-DD (ISO 8601)
             dateOk   = /^\d{4}-\d{2}-\d{2}$/.test(val);
             dateHint = 'YYYY-MM-DD形式（例: 2026-03-01）';
+          } else {
+            // 未対応フォーマット → バックエンドも throw するため明示エラー
+            // 対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD
+            rowErrors.push(
+              `${rowNum}行目: "${col.csv_header}" の日付フォーマット "${fmt}" は未対応です。` +
+              'csv_format_rules の format を YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD のいずれかに設定してください。'
+            );
+            break;
           }
           if (!dateOk) {
             rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${dateHint}で入力してください`);
@@ -1127,7 +1171,14 @@ function downloadCsvTemplate() {
   // csv_format_rules（またはデフォルト定義）からヘッダーを動的生成
   const rules   = getCsvFormatRules();
   const columns = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
-  const headers = columns.map(c => `"${c.csv_header}"`);
+
+  // columns.map() の並び順ではなく col.index（CSV上の列位置）に基づいてヘッダーを配置する。
+  // index に欠番がある場合でも列位置がずれないよう、最大index+1 の配列を作り
+  // headers[col.index] に代入してから join する。
+  const maxIndex = columns.reduce((max, col) => Math.max(max, col.index), 0);
+  const headers  = Array(maxIndex + 1).fill('');
+  columns.forEach(col => { headers[col.index] = `"${col.csv_header}"`; });
+
   const csvContent = headers.join(',') + '\r\n';
 
   // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする

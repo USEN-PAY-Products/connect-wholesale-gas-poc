@@ -114,6 +114,32 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
     }
   });
 
+  // ── 前提検証: index および system_column の重複チェック ───────────────────
+  // index 重複 → 同じ string_field_N に複数列がマッピングされて不定の値が使われる
+  // system_column 重複 → INSERT カラムが重複して BQ がエラーになる
+  var seenIndexes       = {};
+  var seenSystemColumns = {};
+  columns.forEach(function(col, i) {
+    if (seenIndexes[col.index] !== undefined) {
+      throw new Error(
+        '[CsvMapper] columns[' + i + '].index = ' + col.index + ' が重複しています。' +
+        '(columns[' + seenIndexes[col.index] + '] と重複)'
+      );
+    }
+    seenIndexes[col.index] = i;
+
+    var sc = col.system_column;
+    if (sc && sc !== 'null') {
+      if (seenSystemColumns[sc] !== undefined) {
+        throw new Error(
+          '[CsvMapper] columns[' + i + '].system_column = "' + sc + '" が重複しています。' +
+          '(columns[' + seenSystemColumns[sc] + '] と重複)'
+        );
+      }
+      seenSystemColumns[sc] = i;
+    }
+  });
+
   // ── 検証0: 列数チェック ───────────────────────────────────────────────────
   // columns[].index は CSV 上の 0 始まり位置を表す。
   // 最大 index + 1 が期待列数。CSV の実際の列数と一致しない場合、
@@ -221,6 +247,32 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     }
   });
 
+  // ── 前提検証: index および system_column の重複チェック ───────────────────
+  // index 重複 → 同じ string_field_N に複数列がマッピングされて不定の値が使われる
+  // system_column 重複 → INSERT カラムが重複して BQ がエラーになる
+  var seenIndexes       = {};
+  var seenSystemColumns = {};
+  columns.forEach(function(col, i) {
+    if (seenIndexes[col.index] !== undefined) {
+      throw new Error(
+        '[CsvMapper] columns[' + i + '].index = ' + col.index + ' が重複しています。' +
+        '(columns[' + seenIndexes[col.index] + '] と重複)'
+      );
+    }
+    seenIndexes[col.index] = i;
+
+    var sc = col.system_column;
+    if (sc && sc !== 'null') {
+      if (seenSystemColumns[sc] !== undefined) {
+        throw new Error(
+          '[CsvMapper] columns[' + i + '].system_column = "' + sc + '" が重複しています。' +
+          '(columns[' + seenSystemColumns[sc] + '] と重複)'
+        );
+      }
+      seenSystemColumns[sc] = i;
+    }
+  });
+
   // system_column → DDL invoice_lines カラム名のマッピング（1:1 でない列のみ定義）
   const SYSTEM_COL_TO_DDL = {
     'tax_rate':              'tax_category',
@@ -290,9 +342,9 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   const dateValidateSqls = [];
   const intValidateSqls  = [];
   const selectParts   = [
-    '  GENERATE_UUID()                                                    AS id',
-    '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY ' + orderByExpr + ') AS invoice_item_row',
-    '  si.id                                                              AS store_invoice_id',
+    '  GENERATE_UUID()                                                    AS id,',
+    '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY ' + orderByExpr + ') AS invoice_item_row,',
+    '  si.id                                                              AS store_invoice_id,',
   ];
 
   // system_column のホワイトリスト。
@@ -399,8 +451,8 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
 
     insertColumns.push(ddlCol);
     selectParts.push(
-      '  ' + padRight_(castExpr, 60) + ' AS ' + ddlCol +
-      '  -- ' + col.csv_header + ' (index: ' + col.index + ')'
+      '  ' + padRight_(castExpr, 60) + ' AS ' + ddlCol + ','
+      + '  -- ' + col.csv_header + ' (index: ' + col.index + ')'
     );
   });
 
@@ -446,7 +498,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
 
   const selectSql = [
     'SELECT',
-    selectParts.join(',\n'),
+    selectParts.join('\n'),
     'FROM ' + stagingRef + ' s',
     'JOIN ' + merchantsRef + ' wm',
     '  ON wm.customer_code = ' + custCodeFieldRef,

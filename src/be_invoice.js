@@ -251,6 +251,27 @@ function buildStagingSchema_(csvFormatRules) {
   // 後段の NULLIF(...,'') や PARSE_DATE(...) が型不一致で失敗する。
   // columns の最大 index + 1 列分を string_field_0〜N として STRING で定義する。
   if (isNewFormatRules_(csvFormatRules)) { // be_csv_mapper.js
+    // col.index は string_field_N の N として BQ スキーマに直接使われるため、
+    // 型・範囲を事前検証する。
+    //   - 非整数・負数 → 不正なフィールド名になる
+    //   - 極端に大きい値 → for ループが大量回転してメモリを圧迫する
+    // 上限 200 は現実的な CSV 列数の最大値として設定（Excel 最大 16,384 列より十分小さい）。
+    const MAX_COL_INDEX = 200;
+    csvFormatRules.columns.forEach(function(col, i) {
+      if (!Number.isInteger(col.index) || col.index < 0) {
+        throw new Error(
+          '[buildStagingSchema_] columns[' + i + '].index が不正です: ' + JSON.stringify(col.index) + '。' +
+          '0 以上の整数を指定してください。'
+        );
+      }
+      if (col.index > MAX_COL_INDEX) {
+        throw new Error(
+          '[buildStagingSchema_] columns[' + i + '].index が上限（' + MAX_COL_INDEX + '）を超えています: ' + col.index + '。' +
+          'CSV の列数が多すぎます。'
+        );
+      }
+    });
+
     const maxIndex = csvFormatRules.columns.reduce(function(max, col) {
       return Math.max(max, col.index);
     }, 0);
