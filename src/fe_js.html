@@ -45,56 +45,42 @@ function getMerchantMappings() {
  * null の場合はデフォルトフォーマット定義を返す。
  * @returns {Object}
  */
+/**
+ * デフォルト卸向け固定9列の columns 定義。
+ * csv_format_rules が null（csv_format_rules 未設定の卸）が使用する。
+ * ⚠️ 列順・csv_header は db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
+ */
+const DEFAULT_CSV_COLUMNS_ = [
+  { index: 0, csv_header: '顧客コード',       system_column: 'customer_code',         type: 'string',  required: true  },
+  { index: 1, csv_header: '日付',             system_column: 'transaction_date',      type: 'date',    required: true  },
+  { index: 2, csv_header: '品目',             system_column: 'item_name',             type: 'string',  required: true  },
+  { index: 3, csv_header: '数量',             system_column: 'quantity',              type: 'integer', required: true  },
+  { index: 4, csv_header: '単価',             system_column: 'unit_price',            type: 'integer', required: true  },
+  { index: 5, csv_header: '税率区分(%)',       system_column: 'tax_rate',              type: 'integer', required: true,  enum: [8, 10] },
+  { index: 6, csv_header: '請求金額（税抜）', system_column: 'amount_ex_tax',         type: 'integer', required: true  },
+  { index: 7, csv_header: '消費税',           system_column: 'tax_amount',            type: 'integer', required: true  },
+  { index: 8, csv_header: '備考',             system_column: 'invoice_detail_remark', type: 'string',  required: false },
+];
+
+/**
+ * sessionStorage に保存された csv_format_rules を返す。
+ * 新形式（columns 配列）の場合は index 昇順にソートして返す。
+ * csv_format_rules が未設定の卸は null を返す。
+ * 呼び出し側は null の場合に DEFAULT_CSV_COLUMNS_ を使用する。
+ *
+ * @returns {{ has_header: boolean, columns: Array }|null}
+ */
 function getCsvFormatRules() {
   try {
     const raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
-    if (raw && Object.keys(raw).length > 0) {
-      // ── 新形式（columns 配列）を validateCsv() が期待する旧形式（キー名オブジェクト）へ変換 ──
-      // 旧形式: { [system_column|_col_N]: { csv_header, type, required, ... } }
-      // 新形式: { has_header: true, columns: [ { index, csv_header, system_column, type, ... } ] }
-      // validateCsv() は Object.keys(rules) で列順リストを作るため、
-      // 全列（system_column が null のものも含む）を変換対象にする。
-      if (Array.isArray(raw.columns)) {
-        const converted = {};
-        // index 昇順にソートしてから変換する。
-        // validateCsv() は Object.keys(rules) の順序を CSV の列順として扱うため、
-        // columns 配列が index 順でない場合にヘッダー照合・データパースの列ずれが起きる。
-        const sortedColumns = raw.columns.slice().sort((a, b) => a.index - b.index);
-        sortedColumns.forEach(col => {
-          // system_column が null（JS の null）または文字列 "null"（GAS の JSON 変換由来）の
-          // 両方を null 扱いにする。null 列はプレースホルダーキーを使用する。
-          const hasSystemColumn = col.system_column !== null
-            && col.system_column !== undefined
-            && col.system_column !== 'null';
-          const key = hasSystemColumn ? col.system_column : `_col_${col.index}`;
-          converted[key] = {
-            csv_header: col.csv_header,
-            type:       col.type,
-            required:   col.required,
-            ...(col.format     ? { format:     col.format }     : {}),
-            ...(col.enum       ? { enum:       col.enum }       : {}),
-            ...(col.max_length ? { max_length: col.max_length } : {}),
-          };
-        });
-        return converted;
-      }
-      return raw;
+    if (raw && Array.isArray(raw.columns) && raw.columns.length > 0) {
+      // index 昇順にソートして返す（columns 配列が index 順でない場合に列ずれが起きるため）
+      const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);
+      return { ...raw, columns: sorted };
     }
   } catch (_) {}
-  // デフォルトフォーマット（csv_format_rules が空の卸向け）
-  // ⚠️ 列順・csv_header は be_invoice.js の getExpectedHeaders_() および
-  //    db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
-  return {
-    customer_code:         { csv_header: '顧客コード',       type: 'string',  required: true  },
-    transaction_date:      { csv_header: '日付',             type: 'date',    required: true  },
-    item_name:             { csv_header: '品目',             type: 'string',  required: true  },
-    quantity:              { csv_header: '数量',             type: 'integer', required: true  },
-    unit_price:            { csv_header: '単価',             type: 'integer', required: true  },
-    tax_rate:              { csv_header: '税率区分(%)',       type: 'integer', required: true, enum: [8, 10] },
-    amount_ex_tax:         { csv_header: '請求金額（税抜）', type: 'integer', required: true  },
-    tax_amount:            { csv_header: '消費税',           type: 'integer', required: true  },
-    invoice_detail_remark: { csv_header: '備考',             type: 'string',  required: false },
-  };
+  // csv_format_rules が未設定の卸 → null を返す（DEFAULT_CSV_COLUMNS_ を使用）
+  return null;
 }
 
 // =============================================================================
@@ -507,6 +493,12 @@ let rawCsvBase64 = null;
 let utf8CsvBase64 = null;
 
 /**
+ * handleFile() の MIN_ANALYZE_MS 待機用タイマーID。
+ * 連続ファイル選択時に前回のタイマーをキャンセルして競合を防ぐ。
+ */
+let _analyzeTimer = null;
+
+/**
  * パース済みデータ行の配列。各要素は csv_format_rules のキー（bq_field）をキーとしたオブジェクト。
  * デフォルトフォーマット（9列）の場合のキー構成は以下の通り。
  * @type {Array<{
@@ -706,6 +698,12 @@ function handleFile(file) {
   // ファイル選択直後にドロップゾーンを「解析中」スピナーへ切り替える。
   // すぐに結果が出るとユーザーが「本当に確認したの？」と不安になるため、
   // 最低 MIN_ANALYZE_MS だけスピナーを表示してから結果を描画する。
+  // 連続ファイル選択時に前回のタイマーが残っていると古い結果で上書きされるため、
+  // 新しい handleFile 呼び出しの先頭で必ずキャンセルする。
+  if (_analyzeTimer !== null) {
+    clearTimeout(_analyzeTimer);
+    _analyzeTimer = null;
+  }
   setDropZoneAnalyzing(file.name);
   const analyzeStartMs = Date.now();
   const MIN_ANALYZE_MS = 600; // スピナーの最小表示時間 (ms)
@@ -745,7 +743,8 @@ function handleFile(file) {
     // スピナーが最低表示時間に達するまで待ってから結果を描画する
     const elapsed   = Date.now() - analyzeStartMs;
     const remaining = Math.max(0, MIN_ANALYZE_MS - elapsed);
-    setTimeout(() => {
+    _analyzeTimer = setTimeout(() => {
+      _analyzeTimer = null;
       dropZone.classList.remove('is-analyzing');
       renderErrors(errors, file.name);
     }, remaining);
@@ -877,7 +876,7 @@ function parseCsvLine(line) {
 
 /**
  * csv_format_rules に基づいてCSVをパース・バリデーションする。
- * rules が空の場合はデフォルトフォーマットにフォールバック（getCsvFormatRules()）。
+ * getCsvFormatRules() が null の場合はデフォルト9列（DEFAULT_CSV_COLUMNS_）を使用する。
  * merchant_mappings で customer_code の有効性もチェックする。
  *
  * @param {string} csvText
@@ -889,11 +888,10 @@ function validateCsv(csvText) {
 
   // SessionStorage からフォーマットルールとマッピングを取得
   const rules    = getCsvFormatRules();
+  const columns  = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
   const mappings = getMerchantMappings();
 
-  // フィールドキー順リスト（ヘッダー順 = ルールの定義順）
-  const fieldKeys   = Object.keys(rules);
-  const expectedCols = fieldKeys.length;
+  const expectedCols = columns.length;
 
   // 有効な customer_code セットを作成
   // is_active が未提供（undefined）の場合は active 扱いにする
@@ -920,11 +918,10 @@ function validateCsv(csvText) {
     errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${expectedCols}列）`);
     return { errors, rows };
   }
-  const headerErrors = fieldKeys
-    .map((key, idx) => {
-      const expected = rules[key].csv_header;
-      return headerCols[idx] !== expected
-        ? `ヘッダー行 ${idx + 1}列目: "${expected}" が期待されますが "${headerCols[idx]}" になっています`
+  const headerErrors = columns
+    .map((col, idx) => {
+      return headerCols[idx] !== col.csv_header
+        ? `ヘッダー行 ${idx + 1}列目: "${col.csv_header}" が期待されますが "${headerCols[idx]}" になっています`
         : null;
     })
     .filter(Boolean);
@@ -950,13 +947,18 @@ function validateCsv(csvText) {
     }
 
     const rowObj = {};
-    fieldKeys.forEach((key, idx) => {
-      const rule = rules[key];
+    columns.forEach((col, idx) => {
+      // system_column が null（JS の null）または文字列 "null"（GAS の JSON 変換由来）の
+      // 両方を null 扱いにする。null 列はプレースホルダーキーを使用する。
+      const hasSystemColumn = col.system_column !== null
+        && col.system_column !== undefined
+        && col.system_column !== 'null';
+      const key = hasSystemColumn ? col.system_column : `_col_${col.index}`;
       const val  = cols[idx];
 
       // 必須チェック
-      if (rule.required && val === '') {
-        rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は必須項目です`);
+      if (col.required && val === '') {
+        rowErrors.push(`${rowNum}行目: "${col.csv_header}" は必須項目です`);
         return;
       }
       if (val === '') {
@@ -965,13 +967,13 @@ function validateCsv(csvText) {
       }
 
       // 型チェック
-      switch (rule.type) {
+      switch (col.type) {
         case 'date': {
           // format 定義に応じてバリデーションパターンを切り替える。
           // 変換は BigQuery 側（PARSE_DATE）に委ねるため、ここでは形式チェックのみ行う。
           // ※ BQ 側の PARSE_DATE フォーマット文字列も合わせて更新が必要な場合は
           //    be_csv_mapper.js の buildInvoiceLinesSelectSql_() を確認すること。
-          const fmt = rule.format || 'YYYY-MM-DD';
+          const fmt = col.format || 'YYYY-MM-DD';
           let dateOk = false;
           let dateHint = '';
           if (fmt === 'YYYYMMDD') {
@@ -988,7 +990,7 @@ function validateCsv(csvText) {
             dateHint = 'YYYY-MM-DD形式（例: 2026-03-01）';
           }
           if (!dateOk) {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は${dateHint}で入力してください`);
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${dateHint}で入力してください`);
           } else {
             rowObj[key] = val;
           }
@@ -996,20 +998,20 @@ function validateCsv(csvText) {
         }
         case 'integer':
           if (val === '' || !/^-?\d+$/.test(val.trim())) {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は整数で入力してください`);
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数で入力してください`);
           } else {
             const num = Number(val);
             // enumチェック
-            if (rule.enum && !rule.enum.includes(num)) {
-              rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は ${rule.enum.join(' または ')} を入力してください`);
+            if (col.enum && !col.enum.includes(num)) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は ${col.enum.join(' または ')} を入力してください`);
             } else {
               rowObj[key] = num;
             }
           }
           break;
         default: // string
-          if (rule.max_length && val.length > rule.max_length) {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は${rule.max_length}文字以内で入力してください`);
+          if (col.max_length && val.length > col.max_length) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${col.max_length}文字以内で入力してください`);
           } else {
             rowObj[key] = val;
           }
@@ -1129,7 +1131,8 @@ btnCancel.addEventListener('click', () => {
 function downloadCsvTemplate() {
   // csv_format_rules（またはデフォルト定義）からヘッダーを動的生成
   const rules   = getCsvFormatRules();
-  const headers = Object.values(rules).map(r => `"${r.csv_header}"`);
+  const columns = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
+  const headers = columns.map(c => `"${c.csv_header}"`);
   const csvContent = headers.join(',') + '\r\n';
 
   // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする
@@ -1400,7 +1403,6 @@ function renderConfirmPage() {
   const wholesalerName   = sessionStorage.getItem('shiire_wholesaler_name')   || '';
   const feeRate          = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
   const mappings         = getMerchantMappings();
-  const rules            = getCsvFormatRules();
 
   // customer_code → mall_code / merchant_name の変換マップ
   const mappingMap = {};
