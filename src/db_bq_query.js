@@ -161,7 +161,7 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     '  si.standard_tax_target_amount, si.standard_tax_amount, ' +
     '  si.reduced_tax_target_amount, si.reduced_tax_amount, ' +
     '  si.non_taxable_amount, ' +
-    '  si.backoffice_handover, si.wholesaler_handover, si.backoffice_remark ' +
+    '  si.backoffice_handover, si.wholesaler_handover, si.wholesaler_remark, si.backoffice_remark ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = si.mall_code ' +

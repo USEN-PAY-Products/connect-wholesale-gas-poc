@@ -1903,6 +1903,16 @@ function buildDetailAccordion_(store, openByDefault) {
     body.appendChild(note);
   }
 
+  // 卸備考（wholesaler_remark）: CSV アップロード時に卸が入力した備考
+  if (store.wholesaler_remark) {
+    const remark = document.createElement('div');
+    remark.className = 'dsl-wholesaler-note';
+    remark.innerHTML =
+      '<span class="dsl-wholesaler-note__label">備考：</span>' +
+      '<span>' + escapeHtml(store.wholesaler_remark) + '</span>';
+    body.appendChild(remark);
+  }
+
   // 明細コンテナ（オンデマンドで内容を入れる / 閉じたら空にしてメモリ解放）
   const linesContainer = document.createElement('div');
   linesContainer.className = 'dsl-lines-container';

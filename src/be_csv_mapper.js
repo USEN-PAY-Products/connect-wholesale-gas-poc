@@ -514,7 +514,7 @@ function buildMappedTransactionSql_(params) {
       '0, '                                             +  // non_taxable_amount
            remarkSql                           + ', '  +  // wholesaler_remark
       "'PENDING_REVIEW', 1, '"                          +  // backoffice_review_status, is_latest
-      escSql_(wsUserId) + "', CURRENT_DATETIME('Asia/Tokyo')"  +  // final_updated_by, created_at
+      escSql_(wsUserId) + "', CURRENT_TIMESTAMP()"  +  // final_updated_by, created_at
       ')'
     );
   });
@@ -597,7 +597,7 @@ function buildMappedTransactionSql_(params) {
           Number(wt.feeAmount      || 0) + ', ' +
           Number(wt.paymentAmount  || 0) + ',',
     '  NULL,',
-    "  '" + escSql_(csvUrl) + "', CURRENT_DATETIME('Asia/Tokyo')",
+    "  '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP()",
     ');',
     '',
     'COMMIT;',
