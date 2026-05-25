@@ -119,6 +119,14 @@ function buildStagingSchema_(csvFormatRules) {
     return null; // STAGING_SCHEMA_（固定9列）を使用
   }
 
+  // ── 新形式（columns 配列を持つ）の場合はスキーマ自動検出に委ねる ──────────
+  // 新形式では Staging の列は string_field_0, string_field_1, ... として自動生成される。
+  // BQ Load Job の autodetect: true（db_bq_connection.js 側で設定）で対応するため、
+  // ここではスキーマを返さず null にして呼び出し側をフォールバックさせる。
+  if (Array.isArray(csvFormatRules.columns)) {
+    return null;
+  }
+
   // buildTransactionSql_ の INSERT SELECT / JOIN で参照する必須フィールド
   const REQUIRED_BQ_FIELDS = [
     'transaction_date', // INSERT: invoice_lines.transaction_date
@@ -289,6 +297,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
       Number(m.totalAmount)   + ', ' + Number(m.subtotalAmount) + ', ' + Number(m.taxAmount)  + ', ' +
       Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
       Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
+      '0, ' +
       remarkSql + ", 'PENDING_REVIEW', 1, '" + esc(wsUserId) + "', CURRENT_DATETIME('Asia/Tokyo'))"
     );
   });
@@ -300,9 +309,10 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     'INSERT INTO ' + storeRef,
     '  (id, wholesaler_invoice_id, wholesaler_id, mall_code,',
     '   total_amount, subtotal_amount, tax_amount,',
-    '   total_ex_tax_10per, consumption_tax_10per,',
-    '   total_ex_tax_8per, consumption_tax_8per,',
-    '   wholesaler_handover, backoffice_review_status, is_latest,',
+    '   standard_tax_target_amount, standard_tax_amount,',
+    '   reduced_tax_target_amount, reduced_tax_amount,',
+    '   non_taxable_amount, wholesaler_remark,',
+    '   backoffice_review_status, is_latest,',
     '   final_updated_by, created_at)',
     'VALUES',
     childValues.join(',\n') + ';',
@@ -333,17 +343,19 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     'INSERT INTO ' + invRef,
     '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
     '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
-    '   wholesaler_total_ex_tax_10, wholesaler_consumption_tax_10,',
-    '   wholesaler_total_ex_tax_8, wholesaler_consumption_tax_8,',
+    '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+    '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+    '   wholesaler_non_taxable_amount,',
     '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
-    '   wholesaler_invoice_csv_url, created_by, created_at)',
+    '   handover_matter, wholesaler_invoice_csv_url, created_at)',
     'VALUES',
     "  ('" + invoiceUuid + "', '" + esc(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
     '   ' + Number(wt.totalAmount)   + ', ' + Number(wt.subtotalAmount) + ', ' + Number(wt.taxAmount)  + ',',
     '   ' + Number(wt.exTax10 || 0) + ', ' + Number(wt.tax10 || 0) + ',',
     '   ' + Number(wt.exTax8  || 0) + ', ' + Number(wt.tax8  || 0) + ',',
+    '   0,',
     '   ' + feeRate + ', ' + Number(wt.feeAmount) + ', ' + Number(wt.paymentAmount) + ',',
-    "   '" + esc(csvUrl) + "', '" + esc(wsUserId) + "', CURRENT_TIMESTAMP());",
+    "   NULL, '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
     '',
     'COMMIT;',
   ];
@@ -403,7 +415,10 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     }
 
     // ── csv_format_rules から staging スキーマを生成（カスタム対応）────────
-    // null の場合は loadCsvToBq_ 内で STAGING_SCHEMA_（固定9列）にフォールバック。
+    // 旧形式: bq_field 定義を元に明示的スキーマを生成して loadCsvToBq_ に渡す。
+    // 新形式: null を返す → loadCsvToBq_ 内で autodetect: true を使用し
+    //         string_field_0, string_field_1, ... として自動列名付けされる。
+    // null の場合は loadCsvToBq_ 内で STAGING_SCHEMA_（固定9列）にフォールバック「しない」。
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
 
     // ── merchant_mappings で customerCode を検証し mall_code マップを構築 ──

@@ -98,26 +98,44 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   const columns    = csvFormatRules.columns;
   const errors     = [];
 
-  columns.forEach(function(col) {
-    const csvHeaderVal = col.csv_header;
-    const definedIdx   = col.index;
+  // ── 検証0: 列数チェック ───────────────────────────────────────────────────
+  // columns[].index は CSV 上の 0 始まり位置を表す。
+  // 最大 index + 1 が期待列数。CSV の実際の列数と一致しない場合、
+  // string_field_N のマッピングが全列ずれてデータ破損するため即時拒否する。
+  const expectedColCount = columns.reduce(function(max, col) {
+    return Math.max(max, col.index + 1);
+  }, 0);
+  if (csvHeaders.length !== expectedColCount) {
+    throw new Error(
+      '[CsvMapper] CSVの列数が定義と一致しません。' +
+      '期待値: ' + expectedColCount + '列, ' +
+      '実際: ' + csvHeaders.length + '列。\n' +
+      'CSVフォーマットが変更されていないか確認してください。'
+    );
+  }
 
-    // ── 検証1: required: true の列が CSV ヘッダーに存在するか ─────────────
-    const actualIdx = csvHeaders.indexOf(csvHeaderVal);
-    if (col.required && actualIdx === -1) {
+  // ── 検証1+2: 各列を index で直接アクセスして名前を照合 ──────────────────
+  // indexOf() ではなく csvHeaders[col.index] を直接参照することで、
+  // 同名ヘッダーによる誤判定と位置ズレの見逃しを両方防ぐ。
+  columns.forEach(function(col) {
+    const definedIdx   = col.index;
+    const definedName  = col.csv_header;
+    const actualName   = csvHeaders[definedIdx]; // 位置を直接参照
+
+    if (actualName === undefined) {
+      // index が csvHeaders の範囲外（列数チェックで弾かれるはずだが念のため）
       errors.push(
-        '必須列「' + csvHeaderVal + '」が CSV ヘッダーに存在しません。' +
-        '（定義上の期待インデックス: ' + definedIdx + '）'
+        '列「' + definedName + '」の定義 index=' + definedIdx + ' が CSV の範囲外です。'
       );
-      return; // 存在しない列の位置チェックはスキップ
+      return;
     }
 
-    // ── 検証2: JSON の index と CSV 実際の列位置が一致するか（位置ズレ検知）──
-    if (actualIdx !== -1 && actualIdx !== definedIdx) {
+    if (actualName !== definedName) {
+      // 位置は合っているが列名が違う → フォーマット変更 or ルール登録ミス
+      const severity = col.required ? '必須列' : '任意列';
       errors.push(
-        '列「' + csvHeaderVal + '」の位置がズレています。' +
-        '定義: index=' + definedIdx + ', ' +
-        'CSVの実際の位置: index=' + actualIdx + '。' +
+        severity + '「' + definedName + '」の位置（index=' + definedIdx + '）に ' +
+        '別の列「' + actualName + '」があります。' +
         'CSVまたはマッピングJSON（csv_format_rules）を確認してください。'
       );
     }
@@ -145,81 +163,132 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
  * csv_format_rules.columns 定義に従い、Staging テーブル（string_field_N 形式）から
  * invoice_lines へキャストしながら転記する INSERT ... SELECT 文を動的に生成する。
  *
- * 【SELECT 式の生成ルール】
- *   - system_column が null の列 → 転記対象外（SELECT 句から完全除外）
- *   - type: "date", format: "YYYYMMDD" → PARSE_DATE('%Y%m%d', string_field_N)
- *   - type: "integer"                  → CAST(string_field_N AS INT64)
- *   - type: "string"                   → string_field_N（キャスト不要）
+ * 【DDL列名マッピング（system_column → invoice_lines カラム名）】
+ *   system_column が staging 名の場合、以下の DDL 列名に変換する:
+ *   - tax_rate              → tax_category
+ *   - amount_ex_tax         → line_amount_excluding_tax
+ *   - invoice_detail_remark → line_note
+ *   その他は 1:1 対応（transaction_date, item_name, quantity, quantity_unit, unit_price 等）
  *
- * 【計算項目 tax_amount のインジェクション】
- *   - tax_amount は CSV に存在しないため、amount_ex_tax と tax_rate の index を
- *     JSON から「逆引き」して動的に計算式を生成・挿入する。
- *   - 端数処理: FLOOR（切り捨て）
+ * 【計算項目 line_tax_amount のインジェクション】
+ *   CSV に存在しないため、amount_ex_tax と tax_rate の index を逆引きして計算式を生成。
+ *   端数処理: FLOOR（切り捨て）
  *
- * 【SQLインジェクション対策】
- *   - wholesalerInvoiceId, mallCode はリテラルとして SQL に埋め込むため esc_() でエスケープ
- *   - フィールド参照（string_field_N, PARSE_DATE 等）はマッピングJSON由来で固定パターンのみ生成
+ * 【store_invoice_id の取得】
+ *   wholesaler_merchants と store_invoices を JOIN して取得する。
+ *   customer_code (system_column) が JOIN キーとして必須。INSERT カラムには含めない。
  *
- * @param {Object} csvFormatRules          - 新形式の csv_format_rules（columns 配列を持つ）
- * @param {string} stagingRef              - Staging テーブルの完全修飾参照（バッククォート付き文字列）
- *                                           例: "`project.dataset.staging_invoice_lines_xxxx`"
- * @param {string} wholesalerInvoiceId     - 親テーブルの ID（SELECT 定数カラムとして埋め込む）
- * @param {string} mallCode                - モールコード（SELECT 定数カラムとして埋め込む）
+ * @param {Object} csvFormatRules - 新形式の csv_format_rules（columns 配列を持つ）
+ * @param {string} stagingRef     - Staging テーブルの完全修飾参照（バッククォート付き）
+ *                                  例: "`project.dataset.staging_invoice_lines_xxxx`"
+ * @param {string} invoiceUuid    - 親テーブルの ID（store_invoices の絞り込みに使用）
+ * @param {number} wsId           - 卸業者ID（wholesaler_merchants の絞り込みに使用）
+ * @param {string} merchantsRef   - wholesaler_merchants テーブルの完全修飾参照
+ * @param {string} storeRef       - store_invoices テーブルの完全修飾参照
  * @returns {{ insertColumns: string[], selectSql: string }}
  *   - insertColumns: INSERT 句に使用するカラム名配列
- *   - selectSql:     SELECT ... FROM staging_ref の SQL 文字列（末尾の `;` を含む）
- * @throws {Error} amount_ex_tax または tax_rate が columns に定義されていない場合
+ *   - selectSql:     SELECT ... FROM staging JOIN ... の SQL 文字列（末尾の `;` を含む）
+ * @throws {Error} amount_ex_tax, tax_rate, customer_code が columns に定義されていない場合
  */
-function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, wholesalerInvoiceId, mallCode) {
+function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, wsId, merchantsRef, storeRef) {
   const columns = csvFormatRules.columns;
 
-  // ── tax_amount 計算用インデックスを system_column から逆引き ──────────────
-  // JSON 定義変更でインデックスがずれても自動追従する。
-  const amountCol  = columns.find(function(c) { return c.system_column === 'amount_ex_tax'; });
-  const taxRateCol = columns.find(function(c) { return c.system_column === 'tax_rate'; });
+  // system_column → DDL invoice_lines カラム名のマッピング（1:1 でない列のみ定義）
+  const SYSTEM_COL_TO_DDL = {
+    'tax_rate':              'tax_category',
+    'amount_ex_tax':         'line_amount_excluding_tax',
+    'invoice_detail_remark': 'line_note',
+  };
+
+  // ── JOIN/計算に必要な列を system_column から逆引き ─────────────────────────
+  const amountCol   = columns.find(function(c) { return c.system_column === 'amount_ex_tax'; });
+  const taxRateCol  = columns.find(function(c) { return c.system_column === 'tax_rate'; });
+  const custCodeCol = columns.find(function(c) { return c.system_column === 'customer_code'; });
+  const txDateCol   = columns.find(function(c) { return c.system_column === 'transaction_date'; });
 
   if (!amountCol) {
     throw new Error(
       '[CsvMapper] csv_format_rules.columns に amount_ex_tax の定義がありません。' +
-      'tax_amount の自動計算に必要です。'
+      'line_tax_amount の自動計算に必要です。'
     );
   }
   if (!taxRateCol) {
     throw new Error(
       '[CsvMapper] csv_format_rules.columns に tax_rate の定義がありません。' +
-      'tax_amount の自動計算に必要です。'
+      'line_tax_amount の自動計算に必要です。'
+    );
+  }
+  if (!custCodeCol) {
+    throw new Error(
+      '[CsvMapper] csv_format_rules.columns に customer_code の定義がありません。' +
+      'store_invoices との JOIN に必要です。'
     );
   }
 
-  const amountFieldRef  = 'string_field_' + amountCol.index;
-  const taxRateFieldRef = 'string_field_' + taxRateCol.index;
+  const amountFieldRef   = 's.string_field_' + amountCol.index;
+  const taxRateFieldRef  = 's.string_field_' + taxRateCol.index;
+  const custCodeFieldRef = 's.string_field_' + custCodeCol.index;
 
-  // ── SELECT 式を生成（INSERT カラムリストも並行して構築） ─────────────────
-  const insertColumns = ['wholesaler_invoice_id', 'mall_code'];
+  // ROW_NUMBER の ORDER BY 式（transaction_date があれば使用）
+  let orderByExpr;
+  if (txDateCol) {
+    const txFieldRef = 's.string_field_' + txDateCol.index;
+    if (txDateCol.format === 'YYYYMMDD') {
+      orderByExpr = "PARSE_DATE('%Y%m%d', " + txFieldRef + ')';
+    } else if (txDateCol.format === 'YYYY/MM/DD') {
+      orderByExpr = "PARSE_DATE('%Y/%m/%d', " + txFieldRef + ')';
+    } else if (!txDateCol.format || txDateCol.format === 'YYYY-MM-DD') {
+      orderByExpr = txFieldRef; // ISO 8601 は DATE 型として比較可能
+    } else {
+      throw new Error(
+        '[CsvMapper] transaction_date の format が未対応です: "' + txDateCol.format + '"。' +
+        '対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD'
+      );
+    }
+  } else {
+    orderByExpr = '1';
+  }
+
+  // ── INSERT カラムリストと SELECT 式を並行して構築 ─────────────────────────
+  const insertColumns = ['id', 'invoice_item_row', 'store_invoice_id'];
   const selectParts   = [
-    // 定数カラム（GAS から埋め込む）
-    "  '" + escSql_(wholesalerInvoiceId) + "' AS wholesaler_invoice_id  -- GAS 定数埋め込み",
-    "  '" + escSql_(mallCode)            + "' AS mall_code              -- GAS 定数埋め込み",
+    '  GENERATE_UUID()                                                    AS id',
+    '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY ' + orderByExpr + ') AS invoice_item_row',
+    '  si.id                                                              AS store_invoice_id',
   ];
 
   columns.forEach(function(col) {
-    // system_column が null の列は転記対象外
-    if (col.system_column === null || col.system_column === undefined) return;
+    const sc = col.system_column;
+    if (!sc || sc === null || sc === 'null') return;  // マッピングなし列は除外
+    if (sc === 'customer_code') return;               // JOIN キーとして使用するだけ（INSERT不要）
 
-    insertColumns.push(col.system_column);
-
-    const fieldRef = 'string_field_' + col.index;
+    const ddlCol   = SYSTEM_COL_TO_DDL[sc] || sc;
+    const fieldRef = 's.string_field_' + col.index;
     let castExpr;
 
     switch (col.type) {
       case 'date':
-        // 現時点で対応するフォーマットは YYYYMMDD のみ（他フォーマットは将来拡張）
-        castExpr = col.format === 'YYYYMMDD'
-          ? "PARSE_DATE('%Y%m%d', " + fieldRef + ')'
-          : fieldRef;
+        // 対応フォーマットを明示列挙し、それ以外は即エラーにする。
+        // サイレントに壊れた SQL が生成されるより、GAS 側で早期検知する方が安全。
+        if (col.format === 'YYYYMMDD') {
+          castExpr = "PARSE_DATE('%Y%m%d', " + fieldRef + ')';
+        } else if (col.format === 'YYYY/MM/DD') {
+          castExpr = "PARSE_DATE('%Y/%m/%d', " + fieldRef + ')';
+        } else if (!col.format || col.format === 'YYYY-MM-DD') {
+          // format 未指定または ISO 8601 → DATE() キャストで対応
+          castExpr = 'DATE(' + fieldRef + ')';
+        } else {
+          throw new Error(
+            '[CsvMapper] 列「' + col.csv_header + '」(index:' + col.index + ') の' +
+            ' format が未対応です: "' + col.format + '"。' +
+            '対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD'
+          );
+        }
         break;
       case 'integer':
-        castExpr = 'CAST(' + fieldRef + ' AS INT64)';
+        // 空セル("") は NULLIF で NULL に変換してから SAFE_CAST する。
+        // CAST のみだと空文字・非数値セルで実行時エラーになりトランザクション全体が失敗する。
+        castExpr = 'SAFE_CAST(NULLIF(' + fieldRef + ", '') AS INT64)";
         break;
       case 'string':
       default:
@@ -227,34 +296,44 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, wholesalerInvoi
         break;
     }
 
+    insertColumns.push(ddlCol);
     selectParts.push(
-      '  ' + padRight_(castExpr, 56) + ' AS ' + col.system_column +
+      '  ' + padRight_(castExpr, 60) + ' AS ' + ddlCol +
       '  -- ' + col.csv_header + ' (index: ' + col.index + ')'
     );
   });
 
-  // ── tax_amount を計算式としてインジェクション ────────────────────────────
+  // ── line_tax_amount を計算式でインジェクション ────────────────────────────
   // CSV に存在しない計算項目のため、amount_ex_tax と tax_rate の index から動的に生成する。
-  const taxAmountExpr =
-    'CAST(FLOOR(CAST(' + amountFieldRef  + ' AS INT64) * ' +
-                'CAST(' + taxRateFieldRef + ' AS INT64) / 100) AS INT64)';
+  // 空セル・非数値が混在しても SAFE_CAST + NULLIF で NULL に変換し、
+  // COALESCE で 0 に補完することでトランザクション全体の失敗を防ぐ。
+  const safeAmount  = 'COALESCE(SAFE_CAST(NULLIF(' + amountFieldRef  + ", '') AS INT64), 0)";
+  const safeRate    = 'COALESCE(SAFE_CAST(NULLIF(' + taxRateFieldRef + ", '') AS INT64), 0)";
+  const lineTaxExpr = 'CAST(FLOOR(' + safeAmount + ' * ' + safeRate + ' / 100) AS INT64)';
 
-  insertColumns.push('tax_amount');
+  insertColumns.push('line_tax_amount');
   selectParts.push(
-    '  ' + taxAmountExpr + ' AS tax_amount' +
+    '  ' + lineTaxExpr + ' AS line_tax_amount' +
     '  -- 消費税額: FLOOR(金額(index:' + amountCol.index +
-    ') × 税率(index:' + taxRateCol.index + ') / 100) 端数切り捨て'
+    ') × 税率(index:' + taxRateCol.index + ') / 100) 端数切り捨て・空値は0補完'
   );
 
   const selectSql = [
     'SELECT',
     selectParts.join(',\n'),
-    'FROM ' + stagingRef + ';',
+    'FROM ' + stagingRef + ' s',
+    'JOIN ' + merchantsRef + ' wm',
+    '  ON wm.customer_code = ' + custCodeFieldRef,
+    '  AND wm.wholesaler_id = ' + wsId,
+    '  AND wm.deleted_at IS NULL',
+    'JOIN ' + storeRef + ' si',
+    '  ON si.mall_code = wm.mall_code',
+    "  AND si.wholesaler_invoice_id = '" + escSql_(invoiceUuid) + "';",
   ].join('\n');
 
   Logger.log(
     '[CsvMapper] SELECT SQL 生成完了: ' + insertColumns.length + 'カラム' +
-    '（うち計算項目: tax_amount）'
+    '（うち計算項目: line_tax_amount）'
   );
 
   return { insertColumns: insertColumns, selectSql: selectSql };
@@ -269,7 +348,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, wholesalerInvoi
  * BEGIN TRANSACTION 〜 COMMIT を含む全体トランザクション SQL を組み立てる。
  *
  * 【INSERT 順序（孤立リスク最小化）】
- *   1. 子テーブル (merchant_invoices) — フロント確定値を VALUES で複数行展開
+ *   1. 子テーブル (store_invoices)       — フロント確定値を VALUES で複数行展開
  *   2. 孫テーブル (invoice_lines)     — Staging から動的 SELECT でキャスト転記  ★アドオン核心
  *   3. 親テーブル (wholesaler_invoices) — 最後に INSERT（エラー時に子・孫ごとロールバックされる）
  *
@@ -375,64 +454,73 @@ function buildMappedTransactionSql_(params) {
   });
 
   // ── テーブル参照（完全修飾名）を構築 ────────────────────────────────────
-  const q           = function(tbl) { return '`' + projectId + '.' + datasetId + '.' + tbl + '`'; };
-  const stagingRef  = q(stagingId);
-  const merchantRef = q('merchant_invoices');
-  const linesRef    = q('invoice_lines');
-  const invRef      = q('wholesaler_invoices');
+  const q            = function(tbl) { return '`' + projectId + '.' + datasetId + '.' + tbl + '`'; };
+  const stagingRef   = q(stagingId);
+  const storeRef     = q('store_invoices');
+  const merchantsRef = q('wholesaler_merchants');
+  const linesRef     = q('invoice_lines');
+  const invRef       = q('wholesaler_invoices');
 
   // ── 孫テーブル用の動的 SELECT SQL を生成 ★アドオン核心 ───────────────────
   // buildInvoiceLinesSelectSql_() が INSERT カラムリストと SELECT 文を同時に返す。
-  // mall_code は merchantTotals の customerCode → mallCodeMap で既に解決済みのため、
-  // ここでは代表値として空文字を渡し、実際の値は子テーブルとの JOIN で取得する設計も可能。
-  // 今回は設計仕様書に従い、merchant_invoices の mall_code から JOIN して取得する方針とする。
+  // store_invoice_id は store_invoices との JOIN で取得する（最新DDLに合わせた設計）。
   const { insertColumns, selectSql } = buildInvoiceLinesSelectSql_(
     csvFormatRules,
     stagingRef,
     invoiceUuid,
-    '' // mall_code は JOIN で取得するため空文字（後述の SELECT 内で mi.mall_code に上書き）
+    wsId,
+    merchantsRef,
+    storeRef
   );
 
-  // ── 子テーブル (merchant_invoices) の VALUES を加盟店数分だけ展開 ─────────
+  // ── 子テーブル (store_invoices) の VALUES を加盟店数分だけ展開 ─────────────
   const childRows = summaryData.merchantTotals.map(function(m) {
+    const storeUuid = Utilities.getUuid();
     const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     return (
       '  (' +
-      "'" + escSql_(invoiceUuid)         + "', " +  // wholesaler_invoice_id
-           wsId                          + ', '  +  // wholesaler_id
-      "'" + mallCode                     + "', " +  // mall_code
-      "'" + escSql_(m.customerCode || '') + "', " + // customer_code
-      "'" + escSql_(m.merchantName  || '') + "', " + // merchant_name
-      "'" + escSql_(m.slipNumber    || '') + "', " + // slip_number（文字列で保持）
-           remarkSql                    + ', '  +  // wholesaler_remark（NULL または文字列）
-           Number(m.taxAmount   || 0)  + ', '  +  // tax_amount
-           Number(m.exTax8     || 0)   + ', '  +  // total_ex_tax_8
-           Number(m.exTax10    || 0)   +           // total_ex_tax_10
+      "'" + storeUuid                          + "', " +  // id
+      "'" + escSql_(invoiceUuid)               + "', " +  // wholesaler_invoice_id
+           wsId                                + ', '  +  // wholesaler_id
+      "'" + mallCode                           + "', " +  // mall_code
+           Number(m.totalAmount    || 0)       + ', '  +  // total_amount
+           Number(m.subtotalAmount || 0)       + ', '  +  // subtotal_amount
+           Number(m.taxAmount      || 0)       + ', '  +  // tax_amount
+           Number(m.exTax10        || 0)       + ', '  +  // standard_tax_target_amount
+           Number(m.tax10          || 0)       + ', '  +  // standard_tax_amount
+           Number(m.exTax8         || 0)       + ', '  +  // reduced_tax_target_amount
+           Number(m.tax8           || 0)       + ', '  +  // reduced_tax_amount
+      '0, '                                             +  // non_taxable_amount
+           remarkSql                           + ', '  +  // wholesaler_remark
+      "'PENDING_REVIEW', 1, '"                          +  // backoffice_review_status, is_latest
+      escSql_(wsUserId) + "', CURRENT_TIMESTAMP()"      +  // final_updated_by, created_at
       ')'
     );
   });
 
-  // ── INSERT ... SELECT の invoice_lines 用カラムリストを上書き補正 ─────────
-  // buildInvoiceLinesSelectSql_() が生成した mall_code 定数（空文字）を
-  // merchant_invoices テーブルの mall_code カラム（JOIN 結果）に差し替える設計を採る場合は
-  // ここで SELECT 句をラップする。今回は仕様書どおりの定数埋め込み方式を採用する。
-  // （invoiceUuid は全行共通のため定数埋め込みで問題ない）
+  // ── INSERT ... SELECT の invoice_lines 用カラムリスト補足 ──────────────────
+  // store_invoice_id は buildInvoiceLinesSelectSql_() 内で store_invoices と JOIN して取得。
+  // invoiceUuid は全行共通のため JOIN 条件として埋め込み済み。
 
   // ── 全体 SQL を結合 ──────────────────────────────────────────────────────
   const sqlLines = [
     'BEGIN TRANSACTION;',
     '',
     '-- =========================================================',
-    '-- 1. 子テーブル (merchant_invoices)',
+    '-- 1. 子テーブル (store_invoices)',
     '--    フロントの summaryData.merchantTotals から VALUES を展開',
     '-- =========================================================',
-    'INSERT INTO ' + merchantRef + ' (',
-    '  wholesaler_invoice_id, wholesaler_id, mall_code, customer_code,',
-    '  merchant_name, slip_number, wholesaler_remark,',
-    '  tax_amount, total_ex_tax_8, total_ex_tax_10',
+    'INSERT INTO ' + storeRef + ' (',
+    '  id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  total_amount, subtotal_amount, tax_amount,',
+    '  standard_tax_target_amount, standard_tax_amount,',
+    '  reduced_tax_target_amount, reduced_tax_amount,',
+    '  non_taxable_amount, wholesaler_remark,',
+    '  backoffice_review_status, is_latest, final_updated_by, created_at',
     ')',
+
     'VALUES',
     childRows.join(',\n') + ';',
     '',
@@ -451,28 +539,31 @@ function buildMappedTransactionSql_(params) {
     '--    最後に INSERT することで子・孫の孤立リスクを最小化      ',
     '-- =========================================================',
     'INSERT INTO ' + invRef + ' (',
-    '  wholesaler_id, wholesaler_user_id, wholesaler_invoice_id,',
-    '  wholesaler_invoice_date,',
+    '  id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
-    '  wholesaler_total_ex_tax_8, wholesaler_total_ex_tax_10,',
+    '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+    '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+    '  wholesaler_non_taxable_amount,',
     '  wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
-    '  handover_matter, wholesaler_invoice_csv_url',
+    '  handover_matter, wholesaler_invoice_csv_url, created_at',
     ')',
     'VALUES (',
-    '  ' + wsId + ",",
-    "  '" + escSql_(wsUserId)      + "',",
     "  '" + escSql_(invoiceUuid)   + "',",
+    "  '" + escSql_(wsUserId)      + "', " + wsId + ",",
     "  CURRENT_DATE('Asia/Tokyo'),",
     '  ' + Number(wt.totalAmount   || 0) + ', ' +
           Number(wt.subtotalAmount || 0) + ', ' +
           Number(wt.taxAmount      || 0) + ',',
+    '  ' + Number(wt.exTax10       || 0) + ', ' +
+          Number(wt.tax10          || 0) + ',',
     '  ' + Number(wt.exTax8        || 0) + ', ' +
-          Number(wt.exTax10        || 0) + ',',
+          Number(wt.tax8           || 0) + ',',
+    '  0,',
     '  ' + feeRate                        + ', ' +
           Number(wt.feeAmount      || 0) + ', ' +
           Number(wt.paymentAmount  || 0) + ',',
     '  NULL,',
-    "  '" + escSql_(csvUrl) + "'",
+    "  '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP()",
     ');',
     '',
     'COMMIT;',

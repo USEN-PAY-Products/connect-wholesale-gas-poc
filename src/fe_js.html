@@ -48,7 +48,34 @@ function getMerchantMappings() {
 function getCsvFormatRules() {
   try {
     const raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
-    if (raw && Object.keys(raw).length > 0) return raw;
+    if (raw && Object.keys(raw).length > 0) {
+      // ── 新形式（columns 配列）を validateCsv() が期待する旧形式（キー名オブジェクト）へ変換 ──
+      // 旧形式: { [system_column|_col_N]: { csv_header, type, required, ... } }
+      // 新形式: { has_header: true, columns: [ { index, csv_header, system_column, type, ... } ] }
+      // validateCsv() は Object.keys(rules) で列順リストを作るため、
+      // 全列（system_column が null のものも含む）を変換対象にする。
+      if (Array.isArray(raw.columns)) {
+        const converted = {};
+        raw.columns.forEach(col => {
+          // system_column が null（JS の null）または文字列 "null"（GAS の JSON 変換由来）の
+          // 両方を null 扱いにする。null 列はプレースホルダーキーを使用する。
+          const hasSystemColumn = col.system_column !== null
+            && col.system_column !== undefined
+            && col.system_column !== 'null';
+          const key = hasSystemColumn ? col.system_column : `_col_${col.index}`;
+          converted[key] = {
+            csv_header: col.csv_header,
+            type:       col.type,
+            required:   col.required,
+            ...(col.format     ? { format:     col.format }     : {}),
+            ...(col.enum       ? { enum:       col.enum }       : {}),
+            ...(col.max_length ? { max_length: col.max_length } : {}),
+          };
+        });
+        return converted;
+      }
+      return raw;
+    }
   } catch (_) {}
   // デフォルトフォーマット（csv_format_rules が空の卸向け）
   // ⚠️ 列順・csv_header は be_invoice.js の getExpectedHeaders_() および
@@ -935,13 +962,34 @@ function validateCsv(csvText) {
 
       // 型チェック
       switch (rule.type) {
-        case 'date':
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" はYYYY-MM-DD形式で入力してください`);
+        case 'date': {
+          // format 定義に応じてバリデーションパターンを切り替える。
+          // 変換は BigQuery 側（PARSE_DATE）に委ねるため、ここでは形式チェックのみ行う。
+          // ※ BQ 側の PARSE_DATE フォーマット文字列も合わせて更新が必要な場合は
+          //    be_csv_mapper.js の buildInvoiceLinesSelectSql_() を確認すること。
+          const fmt = rule.format || 'YYYY-MM-DD';
+          let dateOk = false;
+          let dateHint = '';
+          if (fmt === 'YYYYMMDD') {
+            // 例: 20260301
+            dateOk   = /^\d{8}$/.test(val);
+            dateHint = 'YYYYMMDD形式（例: 20260301）';
+          } else if (fmt === 'YYYY/MM/DD') {
+            // 例: 2026/03/01（Excel 日本語保存でよく発生）
+            dateOk   = /^\d{4}\/\d{2}\/\d{2}$/.test(val);
+            dateHint = 'YYYY/MM/DD形式（例: 2026/03/01）';
+          } else {
+            // デフォルト: YYYY-MM-DD (ISO 8601)
+            dateOk   = /^\d{4}-\d{2}-\d{2}$/.test(val);
+            dateHint = 'YYYY-MM-DD形式（例: 2026-03-01）';
+          }
+          if (!dateOk) {
+            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は${dateHint}で入力してください`);
           } else {
             rowObj[key] = val;
           }
           break;
+        }
         case 'integer':
           if (val === '' || !/^-?\d+$/.test(val.trim())) {
             rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は整数で入力してください`);
