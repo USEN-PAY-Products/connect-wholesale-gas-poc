@@ -106,12 +106,14 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
 
 /**
  * 請求IDに紐づく親サマリー（wholesaler_invoices 1行）を BQ から取得する。
+ * IDOR 対策: wholesaler_id を必須とし、自分の請求書のみ取得できるようにする。
  *
- * @param {string} invoiceId - 卸インボイスID
+ * @param {string} invoiceId    - 卸インボイスID
+ * @param {number} wholesalerId - ログイン中の卸業者ID
  * @returns {Object|null} 親レコード。見つからない場合は null。
  * @throws {Error} クエリ失敗時
  */
-function fetchInvoiceDetailSummary_(invoiceId) {
+function fetchInvoiceDetailSummary_(invoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
@@ -122,10 +124,12 @@ function fetchInvoiceDetailSummary_(invoiceId) {
     '  wholesaler_fee_rate, invoice_fee_amount, payment_amount, handover_matter ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
     'WHERE id = @invoice_id ' +
+    '  AND wholesaler_id = @wholesaler_id ' +
     'LIMIT 1';
 
   const params = [
-    { name: 'invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
+    { name: 'invoice_id',    parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
+    { name: 'wholesaler_id', parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
   ];
 
   const rows = runQuery_(config.gcpProjectId, sql, params);
@@ -134,13 +138,15 @@ function fetchInvoiceDetailSummary_(invoiceId) {
 
 /**
  * 請求IDに紐づく加盟店別サマリー（store_invoices）を BQ から取得する。
+ * IDOR 対策: wholesaler_id を必須とし、自分の請求書に紐づく店舗のみ取得できるようにする。
  * RETURNED ステータスの店舗を先頭に、それ以外は mall_code 昇順で返す。
  *
- * @param {string} invoiceId - 卸インボイスID
+ * @param {string} invoiceId    - 卸インボイスID
+ * @param {number} wholesalerId - ログイン中の卸業者ID
  * @returns {Array<Object>} 加盟店サマリー行の配列
  * @throws {Error} クエリ失敗時
  */
-function fetchStoreInvoicesByParent_(invoiceId) {
+function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
@@ -157,12 +163,14 @@ function fetchStoreInvoicesByParent_(invoiceId) {
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = si.mall_code ' +
     'WHERE si.wholesaler_invoice_id = @invoice_id ' +
+    '  AND si.wholesaler_id = @wholesaler_id ' +
     'ORDER BY ' +
     '  CASE si.backoffice_review_status WHEN \'RETURNED\' THEN 0 ELSE 1 END ASC, ' +
     '  si.mall_code ASC';
 
   const params = [
-    { name: 'invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
+    { name: 'invoice_id',    parameterType: { type: 'STRING' }, parameterValue: { value: String(invoiceId) } },
+    { name: 'wholesaler_id', parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
   ];
 
   return runQuery_(config.gcpProjectId, sql, params);
@@ -171,25 +179,33 @@ function fetchStoreInvoicesByParent_(invoiceId) {
 /**
  * 加盟店インボイスIDに紐づく明細（invoice_lines）を BQ から取得する（最大1000件）。
  * アコーディオンのオンデマンド読み込みに使用する。
+ * IDOR 対策: store_invoices と INNER JOIN して wholesaler_id を検証する。
+ *           invoice_lines には wholesaler_id カラムがなく CSV 直接 INSERT のため
+ *           クエリ側で必ず所有者チェックを行う。
  *
  * @param {string} storeInvoiceId - 加盟店インボイスID
+ * @param {number} wholesalerId   - ログイン中の卸業者ID
  * @returns {Array<Object>} 明細行の配列
  * @throws {Error} クエリ失敗時
  */
-function fetchInvoiceLinesByStore_(storeInvoiceId) {
+function fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
-    '  invoice_item_row, transaction_date, item_name, ' +
-    '  quantity, quantity_unit, unit_price, tax_category, ' +
-    '  line_amount_excluding_tax, line_tax_amount, line_note ' +
-    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.invoice_lines` ' +
-    'WHERE store_invoice_id = @store_invoice_id ' +
-    'ORDER BY invoice_item_row ASC ' +
+    '  il.invoice_item_row, il.transaction_date, il.item_name, ' +
+    '  il.quantity, il.quantity_unit, il.unit_price, il.tax_category, ' +
+    '  il.line_amount_excluding_tax, il.line_tax_amount, il.line_note ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.invoice_lines` AS il ' +
+    'INNER JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
+    '  ON si.id = il.store_invoice_id ' +
+    ' AND si.wholesaler_id = @wholesaler_id ' +
+    'WHERE il.store_invoice_id = @store_invoice_id ' +
+    'ORDER BY il.invoice_item_row ASC ' +
     'LIMIT 1000';
 
   const params = [
     { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },
+    { name: 'wholesaler_id',    parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
   ];
 
   return runQuery_(config.gcpProjectId, sql, params);

@@ -508,10 +508,11 @@ function fetchInvoices() {
 function fetchInvoiceDetail(invoiceId) {
   try {
     if (!invoiceId) throw new Error('invoiceId が指定されていません');
-    getServerAccountInfo_(); // ログインユーザーの権限検証
-    const summary = fetchInvoiceDetailSummary_(invoiceId);
-    if (!summary) return success_(null);
-    const stores = fetchStoreInvoicesByParent_(invoiceId);
+    const accountInfo  = getServerAccountInfo_(); // ログインユーザーの権限検証
+    const wholesalerId = accountInfo.wholesaler_id;
+    const summary = fetchInvoiceDetailSummary_(invoiceId, wholesalerId);
+    if (!summary) return success_(null); // 自分の請求書でない or 存在しない
+    const stores = fetchStoreInvoicesByParent_(invoiceId, wholesalerId);
     return success_({ summary: summary, stores: stores });
   } catch (err) {
     throw new Error('fetchInvoiceDetail failed: ' + err.message);
@@ -528,8 +529,9 @@ function fetchInvoiceDetail(invoiceId) {
 function getInvoiceLinesByStore(storeInvoiceId) {
   try {
     if (!storeInvoiceId) throw new Error('storeInvoiceId が指定されていません');
-    getServerAccountInfo_(); // ログインユーザーの権限検証
-    return success_(fetchInvoiceLinesByStore_(storeInvoiceId));
+    const accountInfo  = getServerAccountInfo_(); // ログインユーザーの権限検証
+    const wholesalerId = accountInfo.wholesaler_id;
+    return success_(fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId));
   } catch (err) {
     throw new Error('getInvoiceLinesByStore failed: ' + err.message);
   }
