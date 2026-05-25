@@ -224,7 +224,7 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .btn-back {
-  background: #1a2b4a;
+  background: #00A7B8;
   color: #fff;
   display: flex;
   height: 48px;
@@ -238,7 +238,7 @@ button { cursor: pointer; font-family: inherit; }
   border-radius: 24px;
   line-height: 1;
 }
-.btn-back:hover { background: #263d6b; }
+.btn-back:hover { background: #0096a5; }
 
 .btn-primary {
   background: #3a7bd5;
@@ -1460,6 +1460,509 @@ button { cursor: pointer; font-family: inherit; }
   font-weight: 600;
   color: #374151;
   margin: 0;
+}
+
+/* =============================================================================
+   Detail page: レイアウト
+   ============================================================================= */
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 60px;
+}
+
+.detail-bottom-actions {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 16px;
+}
+
+/* =============================================================================
+   Detail page: 親サマリーカード
+   ============================================================================= */
+.detail-summary-card {
+  padding: 24px 28px;
+}
+
+.detail-loading-placeholder {
+  text-align: center;
+  color: #9C9C9C;
+  padding: 36px 0;
+  font-size: 15px;
+}
+
+.detail-error-msg {
+  text-align: center;
+  color: #c62828;
+  padding: 36px 0;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.detail-summary-inner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 32px;
+  align-items: start;
+}
+
+.detail-meta-row--handover {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0 4px;
+  border-top: 1px solid #E0E0E0;
+  margin-top: 6px;
+}
+
+.detail-meta-label--block {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a2b4a;
+}
+
+.detail-handover-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px 12px;
+  border: 1px solid #D0D9E8;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #555;
+  background: #F9FAFB;
+  resize: none;
+  line-height: 1.6;
+}
+.detail-handover-textarea:read-only {
+  cursor: default;
+  outline: none;
+}
+
+.detail-handover-note {
+  font-size: 12px;
+  color: #888;
+  line-height: 1.5;
+}
+
+/* -- 左: 基本情報 -- */
+.detail-summary-meta__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #E0E0E0;
+}
+
+.detail-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.detail-meta-label {
+  color: #666;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.detail-meta-value {
+  font-weight: 600;
+  color: #1a2b4a;
+}
+
+.detail-meta-row--note {
+  align-items: flex-start;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed #E0E0E0;
+}
+
+.detail-meta-value--note {
+  font-size: 12px;
+  font-weight: 400;
+  color: #555;
+  line-height: 1.6;
+}
+
+/* -- 右: 請求金額 -- */
+.detail-summary-amount {
+  min-width: 320px;
+  background: #F9FAFB;
+  border: 1px solid #E0E0E0;
+  border-radius: 8px;
+  padding: 18px 24px;
+}
+
+.detail-amount-header {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.detail-amount-main-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #E0E0E0;
+}
+
+.detail-amount-sublabel {
+  font-size: 13px;
+  color: #888;
+}
+
+.detail-amount-total {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a2b4a;
+  margin-left: auto;
+}
+
+.detail-amount-unit {
+  font-size: 18px;
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+.detail-amount-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-amount-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 13px;
+  color: #555;
+  padding: 2px 0;
+}
+
+.detail-amount-row span:last-child {
+  font-weight: 600;
+  color: #1a2b4a;
+}
+
+.detail-amount-divider {
+  border-top: 1px solid #E0E0E0;
+  margin: 8px 0;
+}
+
+.detail-amount-section-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 2px;
+}
+
+/* =============================================================================
+   Detail page: セクション（差し戻し / その他）
+   ============================================================================= */
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #E0E0E0;
+}
+
+.detail-section-header--returned {
+  background: #fff8f0;
+  border-color: #f5a623;
+}
+
+.detail-section-header__left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-section-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.detail-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-section-title--returned {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e65100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-section-title--returned i {
+  color: #f5a623;
+}
+
+.detail-section-desc {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+}
+
+.btn-sm {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  gap: 5px;
+}
+
+/* =============================================================================
+   Detail page: 加盟店リスト（dsl = detail store list）
+   ============================================================================= */
+
+/* 列幅定義（ヘッダー行・各アコーディオン行で共有） */
+.dsl-col          { font-size: 13px; padding: 0 10px; flex-shrink: 0; }
+.dsl-col--name    { flex: 1 1 160px; min-width: 0; padding-left: 0; }
+.dsl-col--code    { width: 90px; }
+.dsl-col--amount  { width: 110px; text-align: right; }
+.dsl-col--extax   { width: 110px; text-align: right; }
+.dsl-col--tax     { width: 90px;  text-align: right; }
+.dsl-col--tax10   { width: 110px; text-align: right; }
+.dsl-col--tax8    { width: 100px; text-align: right; }
+.dsl-col--status  { width: 100px; text-align: center; }
+.dsl-col--toggle  { width: 32px;  text-align: center; padding: 0; }
+
+/* 列ヘッダー行 */
+.dsl-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: #F5F5F5;
+  border-bottom: 1px solid #D9D9D9;
+  font-size: 12px;
+  color: #888;
+  font-weight: 400;
+}
+
+/* アコーディオン全体 */
+.dsl-accordion {
+  border-bottom: 1px solid #E8E8E8;
+}
+.dsl-accordion:last-child { border-bottom: none; }
+
+/* 差し戻しアコーディオン: 左に赤ボーダー */
+.dsl-accordion--returned {
+  border-left: 3px solid #f5a623;
+  background: #fffdf8;
+}
+
+/* ヘッダー行 */
+.dsl-accordion__header {
+  display: flex;
+  align-items: center;
+  padding: 13px 16px;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.dsl-accordion__header:hover { background: #F9FBFF; }
+.dsl-accordion--returned .dsl-accordion__header:hover { background: #fff4e0; }
+
+/* 加盟店名（overflow対応） */
+.dsl-store-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 矢印アイコン */
+.dsl-accordion__icon {
+  font-size: 12px;
+  color: #888;
+  transition: transform 0.2s;
+}
+.dsl-accordion.is-open .dsl-accordion__icon {
+  transform: rotate(180deg);
+}
+
+/* ボディ */
+.dsl-accordion__body {
+  display: none;
+  border-top: 1px solid #EBEBEB;
+  background: #FAFAFA;
+}
+.dsl-accordion.is-open .dsl-accordion__body { display: block; }
+.dsl-accordion--returned .dsl-accordion__body { background: #fffdf8; }
+
+/* 差し戻し理由バナー */
+.dsl-returned-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fff3e0;
+  border-bottom: 1px solid #ffe0b2;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e65100;
+}
+
+.dsl-returned-reason i {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #f5a623;
+}
+
+.dsl-returned-reason__label {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.dsl-returned-reason__text {
+  color: #333;
+}
+
+/* 申し送りコメント */
+.dsl-wholesaler-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #F5F8FF;
+  border-bottom: 1px dashed #D0D9F0;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.6;
+}
+
+.dsl-wholesaler-note__label {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* 明細コンテナ */
+.dsl-lines-container {
+  padding: 0;
+}
+
+.dsl-lines-loading,
+.dsl-lines-error,
+.dsl-lines-empty {
+  text-align: center;
+  padding: 24px 16px;
+  font-size: 13px;
+  color: #9C9C9C;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.dsl-lines-error { color: #c62828; }
+
+/* 明細テーブル */
+.dsl-lines-scroll {
+  overflow-x: auto;
+  padding: 0 0 8px;
+}
+
+.dsl-lines-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 700px;
+}
+
+.dsl-lines-table thead tr {
+  background: #EFEFEF;
+}
+
+.dsl-lines-table th {
+  text-align: right;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 1px solid #D9D9D9;
+  white-space: nowrap;
+}
+
+.dsl-lines-table th:first-child,
+.dsl-lines-table td:first-child { text-align: left; }
+
+.dsl-lines-table td {
+  text-align: right;
+  padding: 7px 12px;
+  color: #333;
+  border-bottom: 1px solid #F0F0F0;
+  vertical-align: middle;
+}
+
+.dsl-lines-table tbody tr:last-child td { border-bottom: none; }
+.dsl-lines-table tbody tr:hover td { background: #F5F8FF; }
+.dsl-accordion--returned .dsl-lines-table tbody tr:hover td { background: #fff4e0; }
+
+.dsl-tbl__item { text-align: left; }
+.dsl-tbl__num  { text-align: right; font-variant-numeric: tabular-nums; }
+.dsl-tbl__note { text-align: left; color: #777; font-size: 12px; }
+
+/* =============================================================================
+   Detail page: ステータスバッジ
+   ============================================================================= */
+.detail-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.badge--pending {
+  background: #EFEFEF;
+  color: #666;
+}
+
+.badge--requested {
+  background: #e3f0ff;
+  color: #1565c0;
+}
+
+.badge--returned {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #f5a623;
 }
 
 </style>
