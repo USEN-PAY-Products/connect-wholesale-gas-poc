@@ -117,8 +117,8 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   // ── 前提検証: index および system_column の重複チェック ───────────────────
   // index 重複 → 同じ string_field_N に複数列がマッピングされて不定の値が使われる
   // system_column 重複 → INSERT カラムが重複して BQ がエラーになる
-  var seenIndexes       = {};
-  var seenSystemColumns = {};
+  const seenIndexes       = {};
+  const seenSystemColumns = {};
   columns.forEach(function(col, i) {
     if (seenIndexes[col.index] !== undefined) {
       throw new Error(
@@ -128,7 +128,7 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
     }
     seenIndexes[col.index] = i;
 
-    var sc = col.system_column;
+    const sc = col.system_column;
     if (sc && sc !== 'null') {
       if (seenSystemColumns[sc] !== undefined) {
         throw new Error(
@@ -250,8 +250,8 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   // ── 前提検証: index および system_column の重複チェック ───────────────────
   // index 重複 → 同じ string_field_N に複数列がマッピングされて不定の値が使われる
   // system_column 重複 → INSERT カラムが重複して BQ がエラーになる
-  var seenIndexes       = {};
-  var seenSystemColumns = {};
+  const seenIndexes       = {};
+  const seenSystemColumns = {};
   columns.forEach(function(col, i) {
     if (seenIndexes[col.index] !== undefined) {
       throw new Error(
@@ -261,7 +261,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     }
     seenIndexes[col.index] = i;
 
-    var sc = col.system_column;
+    const sc = col.system_column;
     if (sc && sc !== 'null') {
       if (seenSystemColumns[sc] !== undefined) {
         throw new Error(
@@ -406,6 +406,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
         }
         // castExpr はこの時点で確定しているため、SELECT 式と同じ式を再利用して
         // 不正日付行を COUNTIF → IF...RAISE するバリデーション SQL を収集する。
+        // 不正日付（空でないのに parse できない）チェック
         dateValidateSqls.push(
           'IF (\n' +
           '  SELECT COUNTIF(\n' +
@@ -419,6 +420,19 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
             '有効な ' + escSql_(col.format || 'YYYY-MM-DD') + " 形式の日付を入力してください。';\n" +
           'END IF;'
         );
+        // required:true の列は空文字・NULL も RAISE する。
+        // 上の不正日付チェックは AND field != '' でスキップされるため、別途ガードが必要。
+        if (col.required) {
+          dateValidateSqls.push(
+            'IF (\n' +
+            '  SELECT COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')\n" +
+            '  FROM ' + stagingRef + ' s\n' +
+            ') > 0 THEN\n' +
+            "  RAISE USING MESSAGE = '列\u300c" + escSql_(col.csv_header) +
+              "\u300d(index:" + col.index + ") は必須項目です。空欄なく入力してください。';\n" +
+            'END IF;'
+          );
+        }
         break;
       case 'integer':
         // 空セル("") は NULLIF で NULL に変換してから SAFE_CAST する。
@@ -428,6 +442,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
         // 新形式の Staging は全列 STRING のため Load Job の INTEGER 型チェックが利かず、
         // SAFE_CAST のみでは不正値が静かに NULL として格納されるため。
         if (col.required) {
+          // 非数値チェック（空でないのに SAFE_CAST が NULL になる行）
           intValidateSqls.push(
             'IF (\n' +
             '  SELECT COUNTIF(\n' +
@@ -439,6 +454,18 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
             "  RAISE USING MESSAGE = '\u5217\u300c" + escSql_(col.csv_header) +
               "\u300d(index:" + col.index + ") \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002" +
               "\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002';\n" +
+            'END IF;'
+          );
+          // 空文字・NULL チェック。
+          // NULLIF で空文字を NULL に変換するため上の SAFE_CAST チェックはスキップされる。
+          // required:true なら別途ガードが必要。
+          intValidateSqls.push(
+            'IF (\n' +
+            '  SELECT COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')\n" +
+            '  FROM ' + stagingRef + ' s\n' +
+            ') > 0 THEN\n' +
+            "  RAISE USING MESSAGE = '\u5217\u300c" + escSql_(col.csv_header) +
+              "\u300d(index:" + col.index + ") \u306f\u5fc5\u9808\u9805\u76ee\u3067\u3059\u3002\u7a7a\u6b04\u306a\u304f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002';\n" +
             'END IF;'
           );
         }

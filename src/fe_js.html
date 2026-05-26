@@ -739,7 +739,20 @@ function handleFile(file) {
 
     const buffer = e.target.result;
     const text   = decodeBuffer_(buffer);
-    const { errors, rows } = validateCsv(text);
+
+    // validateCsv() 内で getCsvFormatRules() が throw する場合があるため try/catch する。
+    // 未捕捉のまま例外が飛ぶと dropZone が is-analyzing のまま固まるため、
+    // catch 時はスピナーを解除してユーザーに通知する。
+    let errors, rows;
+    try {
+      ({ errors, rows } = validateCsv(text));
+    } catch (err) {
+      _currentReader = null;
+      dropZone.classList.remove('is-analyzing');
+      showToast(err.message || 'CSVの検証中にエラーが発生しました');
+      resetDropZone();
+      return;
+    }
 
     if (errors.length === 0) {
       // 成功: Base64はメモリのみ保持（sessionStorageには保存しない・容量超過防止）
