@@ -87,7 +87,10 @@ function getCsvFormatRules() {
     // バックエンドの buildStagingSchema_() と同じ上限値
     const MAX_COL_INDEX = 200;
     const seenIndexes       = {};
-    const seenSystemColumns = {};
+    // seenSystemColumns は Object.create(null) を使う。
+    // {} だと 'constructor' や 'toString' 等の既存プロパティと衝突し、
+    // 初回出現でも !== undefined が true になって誤った「重複」エラーになるため。
+    const seenSystemColumns = Object.create(null);
     raw.columns.forEach(function (col, i) {
       // ── 型・範囲チェック ────────────────────────────────────────────────────
       if (!Number.isInteger(col.index) || col.index < 0) {

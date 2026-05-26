@@ -117,8 +117,11 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   // ── 前提検証: index および system_column の重複チェック ───────────────────
   // index 重複 → 同じ string_field_N に複数列がマッピングされて不定の値が使われる
   // system_column 重複 → INSERT カラムが重複して BQ がエラーになる
+  // seenSystemColumns は Object.create(null) を使う。
+  // {} だと 'constructor' や 'toString' 等の既存プロパティと衝突し、
+  // 初回出現でも !== undefined が true になって誤った「重複」エラーになるため。
   const seenIndexes       = {};
-  const seenSystemColumns = {};
+  const seenSystemColumns = Object.create(null);
   columns.forEach(function(col, i) {
     if (seenIndexes[col.index] !== undefined) {
       throw new Error(
@@ -250,8 +253,11 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   // ── 前提検証: index および system_column の重複チェック ───────────────────
   // index 重複 → 同じ string_field_N に複数列がマッピングされて不定の値が使われる
   // system_column 重複 → INSERT カラムが重複して BQ がエラーになる
+  // seenSystemColumns は Object.create(null) を使う。
+  // {} だと 'constructor' や 'toString' 等の既存プロパティと衝突し、
+  // 初回出現でも !== undefined が true になって誤った「重複」エラーになるため。
   const seenIndexes       = {};
-  const seenSystemColumns = {};
+  const seenSystemColumns = Object.create(null);
   columns.forEach(function(col, i) {
     if (seenIndexes[col.index] !== undefined) {
       throw new Error(
