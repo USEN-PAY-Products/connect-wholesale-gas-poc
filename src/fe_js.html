@@ -86,7 +86,10 @@ function getCsvFormatRules() {
   if (typeof raw === 'object' && Array.isArray(raw.columns) && raw.columns.length > 0) {
     // バックエンドの buildStagingSchema_() と同じ上限値
     const MAX_COL_INDEX = 200;
+    const seenIndexes       = {};
+    const seenSystemColumns = {};
     raw.columns.forEach(function (col, i) {
+      // ── 型・範囲チェック ────────────────────────────────────────────────────
       if (!Number.isInteger(col.index) || col.index < 0) {
         throw new Error(
           '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が不正です: ' +
@@ -98,6 +101,31 @@ function getCsvFormatRules() {
           '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています: ' +
           col.index + '。管理者に連絡してください。'
         );
+      }
+      // ── index 重複チェック ──────────────────────────────────────────────────
+      // 重複があると validateCsv() で同じ列を複数回参照し、rowObj のキーが上書きされて
+      // 後に定義された列の値で前の列が上書きされ、誤ったデータになる。
+      if (seenIndexes[col.index] !== undefined) {
+        throw new Error(
+          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index = ' + col.index +
+          ' が重複しています (columns[' + seenIndexes[col.index] + '] と重複)。' +
+          '管理者に連絡してください。'
+        );
+      }
+      seenIndexes[col.index] = i;
+      // ── system_column 重複チェック ──────────────────────────────────────────
+      // 重複があるとバックエンドの INSERT カラムが重複して BQ がエラーになる。
+      // null / 未設定（読み飛ばし列）は重複しても問題ないため除外する。
+      const sc = col.system_column;
+      if (sc && sc !== 'null') {
+        if (seenSystemColumns[sc] !== undefined) {
+          throw new Error(
+            '[getCsvFormatRules] csv_format_rules.columns[' + i + '].system_column = "' + sc +
+            '" が重複しています (columns[' + seenSystemColumns[sc] + '] と重複)。' +
+            '管理者に連絡してください。'
+          );
+        }
+        seenSystemColumns[sc] = i;
       }
     });
     const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);

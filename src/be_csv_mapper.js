@@ -280,30 +280,37 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     'invoice_detail_remark': 'line_note',
   };
 
+  // ── invoice_lines INSERT に必須な system_column が揃っているか一括検証 ──────
+  // アップロード時（validateCsvHeaderByRules_）でも検証しているが、
+  // buildInvoiceLinesSelectSql_() は独立関数として将来も別経路から呼ばれうる。
+  // 欠落した場合 NULL のまま INSERT されるか BQ の NOT NULL 制約で失敗するため、
+  // ここで早期 throw して原因を明示する。
+  // ※ customer_code は INSERT 不要だが store_invoices JOIN キーとして必須のため含む。
+  // ※ quantity_unit / invoice_detail_remark は nullable のため除外。
+  const REQUIRED_SYSTEM_COLUMNS = [
+    { key: 'customer_code',    reason: 'store_invoices との JOIN キーに必要です。' },
+    { key: 'transaction_date', reason: 'invoice_lines.transaction_date (NOT NULL) に必要です。' },
+    { key: 'item_name',        reason: 'invoice_lines.item_name (NOT NULL) に必要です。' },
+    { key: 'quantity',         reason: 'invoice_lines.quantity (NOT NULL) に必要です。' },
+    { key: 'unit_price',       reason: 'invoice_lines.unit_price (NOT NULL) に必要です。' },
+    { key: 'amount_ex_tax',    reason: 'invoice_lines.line_amount_excluding_tax および line_tax_amount の自動計算に必要です。' },
+    { key: 'tax_rate',         reason: 'invoice_lines.tax_category および line_tax_amount の自動計算に必要です。' },
+  ];
+  REQUIRED_SYSTEM_COLUMNS.forEach(function(req) {
+    const found = columns.some(function(c) { return c.system_column === req.key; });
+    if (!found) {
+      throw new Error(
+        '[CsvMapper] csv_format_rules.columns に ' + req.key + ' の定義がありません。' +
+        req.reason
+      );
+    }
+  });
+
   // ── JOIN/計算に必要な列を system_column から逆引き ─────────────────────────
   const amountCol   = columns.find(function(c) { return c.system_column === 'amount_ex_tax'; });
   const taxRateCol  = columns.find(function(c) { return c.system_column === 'tax_rate'; });
   const custCodeCol = columns.find(function(c) { return c.system_column === 'customer_code'; });
   const txDateCol   = columns.find(function(c) { return c.system_column === 'transaction_date'; });
-
-  if (!amountCol) {
-    throw new Error(
-      '[CsvMapper] csv_format_rules.columns に amount_ex_tax の定義がありません。' +
-      'line_tax_amount の自動計算に必要です。'
-    );
-  }
-  if (!taxRateCol) {
-    throw new Error(
-      '[CsvMapper] csv_format_rules.columns に tax_rate の定義がありません。' +
-      'line_tax_amount の自動計算に必要です。'
-    );
-  }
-  if (!custCodeCol) {
-    throw new Error(
-      '[CsvMapper] csv_format_rules.columns に customer_code の定義がありません。' +
-      'store_invoices との JOIN に必要です。'
-    );
-  }
 
   const amountFieldRef   = 's.string_field_' + amountCol.index;
   const taxRateFieldRef  = 's.string_field_' + taxRateCol.index;
