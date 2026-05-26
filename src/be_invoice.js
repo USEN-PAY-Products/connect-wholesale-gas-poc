@@ -156,7 +156,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
       Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
       Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
       '0, ' +
-      remarkSql + ", 'PENDING_REVIEW', 1, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
