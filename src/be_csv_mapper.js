@@ -357,38 +357,50 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   ];
 
   // system_column のホワイトリスト。
-  // 有効な値は invoice_lines テーブルの DDL カラム名で固定されており、
-  // DDL 変更なしに増えることはない。
+  // invoice_lines DDL カラムに対応する許可済み system_column のホワイトリスト。
   // ddlCol = SYSTEM_COL_TO_DDL[sc] || sc で SQL に直接埋め込むため、
-  // 想定外の値（スペース・記号など）がカラム名インジェクションの起点にならないよう
-  // ここで許可識別子を明示し、それ以外は即エラーにする。
+  // ここに列挙した識別子のみ INSERT SELECT に使用する。
   // ⚠️ invoice_lines にカラムを追加した場合はここも合わせて更新すること。
+  //
+  // ホワイトリスト外の system_column（例: slip_number, merchant_name 等）は
+  // エラーにせずスキップする。卸のCSVには invoice_lines に保存しない列が含まれることが
+  // 多く、都度 ALLOWED_SYSTEM_COLUMNS を更新するのは運用コストが高いため。
+  // 未知の値は SQL に埋め込まれないため SQL インジェクションのリスクはない。
   const ALLOWED_SYSTEM_COLUMNS = new Set([
-    'customer_code',
-    'transaction_date',
-    'item_name',
-    'quantity',
-    'quantity_unit',
-    'unit_price',
-    'amount_ex_tax',
-    'tax_rate',
-    'invoice_detail_remark',
+    'customer_code',          // wholesaler_merchants JOIN キー（INSERT不要）
+    'transaction_date',       // invoice_lines.transaction_date
+    'item_name',              // invoice_lines.item_name
+    'quantity',               // invoice_lines.quantity
+    'quantity_unit',          // invoice_lines.quantity_unit
+    'unit_price',             // invoice_lines.unit_price
+    'amount_ex_tax',          // invoice_lines.line_amount_excluding_tax
+    'tax_rate',               // invoice_lines.tax_category
+    'invoice_detail_remark',  // invoice_lines.line_note
   ]);
 
   columns.forEach(function(col) {
     const sc = col.system_column;
     if (!sc || sc === null || sc === 'null') return;  // マッピングなし列は除外
-    if (sc === 'customer_code') return;               // JOIN キーとして使用するだけ（INSERT不要）
 
-    // ホワイトリスト検証: 許可外の system_column は SQL インジェクションのリスクがあるため即エラー
+    // ホワイトリスト外の system_column は invoice_lines に保存しない列（フロント確認画面用など）。
+    // INSERT SELECT には使用しないが、required: true の場合は空チェックバリデーションだけ行う。
+    // SQL のカラム名として埋め込まないため SQL インジェクションのリスクはない。
     if (!ALLOWED_SYSTEM_COLUMNS.has(sc)) {
-      throw new Error(
-        '[CsvMapper] system_column に未知の値が指定されています: "' + sc + '"。' +
-        'csv_format_rules.columns[].system_column には以下の値のみ使用できます: ' +
-        Array.from(ALLOWED_SYSTEM_COLUMNS).join(', ') + '。' +
-        'invoice_lines に新しいカラムを追加した場合は ALLOWED_SYSTEM_COLUMNS にも追加してください。'
-      );
+      Logger.log('[CsvMapper] system_column "' + sc + '" は invoice_lines に対応するカラムがないため INSERT をスキップします。');
+      if (col.required) {
+        const fieldRef = 's.string_field_' + col.index;
+        validateCases.push({
+          countifExpr: 'COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')",
+          message:
+            '\u5217\u300c' + escSql_(col.csv_header) +
+            '\u300d(index:' + col.index + ') \u306f\u5fc5\u9808\u9805\u76ee\u3067\u3059\u3002\u7a7a\u6b04\u306a\u304f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+        });
+      }
+      return;
     }
+
+    // customer_code は JOIN キーとして使用するだけ（INSERT不要）
+    if (sc === 'customer_code') return;
 
     const ddlCol   = SYSTEM_COL_TO_DDL[sc] || sc;
     const fieldRef = 's.string_field_' + col.index;
@@ -528,10 +540,13 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
 
   insertColumns.push('line_tax_amount');
   selectParts.push(
-    '  ' + lineTaxExpr + ' AS line_tax_amount' +
+    '  ' + lineTaxExpr + ' AS line_tax_amount,' +
     '  -- 消費税額: FLOOR(金額(index:' + amountCol.index +
     ') × 税率(index:' + taxRateCol.index + ') / 100) 端数切り捨て（非数値は前段 RAISE で排除済み）'
   );
+
+  insertColumns.push('created_at');
+  selectParts.push('  CURRENT_TIMESTAMP()                                                 AS created_at');
 
   const selectSql = [
     'SELECT',
@@ -710,7 +725,7 @@ function buildMappedTransactionSql_(params) {
            Number(m.tax8           || 0)       + ', '  +  // reduced_tax_amount
       '0, '                                             +  // non_taxable_amount
            remarkSql                           + ', '  +  // wholesaler_remark
-      "'PENDING_REVIEW', 1, '"                          +  // backoffice_review_status, is_latest
+      "'PENDING_REVIEW', TRUE, '"                        +  // backoffice_review_status, is_latest
       escSql_(wsUserId) + "', CURRENT_TIMESTAMP()"  +  // final_updated_by, created_at
       ')'
     );
@@ -725,6 +740,12 @@ function buildMappedTransactionSql_(params) {
   // DECLARE + SET (CASE WHEN 複数 COUNTIF) + IF...RAISE の形に集約することで
   // staging を1回だけスキャンして全列のエラーを検知する。
   // CASE WHEN は最初にマッチした WHEN のメッセージを返し、RAISE で即時 ROLLBACK する。
+  // BQ 仕様: DECLARE はスクリプトの先頭（BEGIN TRANSACTION の前）にのみ記述可能。
+  // SET / IF...RAISE はトランザクション内（BEGIN の後）に記述する。
+  const declareBlock = validateCases.length > 0
+    ? ['DECLARE _validate_error STRING DEFAULT NULL;', '']
+    : [];
+
   const validateBlock = validateCases.length > 0
     ? [
         '-- =========================================================',
@@ -733,7 +754,6 @@ function buildMappedTransactionSql_(params) {
         '--    CASE WHEN の最初にマッチしたエラーメッセージを RAISE する',
         '--    RAISE は BQ により自動的に ROLLBACK される（BQ 仕様）   ',
         '-- =========================================================',
-        'DECLARE _validate_error STRING DEFAULT NULL;',
         'SET _validate_error = (',
         '  SELECT CASE',
       ].concat(
@@ -757,6 +777,7 @@ function buildMappedTransactionSql_(params) {
 
   // ── 全体 SQL を結合 ──────────────────────────────────────────────────────
   const sqlLines = [
+    ...declareBlock,
     'BEGIN TRANSACTION;',
     '',
     ...validateBlock,
