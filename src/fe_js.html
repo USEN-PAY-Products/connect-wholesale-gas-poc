@@ -77,6 +77,11 @@ function getCsvFormatRules() {
   // null / undefined → デフォルト卸（固定9列）
   if (raw === null || raw === undefined) return null;
 
+  // 空オブジェクト({}) → バックエンドはデフォルト卸として扱うため、フロントも null と同等に扱う。
+  // saveAccountInfo() が csv_format_rules={} をそのまま保存する経路があるため、
+  // フロント/バックで挙動を揃えて「フロントだけアップロード不可」を防ぐ。
+  if (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0) return null;
+
   // 新形式（columns 配列あり）→ index 昇順ソートして返す
   if (typeof raw === 'object' && Array.isArray(raw.columns) && raw.columns.length > 0) {
     const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);
@@ -1182,7 +1187,15 @@ btnCancel.addEventListener('click', () => {
 /** BOM 付き UTF-8 CSV テンプレートをダウンロードする */
 function downloadCsvTemplate() {
   // csv_format_rules（またはデフォルト定義）からヘッダーを動的生成
-  const rules   = getCsvFormatRules();
+  // getCsvFormatRules() は不正な csv_format_rules データが保存されている場合に throw するため
+  // catch してトースト表示する。不正データの場合はテンプレートを誤って渡さないよう DL しない。
+  let rules;
+  try {
+    rules = getCsvFormatRules();
+  } catch (err) {
+    showToast(err.message || 'CSVテンプレートの生成に失敗しました。管理者に連絡してください。');
+    return;
+  }
   const columns = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
 
   // columns.map() の並び順ではなく col.index（CSV上の列位置）に基づいてヘッダーを配置する。
