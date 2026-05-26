@@ -4,86 +4,74 @@
 
     <div class="page-header">
       <h1 class="page-title">請求内容の確認</h1>
-      <a href="#home" class="btn btn-back">
+      <button type="button" class="btn btn-back" id="btnConfirmBack">
         <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
-      </a>
+      </button>
     </div>
 
     <!-- 請求概要 -->
     <div class="summary-card">
-      <h2 class="card-label">請求概要</h2>
-      <div class="summary-table">
+      <!-- コンテンツ行 -->
+      <div class="detail-summary-inner">
 
-        <!-- 左ブロック：請求金額 -->
-        <div class="summary-block summary-block--left">
-          <div class="summary-block__row summary-block__row--main">
-            <span class="summary-block__label">請求金額</span>
-            <span class="summary-block__value summary-block__value--main">
-              <span id="summaryAmountInTax" class="summary-value-display">0</span>円
-            </span>
+        <!-- 左：請求基本情報 -->
+        <div class="detail-summary-meta">
+          <h3 class="detail-summary-meta__title">請求基本情報</h3>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">登録日時</span>
+            <span class="detail-meta-value" id="summaryRegisteredAt">―</span>
           </div>
-          <div class="summary-block__divider"></div>
-          <div class="summary-block__row">
-            <span class="summary-block__label">小計（税抜）</span>
-            <span class="summary-block__value">
-              <span id="summaryAmountExTax" class="summary-value-display">0</span>円
-            </span>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">手数料（<span id="summaryFeeRate">-</span>%）</span>
+            <span class="detail-meta-value"><span id="summaryFee" class="summary-value-display">0</span>円</span>
           </div>
-          <div class="summary-block__row">
-            <span class="summary-block__label">税額</span>
-            <span class="summary-block__value">
-              <span id="summaryTax" class="summary-value-display">0</span>円
-            </span>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">振込予定金額</span>
+            <span class="detail-meta-value"><span id="summaryTransfer" class="summary-value-display">0</span>円</span>
           </div>
         </div>
 
-        <!-- 中ブロック：内訳 -->
-        <div class="summary-block summary-block--mid">
-          <div class="summary-block__row summary-block__row--head">
-            <span class="summary-block__label">内訳</span>
-            <span class="summary-block__col-label">小計（税抜）</span>
-            <span class="summary-block__col-label">税額</span>
-          </div>
-          <div class="summary-block__row">
-            <span class="summary-block__tax-rate" id="summaryRate10">10%</span>
-            <span class="summary-block__value"><span id="summaryExTax10" class="summary-value-display">0</span>円</span>
-            <span class="summary-block__value"><span id="summaryTax10" class="summary-value-display">0</span>円</span>
-          </div>
-          <div class="summary-block__row">
-            <span class="summary-block__tax-rate" id="summaryRate8">8%</span>
-            <span class="summary-block__value"><span id="summaryExTax8" class="summary-value-display">0</span>円</span>
-            <span class="summary-block__value"><span id="summaryTax8" class="summary-value-display">0</span>円</span>
-          </div>
-        </div>
+        <!-- 縦線 -->
+        <div class="summary-card__divider"></div>
 
-        <!-- 右ブロック：振込金額 -->
-        <div class="summary-block summary-block--right">
-          <div class="summary-block__row">
-            <span class="summary-block__label">手数料（<span id="summaryFeeRate">-</span>%）</span>
-            <span class="summary-block__value">
-              <span id="summaryFee" class="summary-value-display">0</span>円
-            </span>
+        <!-- 右：請求金額 -->
+        <div class="detail-summary-amount confirm-summary-amount">
+          <div class="detail-amount-header">請求金額</div>
+          <div class="confirm-amount-group">
+            <div class="confirm-amount-row confirm-amount-row--total">
+              <span>合計（税込）</span><span><span id="summaryAmountInTax" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>小計（税抜）</span><span><span id="summaryAmountExTax" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>消費税</span><span><span id="summaryTax" class="summary-value-display">0</span>円</span>
+            </div>
           </div>
-          <div class="summary-block__divider"></div>
-          <div class="summary-block__row">
-            <span class="summary-block__label">振込金額</span>
-            <span class="summary-block__value summary-block__value--transfer">
-              <span id="summaryTransfer" class="summary-value-display">0</span>円
-            </span>
+          <div class="detail-amount-divider"></div>
+          <div class="confirm-amount-group">
+            <div class="detail-amount-section-label">内訳</div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>10%対象小計（税抜）</span><span><span id="summaryExTax10" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>10%対象消費税</span><span><span id="summaryTax10" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>8%対象小計（税抜）</span><span><span id="summaryExTax8" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>8%対象消費税</span><span><span id="summaryTax8" class="summary-value-display">0</span>円</span>
+            </div>
           </div>
         </div>
 
       </div>
+      <!-- JS互換用 hidden spans は削除（上の spanへ移動） -->
     </div>
 
-    <!-- キャンセルボタン -->
-    <div class="confirm-cancel-row">
-      <button class="btn btn-cancel-confirm" id="btnConfirmCancel">
-        キャンセル
-      </button>
-    </div>
-
-    <!-- キャンセル確認モーダル -->
+    <!-- 加盟店別明細 -->
+    <!-- キャンセル確認モーダル（一覧に戻るボタンから起動） -->
     <div class="modal-overlay hidden"
          id="cancelModal"
          role="dialog"
@@ -103,19 +91,23 @@
     <!-- 加盟店別明細 -->
     <div class="store-list-section">
       <h2 class="card-label">加盟店別詳細</h2>
+      <p class="store-list-note">「消費税内訳」の項目は申請いただいた小数点の処理ルールに基づいて自動計算されています。誤りがある場合は、下記より金額をご変更ください。<br>なお「消費税内訳」の項目以外の内容に誤りがある場合は、一覧画面に戻り「新規請求を登録する」ボタンから、再度アップロードをお願いします。</p>
       <div id="confirmStoreList" class="store-list-wrap"></div>
-    </div>
 
-    <!-- 最終確認・送信 -->
-    <div class="confirm-submit-card">
-      <label class="confirm-check-label">
-        <input type="checkbox" id="checkConfirm" class="confirm-checkbox" />
-        <span>私は入力データが正確であることを誓約します。不備による遅延は自社で責任を負います。</span>
-      </label>
-      <div class="action-buttons">
-        <button class="btn btn-submit" id="btnFinalSubmit" disabled>
-          登録内容を送信する <i class="fa-solid fa-chevron-right"></i>
-        </button>
+      <!-- 横線 -->
+      <div class="store-list-section__divider"></div>
+
+      <!-- 最終確認・送信 -->
+      <div class="confirm-submit-area">
+        <label class="confirm-check-label">
+          <input type="checkbox" id="checkConfirm" class="confirm-checkbox" />
+          <span>私は入力データが正確であることを誓約し、登録不備による遅延は自社で責任を負います。</span>
+        </label>
+        <div class="action-buttons">
+          <button class="btn btn-submit" id="btnFinalSubmit" disabled>
+            登録内容を送信する
+          </button>
+        </div>
       </div>
     </div>
 
