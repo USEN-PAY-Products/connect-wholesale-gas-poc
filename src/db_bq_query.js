@@ -26,7 +26,7 @@ function fetchAccountInfoByEmail_(email) {
   const sql =
     'SELECT ' +
     '  wu.id                   AS wholesaler_user_id, ' +
-    '  wu.wholesalers_id       AS wholesaler_id, ' +
+    '  wu.wholesaler_id, ' +
     '  w.wholesaler_name, ' +
     '  w.wholesaler_fee_rate   AS fee_rate, ' +
     '  w.tax_rounding_method, ' +
@@ -36,9 +36,9 @@ function fetchAccountInfoByEmail_(email) {
     '  s.store_name ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_user` AS wu ' +
     'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` AS w ' +
-    '  ON w.id = wu.wholesalers_id AND w.wholesaler_status = \'active\' ' +
+    '  ON w.id = wu.wholesaler_id AND w.wholesaler_status = \'active\' ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` AS wm ' +
-    '  ON wm.wholesaler_id = wu.wholesalers_id AND wm.deleted_at IS NULL ' +
+    '  ON wm.wholesaler_id = wu.wholesaler_id AND wm.deleted_at IS NULL ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = wm.mall_code AND s.store_status = \'active\' ' +
     'WHERE wu.wholesaler_email = @email ' +
