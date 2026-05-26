@@ -82,8 +82,24 @@ function getCsvFormatRules() {
   // フロント/バックで挙動を揃えて「フロントだけアップロード不可」を防ぐ。
   if (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0) return null;
 
-  // 新形式（columns 配列あり）→ index 昇順ソートして返す
+  // 新形式（columns 配列あり）→ index を検証してから index 昇順ソートして返す
   if (typeof raw === 'object' && Array.isArray(raw.columns) && raw.columns.length > 0) {
+    // バックエンドの buildStagingSchema_() と同じ上限値
+    const MAX_COL_INDEX = 200;
+    raw.columns.forEach(function (col, i) {
+      if (!Number.isInteger(col.index) || col.index < 0) {
+        throw new Error(
+          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が不正です: ' +
+          JSON.stringify(col.index) + '。0以上の整数を指定してください。管理者に連絡してください。'
+        );
+      }
+      if (col.index > MAX_COL_INDEX) {
+        throw new Error(
+          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています: ' +
+          col.index + '。管理者に連絡してください。'
+        );
+      }
+    });
     const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);
     return { ...raw, columns: sorted };
   }
@@ -1201,7 +1217,14 @@ function downloadCsvTemplate() {
   // columns.map() の並び順ではなく col.index（CSV上の列位置）に基づいてヘッダーを配置する。
   // index に欠番がある場合でも列位置がずれないよう、最大index+1 の配列を作り
   // headers[col.index] に代入してから join する。
+  const MAX_COL_INDEX = 200; // バックエンドの buildStagingSchema_() と同じ上限値
   const maxIndex = columns.reduce((max, col) => Math.max(max, col.index), 0);
+  // maxIndex が極端に大きいと Array(maxIndex+1) でブラウザがフリーズ/クラッシュするため中断する。
+  // getCsvFormatRules() で既にチェック済みだが、DEFAULT_CSV_COLUMNS_ を使う場合も念のためガード。
+  if (maxIndex > MAX_COL_INDEX) {
+    showToast('CSVテンプレートの生成に失敗しました。列のindex値が上限(' + MAX_COL_INDEX + ')を超えています。管理者に連絡してください。');
+    return;
+  }
   const headers  = Array(maxIndex + 1).fill('');
   columns.forEach(col => { headers[col.index] = `"${col.csv_header}"`; });
 
