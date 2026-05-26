@@ -460,6 +460,18 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
       case 'string':
       default:
         castExpr = fieldRef;
+        // 新形式 Staging は全列 STRING のため Load Job の NOT NULL チェックが利かない。
+        // required:true の場合は空文字・NULL を RAISE で検知する。
+        // date / integer と異なり CAST 変換がないため、シンプルに IS NULL OR = '' を検査する。
+        if (col.required) {
+          validateCases.push({
+            countifExpr:
+              'COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')",
+            message:
+              '\u5217\u300c' + escSql_(col.csv_header) +
+              '\u300d(index:' + col.index + ') \u306f\u5fc5\u9808\u9805\u76ee\u3067\u3059\u3002\u7a7a\u6b04\u306a\u304f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          });
+        }
         break;
     }
 

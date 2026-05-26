@@ -618,8 +618,8 @@ const DROP_ZONE_DEFAULT_HTML = dropZone.innerHTML;
 /** dropZone を初期状態に戻す */
 function resetDropZone() {
   dropZone.innerHTML = DROP_ZONE_DEFAULT_HTML;
-  // is-disabled / is-success を除去（アカウント取得済みの状態に戻す）
-  dropZone.classList.remove('is-disabled', 'is-success');
+  // is-disabled / is-success / is-analyzing / drag-over を除去（アカウント取得済みの状態に戻す）
+  dropZone.classList.remove('is-disabled', 'is-success', 'is-analyzing', 'drag-over');
   // innerHTML 差し替え後に DOM 参照とイベントを再登録
   const newBtn   = dropZone.querySelector('#btnSelectFile');
   const newInput = dropZone.querySelector('#fileInput');
