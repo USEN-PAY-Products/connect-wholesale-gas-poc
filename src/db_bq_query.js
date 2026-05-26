@@ -26,7 +26,7 @@ function fetchAccountInfoByEmail_(email) {
   const sql =
     'SELECT ' +
     '  wu.id                   AS wholesaler_user_id, ' +
-    '  wu.wholesalers_id       AS wholesaler_id, ' +
+    '  wu.wholesaler_id, ' +
     '  w.wholesaler_name, ' +
     '  w.wholesaler_fee_rate   AS fee_rate, ' +
     '  w.tax_rounding_method, ' +
@@ -36,9 +36,9 @@ function fetchAccountInfoByEmail_(email) {
     '  s.store_name ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_user` AS wu ' +
     'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` AS w ' +
-    '  ON w.id = wu.wholesalers_id AND w.wholesaler_status = \'active\' ' +
+    '  ON w.id = wu.wholesaler_id AND w.wholesaler_status = \'active\' ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` AS wm ' +
-    '  ON wm.wholesaler_id = wu.wholesalers_id AND wm.deleted_at IS NULL ' +
+    '  ON wm.wholesaler_id = wu.wholesaler_id AND wm.deleted_at IS NULL ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = wm.mall_code AND s.store_status = \'active\' ' +
     'WHERE wu.wholesaler_email = @email ' +
@@ -89,8 +89,9 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     'SELECT ' +
     '  id AS wholesaler_invoice_id, wholesaler_invoice_date, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
-    '  wholesaler_total_ex_tax_10, wholesaler_consumption_tax_10, ' +
-    '  wholesaler_total_ex_tax_8, wholesaler_consumption_tax_8, ' +
+    '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
+    '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
+    '  wholesaler_non_taxable_amount, ' +
     '  wholesaler_fee_rate, invoice_fee_amount, payment_amount ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
     'WHERE wholesaler_id = @wholesaler_id ' +
@@ -119,8 +120,9 @@ function fetchInvoiceDetailSummary_(invoiceId, wholesalerId) {
     'SELECT ' +
     '  id, wholesaler_invoice_date, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
-    '  wholesaler_total_ex_tax_10, wholesaler_consumption_tax_10, ' +
-    '  wholesaler_total_ex_tax_8, wholesaler_consumption_tax_8, ' +
+    '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
+    '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
+    '  wholesaler_non_taxable_amount, ' +
     '  wholesaler_fee_rate, invoice_fee_amount, payment_amount, handover_matter ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
     'WHERE id = @invoice_id ' +
@@ -156,9 +158,10 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     '  si.invoice_number, ' +
     '  si.backoffice_review_status, ' +
     '  si.total_amount, si.subtotal_amount, si.tax_amount, ' +
-    '  si.total_ex_tax_10per, si.consumption_tax_10per, ' +
-    '  si.total_ex_tax_8per, si.consumption_tax_8per, ' +
-    '  si.backoffice_handover, si.wholesaler_handover, si.backoffice_remark ' +
+    '  si.standard_tax_target_amount, si.standard_tax_amount, ' +
+    '  si.reduced_tax_target_amount, si.reduced_tax_amount, ' +
+    '  si.non_taxable_amount, ' +
+    '  si.backoffice_handover, si.wholesaler_handover, si.wholesaler_remark, si.backoffice_remark ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = si.mall_code ' +

@@ -41,29 +41,107 @@ function getMerchantMappings() {
 }
 
 /**
- * SessionStorage から csv_format_rules を取得する。
- * null の場合はデフォルトフォーマット定義を返す。
- * @returns {Object}
+ * デフォルト卸向け固定9列の columns 定義。
+ * csv_format_rules が null（csv_format_rules 未設定の卸）が使用する。
+ * ⚠️ 列順・csv_header は db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
+ */
+const DEFAULT_CSV_COLUMNS_ = [
+  { index: 0, csv_header: '顧客コード',       system_column: 'customer_code',         type: 'string',  required: true  },
+  { index: 1, csv_header: '日付',             system_column: 'transaction_date',      type: 'date',    required: true  },
+  { index: 2, csv_header: '品目',             system_column: 'item_name',             type: 'string',  required: true  },
+  { index: 3, csv_header: '数量',             system_column: 'quantity',              type: 'integer', required: true  },
+  { index: 4, csv_header: '単価',             system_column: 'unit_price',            type: 'integer', required: true  },
+  { index: 5, csv_header: '税率区分(%)',       system_column: 'tax_rate',              type: 'integer', required: true,  enum: [8, 10] },
+  { index: 6, csv_header: '請求金額（税抜）', system_column: 'amount_ex_tax',         type: 'integer', required: true  },
+  { index: 7, csv_header: '消費税',           system_column: 'tax_amount',            type: 'integer', required: true  },
+  { index: 8, csv_header: '備考',             system_column: 'invoice_detail_remark', type: 'string',  required: false },
+];
+
+/**
+ * sessionStorage に保存された csv_format_rules を返す。
+ * 新形式（columns 配列）の場合は index 昇順にソートして返す。
+ * csv_format_rules が未設定の卸は null を返す。
+ * 呼び出し側は null の場合に DEFAULT_CSV_COLUMNS_ を使用する。
+ *
+ * @returns {{ has_header: boolean, columns: Array }|null}
  */
 function getCsvFormatRules() {
+  let raw;
   try {
-    const raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
-    if (raw && Object.keys(raw).length > 0) return raw;
-  } catch (_) {}
-  // デフォルトフォーマット（csv_format_rules が空の卸向け）
-  // ⚠️ 列順・csv_header は be_invoice.js の getExpectedHeaders_() および
-  //    db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
-  return {
-    customer_code:         { csv_header: '顧客コード',       type: 'string',  required: true  },
-    transaction_date:      { csv_header: '日付',             type: 'date',    required: true  },
-    item_name:             { csv_header: '品目',             type: 'string',  required: true  },
-    quantity:              { csv_header: '数量',             type: 'integer', required: true  },
-    unit_price:            { csv_header: '単価',             type: 'integer', required: true  },
-    tax_rate:              { csv_header: '税率区分(%)',       type: 'integer', required: true, enum: [8, 10] },
-    amount_ex_tax:         { csv_header: '請求金額（税抜）', type: 'integer', required: true  },
-    tax_amount:            { csv_header: '消費税',           type: 'integer', required: true  },
-    invoice_detail_remark: { csv_header: '備考',             type: 'string',  required: false },
-  };
+    raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
+  } catch (_) {
+    // JSON パース失敗 → 不正データとして扱う
+    throw new Error('[getCsvFormatRules] csv_format_rules のパースに失敗しました。管理者に連絡してください。');
+  }
+
+  // null / undefined → デフォルト卸（固定9列）
+  if (raw === null || raw === undefined) return null;
+
+  // 空オブジェクト({}) → バックエンドはデフォルト卸として扱うため、フロントも null と同等に扱う。
+  // saveAccountInfo() が csv_format_rules={} をそのまま保存する経路があるため、
+  // フロント/バックで挙動を揃えて「フロントだけアップロード不可」を防ぐ。
+  if (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0) return null;
+
+  // 新形式（columns 配列あり）→ index を検証してから index 昇順ソートして返す
+  if (typeof raw === 'object' && Array.isArray(raw.columns) && raw.columns.length > 0) {
+    // バックエンドの buildStagingSchema_() と同じ上限値
+    const MAX_COL_INDEX = 200;
+    const seenIndexes       = {};
+    // seenSystemColumns は Object.create(null) を使う。
+    // {} だと 'constructor' や 'toString' 等の既存プロパティと衝突し、
+    // 初回出現でも !== undefined が true になって誤った「重複」エラーになるため。
+    const seenSystemColumns = Object.create(null);
+    raw.columns.forEach(function (col, i) {
+      // ── 型・範囲チェック ────────────────────────────────────────────────────
+      if (!Number.isInteger(col.index) || col.index < 0) {
+        throw new Error(
+          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が不正です: ' +
+          JSON.stringify(col.index) + '。0以上の整数を指定してください。管理者に連絡してください。'
+        );
+      }
+      if (col.index > MAX_COL_INDEX) {
+        throw new Error(
+          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています: ' +
+          col.index + '。管理者に連絡してください。'
+        );
+      }
+      // ── index 重複チェック ──────────────────────────────────────────────────
+      // 重複があると validateCsv() で同じ列を複数回参照し、rowObj のキーが上書きされて
+      // 後に定義された列の値で前の列が上書きされ、誤ったデータになる。
+      if (seenIndexes[col.index] !== undefined) {
+        throw new Error(
+          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index = ' + col.index +
+          ' が重複しています (columns[' + seenIndexes[col.index] + '] と重複)。' +
+          '管理者に連絡してください。'
+        );
+      }
+      seenIndexes[col.index] = i;
+      // ── system_column 重複チェック ──────────────────────────────────────────
+      // 重複があるとバックエンドの INSERT カラムが重複して BQ がエラーになる。
+      // null / 未設定（読み飛ばし列）は重複しても問題ないため除外する。
+      const sc = col.system_column;
+      if (sc && sc !== 'null') {
+        if (seenSystemColumns[sc] !== undefined) {
+          throw new Error(
+            '[getCsvFormatRules] csv_format_rules.columns[' + i + '].system_column = "' + sc +
+            '" が重複しています (columns[' + seenSystemColumns[sc] + '] と重複)。' +
+            '管理者に連絡してください。'
+          );
+        }
+        seenSystemColumns[sc] = i;
+      }
+    });
+    const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);
+    return { ...raw, columns: sorted };
+  }
+
+  // それ以外（旧形式・不正値）→ 明示エラー
+  // バックエンドの buildStagingSchema_() も同条件で throw するため、
+  // フロントで先に検知してユーザーに分かりやすく通知する。
+  throw new Error(
+    '[getCsvFormatRules] csv_format_rules が未対応の形式です。' +
+    '管理者に csv_format_rules の設定を確認してもらってください。'
+  );
 }
 
 // =============================================================================
@@ -360,10 +438,10 @@ function renderCalendar() {
  *   wholesaler_total_amount: number,
  *   wholesaler_subtotal_amount: number,
  *   wholesaler_tax_amount: number,
- *   wholesaler_total_ex_tax_10: number,
- *   wholesaler_consumption_tax_10: number,
- *   wholesaler_total_ex_tax_8: number,
- *   wholesaler_consumption_tax_8: number,
+ *   wholesaler_standard_tax_target_amount: number,
+ *   wholesaler_standard_tax_amount: number,
+ *   wholesaler_reduced_tax_target_amount: number,
+ *   wholesaler_reduced_tax_amount: number,
  *   wholesaler_fee_rate: number,
  *   invoice_fee_amount: number,
  *   payment_amount: number
@@ -392,8 +470,8 @@ function renderBillingHistory(items) {
 
     // 税率別内訳を4カラムから組み立てる
     const breakdown = [
-      { rate: 10, subtotalExTax: item.wholesaler_total_ex_tax_10,  taxAmount: item.wholesaler_consumption_tax_10 },
-      { rate: 8,  subtotalExTax: item.wholesaler_total_ex_tax_8,   taxAmount: item.wholesaler_consumption_tax_8 },
+      { rate: 10, subtotalExTax: item.wholesaler_standard_tax_target_amount, taxAmount: item.wholesaler_standard_tax_amount },
+      { rate: 8,  subtotalExTax: item.wholesaler_reduced_tax_target_amount,  taxAmount: item.wholesaler_reduced_tax_amount },
     ];
     const breakdownDataRows = breakdown.map(b => `
       <div class="bc-breakdown__cell bc-breakdown__rate">${escapeHtml(String(b.rate))}%</div>
@@ -474,6 +552,19 @@ let rawCsvBase64 = null;
  * ⚠️ メモリのみ保持。sessionStorage には保存しない（容量超過防止）。
  */
 let utf8CsvBase64 = null;
+
+/**
+ * handleFile() の MIN_ANALYZE_MS 待機用タイマーID。
+ * 連続ファイル選択時に前回のタイマーをキャンセルして競合を防ぐ。
+ */
+let _analyzeTimer = null;
+
+/**
+ * handleFile() で起動中の FileReader インスタンス。
+ * 連続ファイル選択時に前回の reader.onload が後から走って結果を上書きするのを防ぐため、
+ * 新しい handleFile 呼び出しの先頭で abort() してから破棄する。
+ */
+let _currentReader = null;
 
 /**
  * パース済みデータ行の配列。各要素は csv_format_rules のキー（bq_field）をキーとしたオブジェクト。
@@ -558,8 +649,8 @@ const DROP_ZONE_DEFAULT_HTML = dropZone.innerHTML;
 /** dropZone を初期状態に戻す */
 function resetDropZone() {
   dropZone.innerHTML = DROP_ZONE_DEFAULT_HTML;
-  // is-disabled / is-success を除去（アカウント取得済みの状態に戻す）
-  dropZone.classList.remove('is-disabled', 'is-success');
+  // is-disabled / is-success / is-analyzing / drag-over を除去（アカウント取得済みの状態に戻す）
+  dropZone.classList.remove('is-disabled', 'is-success', 'is-analyzing', 'drag-over');
   // innerHTML 差し替え後に DOM 参照とイベントを再登録
   const newBtn   = dropZone.querySelector('#btnSelectFile');
   const newInput = dropZone.querySelector('#fileInput');
@@ -571,6 +662,23 @@ function resetDropZone() {
     if (this.files[0]) handleFile(this.files[0]);
     this.value = '';
   });
+}
+
+/**
+ * dropZone を CSV 解析中スピナー表示に切り替える。
+ * handleFile() の FileReader 起動「前」に呼び出し、解析中であることをユーザーに伝える。
+ * @param {string} fileName - 選択されたファイル名
+ */
+function setDropZoneAnalyzing(fileName) {
+  dropZone.innerHTML = `
+    <div class="drop-zone__spinner"></div>
+    <p class="drop-zone__analyzing-text">CSVを確認中...</p>
+    <p class="drop-zone__analyzing-sub" id="dropZoneAnalyzingName"></p>
+  `;
+  // XSS対策: ファイル名は textContent で挿入
+  dropZone.querySelector('#dropZoneAnalyzingName').textContent = fileName;
+  dropZone.classList.remove('is-disabled', 'is-success', 'drag-over');
+  dropZone.classList.add('is-analyzing');
 }
 
 /**
@@ -655,12 +763,48 @@ function handleFile(file) {
   hideToast();
 
   // ── Step 3: CSVを読み込んでパース＆バリデーション ────────────────────────
+  // ファイル選択直後にドロップゾーンを「解析中」スピナーへ切り替える。
+  // すぐに結果が出るとユーザーが「本当に確認したの？」と不安になるため、
+  // 最低 MIN_ANALYZE_MS だけスピナーを表示してから結果を描画する。
+  // 連続ファイル選択時に前回のタイマーが残っていると古い結果で上書きされるため、
+  // 新しい handleFile 呼び出しの先頭で必ずキャンセルする。
+  if (_analyzeTimer !== null) {
+    clearTimeout(_analyzeTimer);
+    _analyzeTimer = null;
+  }
+  // 前回の FileReader が読み込み中なら abort して onload が後から発火しないようにする
+  if (_currentReader !== null) {
+    _currentReader.abort();
+    _currentReader = null;
+  }
+  setDropZoneAnalyzing(file.name);
+  const analyzeStartMs = Date.now();
+  const MIN_ANALYZE_MS = 600; // スピナーの最小表示時間 (ms)
+
   const reader = new FileReader();
+  _currentReader = reader; // グローバルに保持して次回の呼び出しで abort できるようにする
 
   reader.onload = e => {
+    // abort 後に遅れて発火した古い onload は無視する
+    if (reader !== _currentReader) return;
+    _currentReader = null;
+
     const buffer = e.target.result;
     const text   = decodeBuffer_(buffer);
-    const { errors, rows } = validateCsv(text);
+
+    // validateCsv() 内で getCsvFormatRules() が throw する場合があるため try/catch する。
+    // 未捕捉のまま例外が飛ぶと dropZone が is-analyzing のまま固まるため、
+    // catch 時はスピナーを解除してユーザーに通知する。
+    let errors, rows;
+    try {
+      ({ errors, rows } = validateCsv(text));
+    } catch (err) {
+      _currentReader = null;
+      dropZone.classList.remove('is-analyzing');
+      showToast(err.message || 'CSVの検証中にエラーが発生しました');
+      resetDropZone();
+      return;
+    }
 
     if (errors.length === 0) {
       // 成功: Base64はメモリのみ保持（sessionStorageには保存しない・容量超過防止）
@@ -687,10 +831,20 @@ function handleFile(file) {
       }
     }
 
-    renderErrors(errors, file.name);
+    // スピナーが最低表示時間に達するまで待ってから結果を描画する
+    const elapsed   = Date.now() - analyzeStartMs;
+    const remaining = Math.max(0, MIN_ANALYZE_MS - elapsed);
+    _analyzeTimer = setTimeout(() => {
+      _analyzeTimer = null;
+      dropZone.classList.remove('is-analyzing');
+      renderErrors(errors, file.name);
+    }, remaining);
   };
 
   reader.onerror = () => {
+    if (reader !== _currentReader) return;
+    _currentReader = null;
+    dropZone.classList.remove('is-analyzing');
     showToast('ファイルの読み込みに失敗しました');
     resetDropZone();
   };
@@ -815,7 +969,7 @@ function parseCsvLine(line) {
 
 /**
  * csv_format_rules に基づいてCSVをパース・バリデーションする。
- * rules が空の場合はデフォルトフォーマットにフォールバック（getCsvFormatRules()）。
+ * getCsvFormatRules() が null の場合はデフォルト9列（DEFAULT_CSV_COLUMNS_）を使用する。
  * merchant_mappings で customer_code の有効性もチェックする。
  *
  * @param {string} csvText
@@ -827,11 +981,13 @@ function validateCsv(csvText) {
 
   // SessionStorage からフォーマットルールとマッピングを取得
   const rules    = getCsvFormatRules();
+  const columns  = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
   const mappings = getMerchantMappings();
 
-  // フィールドキー順リスト（ヘッダー順 = ルールの定義順）
-  const fieldKeys   = Object.keys(rules);
-  const expectedCols = fieldKeys.length;
+  // columns.length（配列の要素数）ではなく 最大index+1（CSVの実際の列数）で算出する。
+  // index に欠番がある場合（省略列を配列から抜いているケース）に columns.length だと
+  // 正しいCSVを誤って「列数不一致」と判定してしまうため。
+  const expectedCols = columns.reduce((max, col) => Math.max(max, col.index + 1), 0);
 
   // 有効な customer_code セットを作成
   // is_active が未提供（undefined）の場合は active 扱いにする
@@ -858,11 +1014,10 @@ function validateCsv(csvText) {
     errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${expectedCols}列）`);
     return { errors, rows };
   }
-  const headerErrors = fieldKeys
-    .map((key, idx) => {
-      const expected = rules[key].csv_header;
-      return headerCols[idx] !== expected
-        ? `ヘッダー行 ${idx + 1}列目: "${expected}" が期待されますが "${headerCols[idx]}" になっています`
+  const headerErrors = columns
+    .map((col) => {
+      return headerCols[col.index] !== col.csv_header
+        ? `ヘッダー行 ${col.index + 1}列目: "${col.csv_header}" が期待されますが "${headerCols[col.index]}" になっています`
         : null;
     })
     .filter(Boolean);
@@ -888,13 +1043,18 @@ function validateCsv(csvText) {
     }
 
     const rowObj = {};
-    fieldKeys.forEach((key, idx) => {
-      const rule = rules[key];
-      const val  = cols[idx];
+    columns.forEach((col) => {
+      // system_column が null（JS の null）または文字列 "null"（GAS の JSON 変換由来）の
+      // 両方を null 扱いにする。null 列はプレースホルダーキーを使用する。
+      const hasSystemColumn = col.system_column !== null
+        && col.system_column !== undefined
+        && col.system_column !== 'null';
+      const key = hasSystemColumn ? col.system_column : `_col_${col.index}`;
+      const val  = cols[col.index]; // idx（配列並び順）ではなく col.index（CSV上の列位置）で参照
 
       // 必須チェック
-      if (rule.required && val === '') {
-        rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は必須項目です`);
+      if (col.required && val === '') {
+        rowErrors.push(`${rowNum}行目: "${col.csv_header}" は必須項目です`);
         return;
       }
       if (val === '') {
@@ -903,30 +1063,59 @@ function validateCsv(csvText) {
       }
 
       // 型チェック
-      switch (rule.type) {
-        case 'date':
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" はYYYY-MM-DD形式で入力してください`);
+      switch (col.type) {
+        case 'date': {
+          // format 定義に応じてバリデーションパターンを切り替える。
+          // 変換は BigQuery 側（PARSE_DATE）に委ねるため、ここでは形式チェックのみ行う。
+          // ※ BQ 側の PARSE_DATE フォーマット文字列も合わせて更新が必要な場合は
+          //    be_csv_mapper.js の buildInvoiceLinesSelectSql_() を確認すること。
+          const fmt = col.format || 'YYYY-MM-DD';
+          let dateOk = false;
+          let dateHint = '';
+          if (fmt === 'YYYYMMDD') {
+            // 例: 20260301
+            dateOk   = /^\d{8}$/.test(val);
+            dateHint = 'YYYYMMDD形式（例: 20260301）';
+          } else if (fmt === 'YYYY/MM/DD') {
+            // 例: 2026/03/01（Excel 日本語保存でよく発生）
+            dateOk   = /^\d{4}\/\d{2}\/\d{2}$/.test(val);
+            dateHint = 'YYYY/MM/DD形式（例: 2026/03/01）';
+          } else if (fmt === 'YYYY-MM-DD' || !col.format) {
+            // デフォルト: YYYY-MM-DD (ISO 8601)
+            dateOk   = /^\d{4}-\d{2}-\d{2}$/.test(val);
+            dateHint = 'YYYY-MM-DD形式（例: 2026-03-01）';
+          } else {
+            // 未対応フォーマット → バックエンドも throw するため明示エラー
+            // 対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD
+            rowErrors.push(
+              `${rowNum}行目: "${col.csv_header}" の日付フォーマット "${fmt}" は未対応です。` +
+              'csv_format_rules の format を YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD のいずれかに設定してください。'
+            );
+            break;
+          }
+          if (!dateOk) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${dateHint}で入力してください`);
           } else {
             rowObj[key] = val;
           }
           break;
+        }
         case 'integer':
           if (val === '' || !/^-?\d+$/.test(val.trim())) {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は整数で入力してください`);
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数で入力してください`);
           } else {
             const num = Number(val);
             // enumチェック
-            if (rule.enum && !rule.enum.includes(num)) {
-              rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は ${rule.enum.join(' または ')} を入力してください`);
+            if (col.enum && !col.enum.includes(num)) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は ${col.enum.join(' または ')} を入力してください`);
             } else {
               rowObj[key] = num;
             }
           }
           break;
         default: // string
-          if (rule.max_length && val.length > rule.max_length) {
-            rowErrors.push(`${rowNum}行目: "${rule.csv_header}" は${rule.max_length}文字以内で入力してください`);
+          if (col.max_length && val.length > col.max_length) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${col.max_length}文字以内で入力してください`);
           } else {
             rowObj[key] = val;
           }
@@ -1045,8 +1234,31 @@ btnCancel.addEventListener('click', () => {
 /** BOM 付き UTF-8 CSV テンプレートをダウンロードする */
 function downloadCsvTemplate() {
   // csv_format_rules（またはデフォルト定義）からヘッダーを動的生成
-  const rules   = getCsvFormatRules();
-  const headers = Object.values(rules).map(r => `"${r.csv_header}"`);
+  // getCsvFormatRules() は不正な csv_format_rules データが保存されている場合に throw するため
+  // catch してトースト表示する。不正データの場合はテンプレートを誤って渡さないよう DL しない。
+  let rules;
+  try {
+    rules = getCsvFormatRules();
+  } catch (err) {
+    showToast(err.message || 'CSVテンプレートの生成に失敗しました。管理者に連絡してください。');
+    return;
+  }
+  const columns = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
+
+  // columns.map() の並び順ではなく col.index（CSV上の列位置）に基づいてヘッダーを配置する。
+  // index に欠番がある場合でも列位置がずれないよう、最大index+1 の配列を作り
+  // headers[col.index] に代入してから join する。
+  const MAX_COL_INDEX = 200; // バックエンドの buildStagingSchema_() と同じ上限値
+  const maxIndex = columns.reduce((max, col) => Math.max(max, col.index), 0);
+  // maxIndex が極端に大きいと Array(maxIndex+1) でブラウザがフリーズ/クラッシュするため中断する。
+  // getCsvFormatRules() で既にチェック済みだが、DEFAULT_CSV_COLUMNS_ を使う場合も念のためガード。
+  if (maxIndex > MAX_COL_INDEX) {
+    showToast('CSVテンプレートの生成に失敗しました。列のindex値が上限(' + MAX_COL_INDEX + ')を超えています。管理者に連絡してください。');
+    return;
+  }
+  const headers  = Array(maxIndex + 1).fill('');
+  columns.forEach(col => { headers[col.index] = `"${col.csv_header}"`; });
+
   const csvContent = headers.join(',') + '\r\n';
 
   // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする
@@ -1317,7 +1529,6 @@ function renderConfirmPage() {
   const wholesalerName   = sessionStorage.getItem('shiire_wholesaler_name')   || '';
   const feeRate          = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
   const mappings         = getMerchantMappings();
-  const rules            = getCsvFormatRules();
 
   // customer_code → mall_code / merchant_name の変換マップ
   const mappingMap = {};
@@ -1697,10 +1908,10 @@ function renderDetailSummary_(s) {
           <div class="detail-amount-divider"></div>
           <div class="detail-amount-section-label">内訳</div>
           <div class="detail-amount-row">
-            <span>税内訳（10%）</span><span>${fmt(s.wholesaler_consumption_tax_10)}円</span>
+            <span>税内訳（10%）</span><span>${fmt(s.wholesaler_standard_tax_amount)}円</span>
           </div>
           <div class="detail-amount-row">
-            <span>税内訳（8%）</span><span>${fmt(s.wholesaler_consumption_tax_8)}円</span>
+            <span>税内訳（8%）</span><span>${fmt(s.wholesaler_reduced_tax_amount)}円</span>
           </div>
         </div>
       </div>
@@ -1790,8 +2001,8 @@ function buildDetailAccordion_(store, openByDefault) {
     '<span class="dsl-col dsl-col--amount">'  + fmt(store.total_amount)    + '円</span>' +
     '<span class="dsl-col dsl-col--extax">'   + fmt(store.subtotal_amount)  + '円</span>' +
     '<span class="dsl-col dsl-col--tax">'     + fmt(store.tax_amount)       + '円</span>' +
-    '<span class="dsl-col dsl-col--tax10">'   + fmt(store.consumption_tax_10per) + '円</span>' +
-    '<span class="dsl-col dsl-col--tax8">'    + fmt(store.consumption_tax_8per) + '円</span>' +
+    '<span class="dsl-col dsl-col--tax10">'   + fmt(store.standard_tax_amount) + '円</span>' +
+    '<span class="dsl-col dsl-col--tax8">'    + fmt(store.reduced_tax_amount) + '円</span>' +
     '<span class="dsl-col dsl-col--status">'  + getDetailStatusBadge_(store.backoffice_review_status) + '</span>' +
     '<span class="dsl-col dsl-col--toggle"><i class="fa-solid fa-chevron-down dsl-accordion__icon"></i></span>';
 
@@ -1818,6 +2029,16 @@ function buildDetailAccordion_(store, openByDefault) {
       '<span class="dsl-wholesaler-note__label">申し送り：</span>' +
       '<span>' + escapeHtml(store.wholesaler_handover) + '</span>';
     body.appendChild(note);
+  }
+
+  // 卸備考（wholesaler_remark）: CSV アップロード時に卸が入力した備考
+  if (store.wholesaler_remark) {
+    const remark = document.createElement('div');
+    remark.className = 'dsl-wholesaler-note';
+    remark.innerHTML =
+      '<span class="dsl-wholesaler-note__label">備考：</span>' +
+      '<span>' + escapeHtml(store.wholesaler_remark) + '</span>';
+    body.appendChild(remark);
   }
 
   // 明細コンテナ（オンデマンドで内容を入れる / 閉じたら空にしてメモリ解放）
