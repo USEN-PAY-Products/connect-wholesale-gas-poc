@@ -330,17 +330,13 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   }
 
   // ── INSERT カラムリストと SELECT 式を並行して構築 ─────────────────────────
-  // dateValidateSqls: 各 date 列ごとの IF...RAISE バリデーション文を収集する。
-  // intValidateSqls : required:true の integer 列、および line_tax_amount の計算に使う
-  //   amount_ex_tax / tax_rate に対する IF...RAISE バリデーション文を収集する。
-  //   新形式は Staging を全列 STRING で読み込むため Load Job の型チェックが利かない。
-  //   SAFE_CAST は非数値を NULL に変換するため、そのまま放置すると不正 CSV が静かに取り込まれる。
-  //   amount_ex_tax / tax_rate は COALESCE で 0 補完しているため、未チェックだと
-  //   税額が 0 の誤明細が INSERT されてしまう。required フラグに依存せず明示的に RAISE する。
-  //   両配列は buildMappedTransactionSql_() がトランザクション冒頭（INSERT 前）に展開する。
-  const insertColumns    = ['id', 'invoice_item_row', 'store_invoice_id'];
-  const dateValidateSqls = [];
-  const intValidateSqls  = [];
+  // validateCases: { countifExpr, message }[] 形式でバリデーション条件を収集する。
+  //   新形式は Staging を全列 STRING で読み込むため Load Job の型チェックが利かず、
+  //   SAFE_CAST は非数値を NULL に変換するため不正値が静かに取り込まれる恐れがある。
+  //   buildMappedTransactionSql_() が DECLARE + SET (CASE WHEN) + IF...RAISE の形に展開し、
+  //   staging を1回だけスキャンして全列のエラーを検知する（列ごとの個別スキャンを回避）。
+  const insertColumns = ['id', 'invoice_item_row', 'store_invoice_id'];
+  const validateCases = []; // { countifExpr: string, message: string }[]
   const selectParts   = [
     '  GENERATE_UUID()                                                    AS id,',
     '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY ' + orderByExpr + ') AS invoice_item_row,',
@@ -405,33 +401,29 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
           );
         }
         // castExpr はこの時点で確定しているため、SELECT 式と同じ式を再利用して
-        // 不正日付行を COUNTIF → IF...RAISE するバリデーション SQL を収集する。
+        // 不正日付行を COUNTIF で検知する条件を validateCases に積む。
         // 不正日付（空でないのに parse できない）チェック
-        dateValidateSqls.push(
-          'IF (\n' +
-          '  SELECT COUNTIF(\n' +
-          '    ' + castExpr + ' IS NULL\n' +
-          '    AND ' + fieldRef + ' IS NOT NULL\n' +
-          "    AND " + fieldRef + " != ''\n" +
-          '  ) FROM ' + stagingRef + ' s\n' +
-          ') > 0 THEN\n' +
-          "  RAISE USING MESSAGE = '列\u300c" + escSql_(col.csv_header) +
-            "\u300d(index:" + col.index + ") に存在しない日付または不正な日付が含まれています。" +
-            '有効な ' + escSql_(col.format || 'YYYY-MM-DD') + " 形式の日付を入力してください。';\n" +
-          'END IF;'
-        );
+        validateCases.push({
+          countifExpr:
+            'COUNTIF(\n' +
+            '      ' + castExpr + ' IS NULL\n' +
+            '      AND ' + fieldRef + ' IS NOT NULL\n' +
+            "      AND " + fieldRef + " != '')",
+          message:
+            '\u5217\u300c' + escSql_(col.csv_header) +
+            '\u300d(index:' + col.index + ') \u306b\u5b58\u5728\u3057\u306a\u3044\u65e5\u4ed8\u307e\u305f\u306f\u4e0d\u6b63\u306a\u65e5\u4ed8\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002' +
+            '\u6709\u52b9\u306a ' + escSql_(col.format || 'YYYY-MM-DD') + ' \u5f62\u5f0f\u306e\u65e5\u4ed8\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+        });
         // required:true の列は空文字・NULL も RAISE する。
         // 上の不正日付チェックは AND field != '' でスキップされるため、別途ガードが必要。
         if (col.required) {
-          dateValidateSqls.push(
-            'IF (\n' +
-            '  SELECT COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')\n" +
-            '  FROM ' + stagingRef + ' s\n' +
-            ') > 0 THEN\n' +
-            "  RAISE USING MESSAGE = '列\u300c" + escSql_(col.csv_header) +
-              "\u300d(index:" + col.index + ") は必須項目です。空欄なく入力してください。';\n" +
-            'END IF;'
-          );
+          validateCases.push({
+            countifExpr:
+              'COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')",
+            message:
+              '\u5217\u300c' + escSql_(col.csv_header) +
+              '\u300d(index:' + col.index + ') \u306f\u5fc5\u9808\u9805\u76ee\u3067\u3059\u3002\u7a7a\u6b04\u306a\u304f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          });
         }
         break;
       case 'integer':
@@ -443,31 +435,26 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
         // SAFE_CAST のみでは不正値が静かに NULL として格納されるため。
         if (col.required) {
           // 非数値チェック（空でないのに SAFE_CAST が NULL になる行）
-          intValidateSqls.push(
-            'IF (\n' +
-            '  SELECT COUNTIF(\n' +
-            '    SAFE_CAST(NULLIF(' + fieldRef + ", '') AS INT64) IS NULL\n" +
-            '    AND ' + fieldRef + ' IS NOT NULL\n' +
-            "    AND " + fieldRef + " != ''\n" +
-            '  ) FROM ' + stagingRef + ' s\n' +
-            ') > 0 THEN\n' +
-            "  RAISE USING MESSAGE = '\u5217\u300c" + escSql_(col.csv_header) +
-              "\u300d(index:" + col.index + ") \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002" +
-              "\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002';\n" +
-            'END IF;'
-          );
+          validateCases.push({
+            countifExpr:
+              'COUNTIF(\n' +
+              '      SAFE_CAST(NULLIF(' + fieldRef + ", '') AS INT64) IS NULL\n" +
+              '      AND ' + fieldRef + ' IS NOT NULL\n' +
+              "      AND " + fieldRef + " != '')",
+            message:
+              '\u5217\u300c' + escSql_(col.csv_header) +
+              '\u300d(index:' + col.index + ') \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          });
           // 空文字・NULL チェック。
           // NULLIF で空文字を NULL に変換するため上の SAFE_CAST チェックはスキップされる。
           // required:true なら別途ガードが必要。
-          intValidateSqls.push(
-            'IF (\n' +
-            '  SELECT COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')\n" +
-            '  FROM ' + stagingRef + ' s\n' +
-            ') > 0 THEN\n' +
-            "  RAISE USING MESSAGE = '\u5217\u300c" + escSql_(col.csv_header) +
-              "\u300d(index:" + col.index + ") \u306f\u5fc5\u9808\u9805\u76ee\u3067\u3059\u3002\u7a7a\u6b04\u306a\u304f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002';\n" +
-            'END IF;'
-          );
+          validateCases.push({
+            countifExpr:
+              'COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')",
+            message:
+              '\u5217\u300c' + escSql_(col.csv_header) +
+              '\u300d(index:' + col.index + ') \u306f\u5fc5\u9808\u9805\u76ee\u3067\u3059\u3002\u7a7a\u6b04\u306a\u304f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          });
         }
         break;
       case 'string':
@@ -479,7 +466,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     insertColumns.push(ddlCol);
     selectParts.push(
       '  ' + padRight_(castExpr, 60) + ' AS ' + ddlCol + ','
-      + '  -- ' + col.csv_header + ' (index: ' + col.index + ')'
+      + '  -- ' + sanitizeComment_(col.csv_header) + ' (index: ' + col.index + ')'
     );
   });
 
@@ -487,29 +474,27 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   // CSV に存在しない計算項目のため、amount_ex_tax と tax_rate の index から動的に生成する。
   // 計算に使う2列（amount_ex_tax / tax_rate）は required フラグに関わらず非数値が混在すると
   // COALESCE で 0 に補完され、誤った税額 0 の明細が INSERT されてしまう。
-  // required:true の場合は columns.forEach の intValidateSqls で既にカバーされているが、
+  // required:true の場合は columns.forEach の validateCases で既にカバーされているが、
   // required フラグの設定ミスや将来の変更でカバー漏れが生じないよう、
   // ここで amountCol / taxRateCol を改めて明示的にバリデーションする。
-  // 重複 RAISE はトランザクション開始直後に一方が先に発火して中断されるため実害はない。
+  // 重複 WHEN は CASE WHEN の先行条件が先にマッチして中断されるため実害はない。
   [
     { col: amountCol,  fieldRef: amountFieldRef  },
     { col: taxRateCol, fieldRef: taxRateFieldRef },
   ].forEach(function(entry) {
     const col      = entry.col;
     const fieldRef = entry.fieldRef;
-    intValidateSqls.push(
-      'IF (\n' +
-      '  SELECT COUNTIF(\n' +
-      '    SAFE_CAST(NULLIF(' + fieldRef + ", '') AS INT64) IS NULL\n" +
-      '    AND ' + fieldRef + ' IS NOT NULL\n' +
-      "    AND " + fieldRef + " != ''\n" +
-      '  ) FROM ' + stagingRef + ' s\n' +
-      ') > 0 THEN\n' +
-      "  RAISE USING MESSAGE = '列\u300c" + escSql_(col.csv_header) +
-        "\u300d(index:" + col.index + ") \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002" +
-        "\u3053\u306e\u5217\u306f line_tax_amount \u306e\u8a08\u7b97\u306b\u4f7f\u7528\u3059\u308b\u305f\u3081\u6570\u5024\u304c\u5fc5\u9808\u3067\u3059\u3002\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002';\n" +
-      'END IF;'
-    );
+    validateCases.push({
+      countifExpr:
+        'COUNTIF(\n' +
+        '      SAFE_CAST(NULLIF(' + fieldRef + ", '') AS INT64) IS NULL\n" +
+        '      AND ' + fieldRef + ' IS NOT NULL\n' +
+        "      AND " + fieldRef + " != '')",
+      message:
+        '\u5217\u300c' + escSql_(col.csv_header) +
+        '\u300d(index:' + col.index + ') \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002' +
+        '\u3053\u306e\u5217\u306f line_tax_amount \u306e\u8a08\u7b97\u306b\u4f7f\u7528\u3059\u308b\u305f\u3081\u6570\u5024\u304c\u5fc5\u9808\u3067\u3059\u3002\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+    });
   });
 
   const safeAmount  = 'COALESCE(SAFE_CAST(NULLIF(' + amountFieldRef  + ", '') AS INT64), 0)";
@@ -541,7 +526,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     '（うち計算項目: line_tax_amount）'
   );
 
-  return { insertColumns: insertColumns, selectSql: selectSql, dateValidateSqls: dateValidateSqls, intValidateSqls: intValidateSqls };
+  return { insertColumns: insertColumns, selectSql: selectSql, validateCases: validateCases };
 }
 
 
@@ -668,8 +653,9 @@ function buildMappedTransactionSql_(params) {
 
   // ── 孫テーブル用の動的 SELECT SQL を生成 ★アドオン核心 ───────────────────
   // buildInvoiceLinesSelectSql_() が INSERT カラムリストと SELECT 文を同時に返す。
-  // store_invoice_id は store_invoices との JOIN で取得する（最新DDLに合わせた設計）。
-  const { insertColumns, selectSql, dateValidateSqls, intValidateSqls } = buildInvoiceLinesSelectSql_(
+  // validateCases は staging を1回スキャンして全列のエラーを検知するための
+  // { countifExpr, message }[] 配列。後続でまとめて CASE WHEN に展開する。
+  const { insertColumns, selectSql, validateCases } = buildInvoiceLinesSelectSql_(
     csvFormatRules,
     stagingRef,
     invoiceUuid,
@@ -709,36 +695,46 @@ function buildMappedTransactionSql_(params) {
   // store_invoice_id は buildInvoiceLinesSelectSql_() 内で store_invoices と JOIN して取得。
   // invoiceUuid は全行共通のため JOIN 条件として埋め込み済み。
 
-  // ── 日付・整数バリデーションブロックを組み立て ──────────────────────────────
-  // SAFE 系関数は不正値を NULL に変換するが、NULL のまま INSERT するとデータが汚染される。
-  // トランザクション冒頭に IF...RAISE を挿入することで INSERT 実行前に不正値を検知し、
-  // RAISE → BQ による自動 ROLLBACK でトランザクション全体を安全に中断できる。
-  const dateValidateBlock = dateValidateSqls.length > 0
+  // ── バリデーションブロックを組み立て（staging 1回スキャン版） ────────────────
+  // 列ごとに個別 SELECT を発行すると staging を列数分フルスキャンしてしまう。
+  // DECLARE + SET (CASE WHEN 複数 COUNTIF) + IF...RAISE の形に集約することで
+  // staging を1回だけスキャンして全列のエラーを検知する。
+  // CASE WHEN は最初にマッチした WHEN のメッセージを返し、RAISE で即時 ROLLBACK する。
+  const validateBlock = validateCases.length > 0
     ? [
         '-- =========================================================',
-        '-- 0a. 日付バリデーション（不正日付の早期検知）              ',
-        '--     SAFE 系関数が NULL を返す行が存在すれば RAISE する     ',
-        '--     RAISE は BQ により自動的に ROLLBACK される（BQ 仕様）  ',
+        '-- 0. バリデーション（日付・整数・必須チェック）              ',
+        '--    staging を1回だけスキャンして全列のエラーを検知する     ',
+        '--    CASE WHEN の最初にマッチしたエラーメッセージを RAISE する',
+        '--    RAISE は BQ により自動的に ROLLBACK される（BQ 仕様）   ',
         '-- =========================================================',
-      ].concat(dateValidateSqls).concat([''])
-    : [];
-
-  const intValidateBlock = intValidateSqls.length > 0
-    ? [
-        '-- =========================================================',
-        '-- 0b. 整数バリデーション（required integer 列の非数値検知）    ',
-        '--     新形式は Staging が全列 STRING のため Load Job の型チェックが利かず  ',
-        '--     SAFE_CAST が NULL を返す行の存在を自前で検知する              ',
-        '-- =========================================================',
-      ].concat(intValidateSqls).concat([''])
+        'DECLARE _validate_error STRING DEFAULT NULL;',
+        'SET _validate_error = (',
+        '  SELECT CASE',
+      ].concat(
+        validateCases.map(function(c) {
+          return (
+            '    WHEN ' + c.countifExpr + ' > 0\n' +
+            "      THEN '" + c.message + "'"
+          );
+        })
+      ).concat([
+        '    ELSE NULL',
+        '  END',
+        '  FROM ' + stagingRef + ' s',
+        ');',
+        'IF _validate_error IS NOT NULL THEN',
+        '  RAISE USING MESSAGE = _validate_error;',
+        'END IF;',
+        '',
+      ])
     : [];
 
   // ── 全体 SQL を結合 ──────────────────────────────────────────────────────
   const sqlLines = [
     'BEGIN TRANSACTION;',
     '',
-    ...dateValidateBlock,
-    ...intValidateBlock,
+    ...validateBlock,
     '-- =========================================================',
     '-- 1. 子テーブル (store_invoices)',
     '--    フロントの summaryData.merchantTotals から VALUES を展開',
@@ -857,6 +853,20 @@ function parseCsvLineMapper_(line) {
     }
   }
   return result;
+}
+
+/**
+ * SQL の -- コメントに埋め込む文字列から改行・制御文字を除去しで1行化する。
+ * -- コメントは改行までがコメント範囲のため、csv_header に \n/\r が含まれると
+ * コメントが途中で終了し、その後ろに任意の SQL を注入できてしまうため。
+ *
+ * @param {*} s - サニタイズ対象の値
+ * @returns {string}
+ * @private
+ */
+function sanitizeComment_(s) {
+  // \n / \r / 制御文字（U+0000–U+001F, U+007F）をスペースに変換して trim
+  return String(s == null ? '' : s).replace(/[\x00-\x1F\x7F]/g, ' ').trim();
 }
 
 /**
