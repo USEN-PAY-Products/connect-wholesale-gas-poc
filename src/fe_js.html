@@ -1315,8 +1315,8 @@ function closeCancelModal() {
   _modalTrigger = null;
 }
 
-// 確認ページ: キャンセルボタン → モーダルを表示
-document.getElementById('btnConfirmCancel').addEventListener('click', function () {
+// 確認ページ: 一覧に戻るボタン → モーダルを表示
+document.getElementById('btnConfirmBack').addEventListener('click', function () {
   openCancelModal(this);
 });
 
@@ -1555,6 +1555,13 @@ function renderConfirmPage() {
   const payAmount  = totalAmountInTax - feeAmount;
 
   const fmt = n => n.toLocaleString('ja-JP');
+
+  // 登録日時（現在日時）
+  const now = new Date();
+  const registeredAt = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const registeredAtEl = document.getElementById('summaryRegisteredAt');
+  if (registeredAtEl) registeredAtEl.textContent = registeredAt;
+
   document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
   document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
   document.getElementById('summaryTax').textContent         = fmt(totalTax);
@@ -1614,11 +1621,12 @@ function renderConfirmPage() {
   colHeader.className = 'store-list-header';
   colHeader.innerHTML =
     `<span class="slh-col slh-col--name">加盟店名</span>` +
+    `<span class="slh-col slh-col--mallcode">顧客ID</span>` +
     `<span class="slh-col slh-col--amount">請求金額</span>` +
     `<span class="slh-col slh-col--extax">小計（税抜）</span>` +
     `<span class="slh-col slh-col--tax">消費税</span>` +
-    `<span class="slh-col slh-col--tax8">消費税内訳（8%）</span>` +
-    `<span class="slh-col slh-col--tax10">消費税内訳（10%）</span>` +
+    `<span class="slh-col slh-col--tax10">税内訳（10%）</span>` +
+    `<span class="slh-col slh-col--tax8">税内訳（8%）</span>` +
     `<span class="slh-col slh-col--toggle"></span>`;
   list.appendChild(colHeader);
 
@@ -1656,13 +1664,15 @@ function renderConfirmPage() {
     header.setAttribute('role', 'button');
     header.setAttribute('tabindex', '0');
     header.setAttribute('aria-expanded', 'false');
+    const mallCode = String(mapping.mall_code || customerCode);
     header.innerHTML =
       `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(displayName)}</span>` +
-      `<span class="slh-col slh-col--amount"><span class="amount-display" data-field="totalAmount">${storeTotal.toLocaleString('ja-JP')}</span></span>` +
-      `<span class="slh-col slh-col--extax"><span class="amount-display" data-field="subtotalAmount">${storeAmountExTax.toLocaleString('ja-JP')}</span></span>` +
-      `<span class="slh-col slh-col--tax"><span class="amount-display" data-field="taxAmount">${storeTax.toLocaleString('ja-JP')}</span></span>` +
-      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 消費税内訳（8%）（円）" /></span>` +
-      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 消費税内訳（10%）（円）" /></span>` +
+      `<span class="slh-col slh-col--mallcode">${escapeHtml(mallCode)}</span>` +
+      `<span class="slh-col slh-col--amount"><span class="amount-display" data-field="totalAmount">${storeTotal.toLocaleString('ja-JP')}</span>円</span>` +
+      `<span class="slh-col slh-col--extax"><span class="amount-display" data-field="subtotalAmount">${storeAmountExTax.toLocaleString('ja-JP')}</span>円</span>` +
+      `<span class="slh-col slh-col--tax"><span class="amount-display" data-field="taxAmount">${storeTax.toLocaleString('ja-JP')}</span>円</span>` +
+      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（10%）（円）" />円</span>` +
+      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（8%）（円）" />円</span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
     const toggleAccordion = () => {
@@ -1702,42 +1712,70 @@ function renderConfirmPage() {
     const body = document.createElement('div');
     body.className = 'store-accordion__body';
 
+    // 備考 input（加盟店への備考）
+    const remarksDiv = document.createElement('div');
+    remarksDiv.className = 'store-accordion__remarks';
+    remarksDiv.innerHTML =
+      `<label class="remarks-label">・ 備考</label>` +
+      `<input type="text" class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="備考があれば入力してください" />`;
+    body.appendChild(remarksDiv);
+
+    // 明細アコーディオン（ネスト）
+    const detailAccordion = document.createElement('div');
+    detailAccordion.className = 'detail-accordion';
+
+    const detailHeader = document.createElement('div');
+    detailHeader.className = 'detail-accordion__header';
+    detailHeader.setAttribute('role', 'button');
+    detailHeader.setAttribute('tabindex', '0');
+    detailHeader.innerHTML =
+      `<span class="detail-accordion__label">・ 明細</span>` +
+      `<i class="fa-solid fa-chevron-down detail-accordion__icon"></i>`;
+
+    const toggleDetail_ = () => { detailAccordion.classList.toggle('is-open'); };
+    detailHeader.addEventListener('click', toggleDetail_);
+    detailHeader.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDetail_(); }
+    });
+
+    const detailBody = document.createElement('div');
+    detailBody.className = 'detail-accordion__body';
+
+    const table = document.createElement('table');
+    table.className = 'detail-table';
+    const thead = table.createTHead();
+    thead.innerHTML =
+      `<tr>` +
+        `<th>取引日</th>` +
+        `<th>明細項目</th>` +
+        `<th class="num-th">単価</th>` +
+        `<th class="num-th">数量</th>` +
+        `<th class="num-th">明細金額（税抜）</th>` +
+        `<th class="num-th">内 消費税</th>` +
+        `<th>備考</th>` +
+      `</tr>`;
+
+    const tbody = table.createTBody();
     rows.forEach(row => {
       const amtExTax  = Number(row['amount_ex_tax'] || 0);
       const taxRate   = Number(row['tax_rate']       || 0);
       const taxAmount = Math.floor(amtExTax * taxRate / 100);
-      const item = document.createElement('div');
-      item.className = 'detail-row';
-
-      const fields = [
-        { label: '取引日',   value: escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/')) },
-        { label: '品名',     value: escapeHtml(String(row['item_name']        || '')) },
-        { label: '数量',     value: Number(row['quantity']  || 0).toLocaleString('ja-JP') },
-        { label: '単価',     value: Number(row['unit_price'] || 0).toLocaleString('ja-JP') + '円' },
-        { label: '明細金額', value: amtExTax.toLocaleString('ja-JP') + '円' },
-        { label: '税率',     value: taxRate + '%' },
-        { label: '消費税',   value: taxAmount.toLocaleString('ja-JP') + '円' },
-      ];
-
-      const mainRow = document.createElement('div');
-      mainRow.className = 'detail-row__main';
-      mainRow.innerHTML = fields.map(f =>
-        `<span class="detail-row__field">` +
-          `<span class="detail-row__label">${f.label}</span>` +
-          `<span class="detail-row__sep">|</span>` +
-          `<span class="detail-row__value">${f.value}</span>` +
-        `</span>`
-      ).join('');
-      item.appendChild(mainRow);
-
-      const remark = String(row['invoice_detail_remark'] || '');
-      const noteRow = document.createElement('div');
-      noteRow.className = 'detail-row__note';
-      noteRow.innerHTML = `<span class="detail-row__note-label">備考：</span>${remark ? escapeHtml(remark) : '<span class="detail-row__note-empty">なし</span>'}`;
-      item.appendChild(noteRow);
-
-      body.appendChild(item);
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td>${escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/'))}</td>` +
+        `<td>${escapeHtml(String(row['item_name'] || ''))}</td>` +
+        `<td class="num-td">${Number(row['unit_price'] || 0).toLocaleString('ja-JP')}円</td>` +
+        `<td class="num-td">${Number(row['quantity'] || 0).toLocaleString('ja-JP')}</td>` +
+        `<td class="num-td">${amtExTax.toLocaleString('ja-JP')}円</td>` +
+        `<td class="num-td">${taxAmount.toLocaleString('ja-JP')}円（${taxRate}%）</td>` +
+        `<td>${escapeHtml(String(row['invoice_detail_remark'] || '')) || '—'}</td>`;
+      tbody.appendChild(tr);
     });
+
+    detailBody.appendChild(table);
+    detailAccordion.appendChild(detailHeader);
+    detailAccordion.appendChild(detailBody);
+    body.appendChild(detailAccordion);
 
     // 加盟店ごとの内訳 hidden input（collectSummaryData_ で読み取る）
     const hiddenDiv = document.createElement('div');
@@ -1746,14 +1784,6 @@ function renderConfirmPage() {
       `<input type="number" data-field="exTax10" value="${st.exTax10}" />` +
       `<input type="number" data-field="exTax8"  value="${st.exTax8}"  />`;
     body.appendChild(hiddenDiv);
-
-    // 卸→加盟店 備考
-    const remarksDiv = document.createElement('div');
-    remarksDiv.className = 'store-accordion__remarks';
-    remarksDiv.innerHTML =
-      `<label class="remarks-label">卸→加盟店 備考：</label>` +
-      `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="備考があれば入力してください"></textarea>`;
-    body.appendChild(remarksDiv);
 
     card.appendChild(header);
     card.appendChild(body);

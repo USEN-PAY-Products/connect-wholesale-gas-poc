@@ -295,11 +295,42 @@ button { cursor: pointer; font-family: inherit; }
 
 /* 確認画面の見出し */
 #pageConfirm .card-label {
-  font-size: 16px;
+  font-size: 24px;
   font-style: normal;
-  font-weight: 700;
+  font-weight: 400;
+  line-height: 100%;
   padding: 0;
   margin-bottom: 12px;
+}
+
+/* 加盟店別詳細セクション */
+.store-list-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+
+.store-list-note {
+  font-size: 13px;
+  color: #555;
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+
+/* 加盟店別詳細セクション内の横線 */
+.store-list-section__divider {
+  border-top: 1px solid #D9D9D9;
+  margin: 24px 0;
+}
+
+/* 加盟店別詳細セクション内の確認・送信エリア */
+.confirm-submit-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }
 
 /* Drop zone */
@@ -565,9 +596,12 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .btn-submit {
-  width: 230px;
+  display: flex;
   height: 48px;
+  padding: 16px 80px;
   justify-content: center;
+  align-items: center;
+  gap: 8px;
   font-size: 18px;
   font-weight: 400;
   border-radius: 24px;
@@ -594,7 +628,11 @@ button { cursor: pointer; font-family: inherit; }
    Confirm page: summary table
    ===================================================== */
 .summary-card {
-  margin-bottom: 16px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px 28px;
+  margin-bottom: 40px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
 }
 
 .summary-table {
@@ -692,7 +730,7 @@ button { cursor: pointer; font-family: inherit; }
   font-weight: 600;
   color: #1a2b4a;
   text-align: right;
-  background: #FAFCFF;
+  background: #FFF;
   box-sizing: border-box;
 }
 .amount-input:focus {
@@ -714,13 +752,24 @@ button { cursor: pointer; font-family: inherit; }
 
 /* 列幅定義（ヘッダー行・各アコーディオン行で共有） */
 .slh-col           { font-size: 13px; padding: 0 12px; flex-shrink: 0; }
-.slh-col--name     { flex: 1 1 160px; min-width: 0; padding-left: 0; }
-.slh-col--amount   { width: 120px; text-align: right; }
-.slh-col--extax    { width: 120px; text-align: right; }
-.slh-col--tax      { width: 100px; text-align: right; }
-.slh-col--tax8     { width: 160px; text-align: right; }
-.slh-col--tax10    { width: 160px; text-align: right; }
-.slh-col--toggle   { width: 36px;  text-align: center; flex-shrink: 0; padding: 0; }
+.slh-col--name     { width: 208px; flex: none; min-width: 0; padding-left: 0; text-align: center; }
+.slh-col--mallcode { width: 72px; text-align: left; color: #335B77; }
+.slh-col--amount   { width: 110px; text-align: right; }
+.slh-col--extax    { width: 110px; text-align: right; }
+.slh-col--tax      { width: 90px; text-align: right; }
+.slh-col--tax8     { width: 130px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.slh-col--tax10    { width: 130px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.slh-col--toggle   { flex: 1; text-align: right; flex-shrink: 0; padding: 0; display: flex; justify-content: flex-end; }
+
+/* ヘッダー行の加盟店名は中央寄せ */
+.store-list-header .slh-col--name {
+  text-align: center;
+}
+
+/* アコーディオン内の加盟店名は左寄せ */
+.store-accordion__header .slh-col--name {
+  text-align: left;
+}
 
 /* store accordion header 内の amount-input は幅いっぱいに使う */
 .store-accordion__header .amount-input {
@@ -735,10 +784,10 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: center;
   padding: 8px 18px;
-  background: #fff;
+  background: #CCD6DD;
   border-bottom: 1px solid #D9D9D9;
   font-size: 12px;
-  color: #888;
+  color: #335B77;
   font-weight: 400;
 }
 
@@ -751,12 +800,12 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: center;
   padding: 14px 18px;
-  background: #fff;
+  background: #F1F2F3;
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
 }
-.store-accordion__header:hover { background: #F9FBFF; }
+.store-accordion__header:hover { background: #E5E6E7; }
 
 .store-accordion__code {
   font-weight: 600;
@@ -768,7 +817,7 @@ button { cursor: pointer; font-family: inherit; }
 
 .store-accordion__icon {
   font-size: 13px;
-  color: #888;
+  color: #00A7B8;
   transition: transform 0.2s;
 }
 .store-accordion.is-open .store-accordion__icon {
@@ -788,37 +837,41 @@ button { cursor: pointer; font-family: inherit; }
   background: #fff;
 }
 
+
+/* アコーディオン内の備考と明細の間隔を0にして各要素で制御 */
 .store-accordion__body {
   display: none;
-  border-top: 1px solid #EBEBEB;
-  background: #FAFAFA;
+  background: #F1F2F3;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 0;
 }
-.store-accordion.is-open .store-accordion__body { display: block; }
+.store-accordion.is-open .store-accordion__body { display: flex; }
 
 /* 加盟店ごとの備考エリア */
 .store-accordion__remarks {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 16px 14px;
-  border-top: 1px dashed #D9D9D9;
-  background: #F5F8FF;
+  align-items: center;
+  gap: 32px;
+  padding: 8px 16px;
+  background: #F1F2F3;
 }
 .remarks-label {
   flex-shrink: 0;
-  font-size: 13px;
-  color: #555;
-  padding-top: 6px;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  color: #335B77;
   white-space: nowrap;
+  min-width: 36px;
 }
 .remarks-input {
   flex: 1;
-  min-height: 52px;
-  padding: 6px 8px;
+  height: 32px;
+  padding: 4px 8px;
   border: 1px solid #C9D4E8;
   border-radius: 4px;
   font-size: 13px;
-  resize: vertical;
   background: #FFF;
   color: #333;
 }
@@ -837,7 +890,88 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* =====================================================
-   Confirm page: detail row cards
+   Confirm page: nested 明細 accordion
+   ===================================================== */
+.detail-accordion {
+  margin: 0 16px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.detail-accordion__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 8px 0;
+  cursor: pointer;
+  user-select: none;
+  background: #F1F2F3;
+  transition: background 0.15s;
+}
+.detail-accordion__header:hover { background: #CBCBCB; }
+
+.detail-accordion__label {
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  color: #335B77;
+}
+
+.detail-accordion__icon {
+  font-size: 12px;
+  color: #00A7B8;
+  transition: transform 0.2s;
+}
+.detail-accordion.is-open .detail-accordion__icon {
+  transform: rotate(180deg);
+}
+
+.detail-accordion__body {
+  display: none;
+  overflow-x: auto;
+  background: #FFF;
+}
+.detail-accordion.is-open .detail-accordion__body { display: block; }
+.detail-accordion.is-open .detail-accordion__body .detail-table tr:last-child td { border-bottom: none; }
+
+/* 明細アコーディオンの余白 */
+.store-accordion__body > .detail-accordion {
+  margin: 0 16px;
+}
+
+/* 明細テーブル */
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 640px;
+}
+.detail-table th {
+  padding: 8px 12px;
+  background: #EAEBED;
+  color: #335B77;
+  font-weight: 600;
+  border-bottom: 1px solid #B5C8D3;
+  white-space: nowrap;
+  text-align: left;
+}
+.detail-table th.num-th { text-align: right; }
+.detail-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #EBEBEB;
+  color: #335B77;
+  vertical-align: top;
+}
+.detail-table tr:last-child td { border-bottom: none; }
+.detail-table tr:hover td { background: #F9FBFF; }
+.detail-table td.num-td {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* =====================================================
+   Confirm page: detail row cards (legacy, may be unused)
    ===================================================== */
 .detail-row {
   border-bottom: 1px solid #EBEBEB;
@@ -1504,10 +1638,16 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .detail-summary-inner {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 32px;
-  align-items: start;
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+}
+
+/* 縦線 */
+.summary-card__divider {
+  width: 1px;
+  background: #D9D9D9;
+  flex-shrink: 0;
 }
 
 .detail-meta-row--handover {
@@ -1551,12 +1691,11 @@ button { cursor: pointer; font-family: inherit; }
 
 /* -- 左: 基本情報 -- */
 .detail-summary-meta__title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 24px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 120%;
   color: #333;
-  margin-bottom: 14px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #E0E0E0;
 }
 
 .detail-meta-row {
@@ -1602,10 +1741,117 @@ button { cursor: pointer; font-family: inherit; }
   padding: 18px 24px;
 }
 
-.detail-amount-header {
+/* 確認画面の請求基本情報：項目名を #335B77 に */
+.summary-card .detail-meta-label {
+  color: #335B77;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+.summary-card .detail-meta-value {
+  color: #335B77;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* 確認画面: 請求基本情報セクション全体レイアウト */
+.summary-card .detail-summary-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 32px 32px 16px;
+  flex: 1;
+}
+
+/* 確認画面: detail-meta-row */
+.summary-card .detail-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0;
+  width: 100%;
+}
+
+/* 確認画面の請求金額ブロックは枠・背景なし */
+.confirm-summary-amount {
+  flex: 1;
+  padding: 0 16px 32px 32px;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.confirm-amount-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
   font-size: 13px;
-  color: #888;
-  margin-bottom: 6px;
+  color: #555;
+  padding: 3px 0;
+}
+.confirm-amount-row span:first-child {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.confirm-amount-row span:last-child {
+  font-weight: 600;
+  color: #1a2b4a;
+  white-space: nowrap;
+}
+.confirm-amount-row--total {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1a2b4a;
+  padding-bottom: 4px;
+}
+.confirm-amount-row--total span:first-child {
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 120%;
+  color: #1a2b4a;
+}
+.confirm-amount-row--total span:last-child  { font-size: 18px; font-weight: 700; color: #1a2b4a; }
+
+/* 合計（税込）の下の小計・消費税など（2段階インデント） */
+.confirm-amount-row--sub {
+  padding-left: 16px;
+}
+.confirm-amount-row--sub span:first-child {
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 120%;
+  color: #555;
+}
+
+/* 合計・内訳グループ（請求金額から1段階インデント） */
+.confirm-amount-group {
+  padding-left: 16px;
+}
+
+/* 合計（税込）行のインデントなし（グループのパディングで既に1段階） */
+.confirm-amount-group .confirm-amount-row--total {
+  margin-left: 0;
+}
+
+/* 内訳ラベルのインデントなし（グループのパディングで既に1段階） */
+.confirm-amount-group .detail-amount-section-label {
+  margin-left: 0;
+}
+
+.detail-amount-header {
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 120%;
+  color: #1a2b4a;
+  margin-bottom: 12px;
 }
 
 .detail-amount-main-row {
@@ -1662,8 +1908,11 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .detail-amount-section-label {
-  font-size: 12px;
-  color: #999;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 120%;
+  color: #1a2b4a;
   margin-bottom: 2px;
 }
 
