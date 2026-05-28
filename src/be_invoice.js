@@ -981,7 +981,8 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
       "WHERE id = '" + storeInvoiceId + "' " +
       "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
       '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
-      '  AND is_latest = TRUE';
+      '  AND is_latest = TRUE ' +
+      "  AND (backoffice_review_status = 'RETURNED' OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED'))";
 
     Logger.log('[BQ] resubmitWithoutChanges SQL: ' + sql);
     runTransactionSql_(projectId, sql);
