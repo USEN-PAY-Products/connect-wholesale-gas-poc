@@ -318,8 +318,506 @@ function buildMallCodeMap_(mappings, merchantTotals) {
 }
 
 /**
- * CSV を Drive に保存し、BigQuery の 3 テーブルにトランザクション登録する。
- * Drive フォルダ構造: <DRIVE_ROOT> / <wholesaler_id>_<wholesaler_name> / <YYYYMM> / <タイムスタンプ>_original.csv
+ * 差し戻し・否認後の再送信用 SQL を組み立てる。
+ * sendInvoiceData の buildTransactionSql_ と同じ構造だが:
+ *   - wholesaler_invoices には既存の parentInvoiceId を使ってINSERT（新しい親は作らない）
+ *   - 対象の store_invoices レコードを is_latest = FALSE にUPDATE
+ *   - 否認の場合は wholesaler_handover を store_invoices に追加
+ *
+ * @param {string} parentInvoiceId - 詳細画面で表示中の wholesaler_invoices.id
+ * @param {string} storeInvoiceId  - 差し戻し/否認対象の store_invoices.id
+ * @param {string} stagingId
+ * @param {Object} summaryData
+ * @param {Object} remarks
+ * @param {string|null} wholesalerHandover - 否認の場合の加盟店との合意内容
+ * @param {Object} accountInfo
+ * @param {Object} mallCodeMap
+ * @param {string} csvUrl
+ * @param {string} projectId
+ * @param {string} datasetId
+ * @returns {string}
+ */
+function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks, wholesalerHandover, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
+  const wsId     = Number(accountInfo.wholesaler_id);
+  const wsUserId = String(accountInfo.wholesaler_user_id);
+  const feeRate  = Number(accountInfo.fee_rate || 0);
+  const wt       = summaryData.wholesalerTotal;
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[buildResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+  if (!UUID_RE.test(storeInvoiceId))  throw new Error('[buildResubmitTransactionSql_] storeInvoiceId の形式が不正です: ' + storeInvoiceId);
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[buildResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+
+  const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+
+  const storeRef     = '`' + projectId + '.' + datasetId + '.store_invoices`';
+  const linesRef     = '`' + projectId + '.' + datasetId + '.invoice_lines`';
+  const invRef       = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
+  const stagingRef   = '`' + projectId + '.' + datasetId + '.' + stagingId + '`';
+  const merchantsRef = '`' + projectId + '.' + datasetId + '.wholesaler_merchants`';
+
+  const newWiUuid = Utilities.getUuid();
+
+  const handoverSql = wholesalerHandover
+    ? "'" + esc(wholesalerHandover) + "'"
+    : 'NULL';
+
+  const childValues = summaryData.merchantTotals.map((m) => {
+    const childUuid = Utilities.getUuid();
+    const mallCode  = esc(mallCodeMap[String(m.customerCode)] || '');
+    const remark    = esc(remarks[String(m.customerCode)] || '');
+    const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    return (
+      "('" + childUuid + "', '" + parentInvoiceId + "', " + wsId + ", '" + mallCode + "', " +
+      Number(m.totalAmount)   + ', ' + Number(m.subtotalAmount) + ', ' + Number(m.taxAmount)  + ', ' +
+      Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
+      Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
+      '0, ' +
+      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+    );
+  });
+
+  // 金額再計算: 最新WIの金額 − 旧対象store金額 + 新CSV金額
+  const amountFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'];
+  const wiFieldMap = {
+    totalAmount: 'wholesaler_total_amount', subtotalAmount: 'wholesaler_subtotal_amount',
+    taxAmount: 'wholesaler_tax_amount', exTax10: 'wholesaler_standard_tax_target_amount',
+    tax10: 'wholesaler_standard_tax_amount', exTax8: 'wholesaler_reduced_tax_target_amount',
+    tax8: 'wholesaler_reduced_tax_amount',
+  };
+  const newAmounts = {};
+  amountFields.forEach(function (f) {
+    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+  });
+  newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
+  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
+
+  const lines = [
+    'BEGIN TRANSACTION;',
+    '',
+    '-- 旧レコードを is_latest = FALSE に更新',
+    'UPDATE ' + storeRef,
+    'SET is_latest = FALSE',
+    "WHERE id = '" + storeInvoiceId + "'",
+    '  AND is_latest = TRUE;',
+    '',
+    '-- 新しい store_invoices を INSERT',
+    'INSERT INTO ' + storeRef,
+    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '   total_amount, subtotal_amount, tax_amount,',
+    '   standard_tax_target_amount, standard_tax_amount,',
+    '   reduced_tax_target_amount, reduced_tax_amount,',
+    '   non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '   backoffice_review_status, is_latest,',
+    '   final_updated_by, created_at)',
+    'VALUES',
+    childValues.join(',\n') + ';',
+    '',
+    '-- invoice_lines を INSERT',
+    'INSERT INTO ' + linesRef,
+    '  (id, invoice_item_row, store_invoice_id,',
+    '   transaction_date, item_name, quantity, quantity_unit, unit_price,',
+    '   tax_category, line_amount_excluding_tax, line_tax_amount, line_note)',
+    'SELECT',
+    '  GENERATE_UUID(),',
+    '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY s.transaction_date),',
+    '  si.id,',
+    '  s.transaction_date, s.item_name, s.quantity, CAST(NULL AS STRING), s.unit_price,',
+    '  s.tax_rate, s.amount_ex_tax,',
+    '  CAST(FLOOR(s.amount_ex_tax * s.tax_rate / 100) AS INT64),',
+    '  s.invoice_detail_remark',
+    'FROM ' + stagingRef + ' s',
+    'JOIN ' + merchantsRef + ' wm',
+    '  ON wm.customer_code = s.customer_code',
+    '  AND wm.wholesaler_id = ' + wsId,
+    '  AND wm.deleted_at IS NULL',
+    'JOIN ' + storeRef + ' si',
+    '  ON si.mall_code = wm.mall_code',
+    "  AND si.wholesaler_invoice_id = '" + parentInvoiceId + "'",
+    '  AND si.is_latest = TRUE;',
+    '',
+    '-- 新しい wholesaler_invoices を INSERT（金額再計算済み）',
+    'INSERT INTO ' + invRef,
+    '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+    '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+    '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+    '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+    '   wholesaler_non_taxable_amount,',
+    '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+    '   wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+    'VALUES',
+    "  ('" + newWiUuid + "', '" + esc(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
+    '   ' + newAmounts.totalAmount + ', ' + newAmounts.subtotalAmount + ', ' + newAmounts.taxAmount + ',',
+    '   ' + newAmounts.exTax10 + ', ' + newAmounts.tax10 + ',',
+    '   ' + newAmounts.exTax8 + ', ' + newAmounts.tax8 + ',',
+    '   ' + newAmounts.nonTaxable + ',',
+    '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
+    "   '" + parentInvoiceId + "', '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
+    '',
+    'COMMIT;',
+  ];
+  return lines.join('\n');
+}
+
+/**
+ * 差し戻し・否認後の修正CSV再送信。
+ * 既存の wholesaler_invoices.id（parentInvoiceId）はそのまま使い、
+ * store_invoices を新規INSERT、旧レコードの is_latest を FALSE に更新する。
+ *
+ * @param {string}      rawCsvBase64      - 元CSVのBase64
+ * @param {string}      utf8CsvBase64     - UTF-8変換済みCSVのBase64
+ * @param {Object}      summaryData       - { wholesalerTotal, merchantTotals }
+ * @param {Object}      remarks           - { [customerCode]: string }
+ * @param {string}      parentInvoiceId   - wholesaler_invoices.id（詳細画面のID）
+ * @param {string}      storeInvoiceId    - 差し戻し/否認対象の store_invoices.id
+ * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容
+ * @returns {{ status: 'success', data: Object }}
+ */
+function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover) {
+  try {
+    const accountInfo = getServerAccountInfo_();
+    const mappings    = accountInfo.merchant_mappings || [];
+
+    if (!rawCsvBase64)  throw new Error('rawCsvBase64 が空です');
+    if (!utf8CsvBase64) throw new Error('utf8CsvBase64 が空です');
+    if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');
+    if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
+    if (!summaryData || !summaryData.wholesalerTotal || !Array.isArray(summaryData.merchantTotals)) {
+      throw new Error('summaryData の形式が不正です');
+    }
+    if (summaryData.merchantTotals.length === 0) {
+      throw new Error('summaryData.merchantTotals が空です');
+    }
+
+    const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
+    const mallCodeMap   = buildMallCodeMap_(mappings, summaryData.merchantTotals);
+
+    // ヘッダー検証
+    const utf8Bytes = Utilities.base64Decode(utf8CsvBase64);
+    const csvText   = Utilities.newBlob(utf8Bytes, MimeType.CSV).getDataAsString('UTF-8');
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      validateCsvHeaderByRules_(csvText, accountInfo.csv_format_rules);
+    } else {
+      validateCsvHeader_(csvText, getExpectedHeaders_());
+    }
+
+    const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
+    const config    = getConfig_();
+    const projectId = config.gcpProjectId;
+    const datasetId = config.bqDatasetId;
+    const location  = config.bqLocation;
+    const now       = new Date();
+
+    // Drive 保存
+    const rawBytes    = Utilities.base64Decode(rawCsvBase64);
+    const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
+    const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
+    const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
+    const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
+    const fileName    = formatTimestamp_(now) + '_resubmit.csv';
+    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
+    const csvFile     = monthFolder.createFile(saveBlob);
+    const csvUrl      = csvFile.getUrl();
+    Logger.log('[Drive] resubmit 保存完了: ' + csvUrl);
+
+    // BQ Load Job
+    const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema, location);
+    waitForLoadJob_(projectId, jobId, location);
+
+    // トランザクション SQL 実行
+    // 最新の wholesaler_invoices と旧対象 store_invoices の金額を BQ から取得（再計算用）
+    const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
+    if (!latestWi) throw new Error('最新の wholesaler_invoices が見つかりませんでした: ' + parentInvoiceId);
+    const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, [storeInvoiceId]);
+
+    let sql;
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      sql = buildMappedResubmitTransactionSql_({
+        parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
+        wholesalerHandover: wholesalerHandover || null,
+        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        csvFormatRules: accountInfo.csv_format_rules,
+        latestWi, oldStoreAmounts,
+      });
+    } else {
+      sql = buildResubmitTransactionSql_(
+        parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
+        wholesalerHandover || null, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        latestWi, oldStoreAmounts
+      );
+    }
+    Logger.log('[BQ] resubmit SQL:\n' + sql);
+    runTransactionSql_(projectId, sql);
+
+    // staging DROP
+    try {
+      dropStagingTable_(projectId, datasetId, stagingId);
+    } catch (dropErr) {
+      Logger.log('[BQ] ⚠️ staging DROP 失敗: ' + dropErr.message);
+    }
+
+    Logger.log('[resubmitInvoiceData] 完了: parentInvoiceId=' + parentInvoiceId);
+    return success_({ csv_url: csvUrl });
+  } catch (err) {
+    throw new Error('resubmitInvoiceData failed: ' + err.message);
+  }
+}
+
+// =============================================================================
+// 一括再送信（差し戻し・否認の全加盟店を一括で再送信）
+// =============================================================================
+
+/**
+ * 一括再送信用のトランザクション SQL を組み立てる。
+ * 全要対応 store_invoices を is_latest=FALSE → 新規 INSERT → wholesaler_invoices INSERT（金額再計算）。
+ *
+ * @param {string}  parentInvoiceId  - 大元の wholesaler_invoices.id
+ * @param {string}  stagingId
+ * @param {Object}  summaryData
+ * @param {Object}  remarks
+ * @param {Object}  accountInfo
+ * @param {Object}  mallCodeMap
+ * @param {string}  csvUrl
+ * @param {string}  projectId
+ * @param {string}  datasetId
+ * @param {Object}  latestWi         - 最新の wholesaler_invoices レコード
+ * @param {Object}  oldStoreAmounts  - 旧要対応 store_invoices の合計金額
+ * @returns {string} SQL
+ */
+function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryData, remarks, handovers, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
+  const wsId     = Number(accountInfo.wholesaler_id);
+  const wsUserId = String(accountInfo.wholesaler_user_id);
+  const feeRate  = Number(accountInfo.fee_rate || 0);
+  const wt       = summaryData.wholesalerTotal;
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[buildBulkResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[buildBulkResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+
+  const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+
+  const storeRef     = '`' + projectId + '.' + datasetId + '.store_invoices`';
+  const linesRef     = '`' + projectId + '.' + datasetId + '.invoice_lines`';
+  const invRef       = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
+  const stagingRef   = '`' + projectId + '.' + datasetId + '.' + stagingId + '`';
+  const merchantsRef = '`' + projectId + '.' + datasetId + '.wholesaler_merchants`';
+
+  const newWiUuid = Utilities.getUuid();
+
+  const childValues = summaryData.merchantTotals.map((m) => {
+    const childUuid = Utilities.getUuid();
+    const mallCode  = esc(mallCodeMap[String(m.customerCode)] || '');
+    const remark    = esc(remarks[String(m.customerCode)] || '');
+    const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    const handover  = handovers[String(m.customerCode)] || '';
+    const handoverSql = handover ? "'" + esc(handover) + "'" : 'NULL';
+    return (
+      "('" + childUuid + "', '" + parentInvoiceId + "', " + wsId + ", '" + mallCode + "', " +
+      Number(m.totalAmount)   + ', ' + Number(m.subtotalAmount) + ', ' + Number(m.taxAmount)  + ', ' +
+      Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
+      Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
+      '0, ' +
+      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+    );
+  });
+
+  // 金額再計算: 最新WIの金額 − 旧対象store金額 + 新CSV金額
+  const amountFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'];
+  const wiFieldMap = {
+    totalAmount: 'wholesaler_total_amount', subtotalAmount: 'wholesaler_subtotal_amount',
+    taxAmount: 'wholesaler_tax_amount', exTax10: 'wholesaler_standard_tax_target_amount',
+    tax10: 'wholesaler_standard_tax_amount', exTax8: 'wholesaler_reduced_tax_target_amount',
+    tax8: 'wholesaler_reduced_tax_amount',
+  };
+  const newAmounts = {};
+  amountFields.forEach(function (f) {
+    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+  });
+  newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
+  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
+
+  const lines = [
+    'BEGIN TRANSACTION;',
+    '',
+    '-- ① 差し戻し store_invoices を is_latest = FALSE に更新',
+    'UPDATE ' + storeRef,
+    'SET is_latest = FALSE',
+    "WHERE wholesaler_invoice_id = '" + parentInvoiceId + "'",
+    "  AND backoffice_review_status = 'RETURNED'",
+    '  AND is_latest = TRUE;',
+    '',
+    '-- ② 否認 store_invoices を is_latest = FALSE に更新',
+    'UPDATE ' + storeRef,
+    'SET is_latest = FALSE',
+    "WHERE wholesaler_invoice_id = '" + parentInvoiceId + "'",
+    "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
+    "  AND invoice_status = 'DISPUTED'",
+    '  AND is_latest = TRUE;',
+    '',
+    '-- ③ 新しい store_invoices を INSERT',
+    'INSERT INTO ' + storeRef,
+    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '   total_amount, subtotal_amount, tax_amount,',
+    '   standard_tax_target_amount, standard_tax_amount,',
+    '   reduced_tax_target_amount, reduced_tax_amount,',
+    '   non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '   backoffice_review_status, is_latest,',
+    '   final_updated_by, created_at)',
+    'VALUES',
+    childValues.join(',\n') + ';',
+    '',
+    '-- ④ invoice_lines を INSERT',
+    'INSERT INTO ' + linesRef,
+    '  (id, invoice_item_row, store_invoice_id,',
+    '   transaction_date, item_name, quantity, quantity_unit, unit_price,',
+    '   tax_category, line_amount_excluding_tax, line_tax_amount, line_note)',
+    'SELECT',
+    '  GENERATE_UUID(),',
+    '  ROW_NUMBER() OVER (PARTITION BY si.id ORDER BY s.transaction_date),',
+    '  si.id,',
+    '  s.transaction_date, s.item_name, s.quantity, CAST(NULL AS STRING), s.unit_price,',
+    '  s.tax_rate, s.amount_ex_tax,',
+    '  CAST(FLOOR(s.amount_ex_tax * s.tax_rate / 100) AS INT64),',
+    '  s.invoice_detail_remark',
+    'FROM ' + stagingRef + ' s',
+    'JOIN ' + merchantsRef + ' wm',
+    '  ON wm.customer_code = s.customer_code',
+    '  AND wm.wholesaler_id = ' + wsId,
+    '  AND wm.deleted_at IS NULL',
+    'JOIN ' + storeRef + ' si',
+    '  ON si.mall_code = wm.mall_code',
+    "  AND si.wholesaler_invoice_id = '" + parentInvoiceId + "'",
+    '  AND si.is_latest = TRUE;',
+    '',
+    '-- ⑤ 新しい wholesaler_invoices を INSERT（金額再計算済み）',
+    'INSERT INTO ' + invRef,
+    '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+    '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+    '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+    '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+    '   wholesaler_non_taxable_amount,',
+    '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+    '   wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+    'VALUES',
+    "  ('" + newWiUuid + "', '" + esc(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
+    '   ' + newAmounts.totalAmount + ', ' + newAmounts.subtotalAmount + ', ' + newAmounts.taxAmount + ',',
+    '   ' + newAmounts.exTax10 + ', ' + newAmounts.tax10 + ',',
+    '   ' + newAmounts.exTax8 + ', ' + newAmounts.tax8 + ',',
+    '   ' + newAmounts.nonTaxable + ',',
+    '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
+    "   '" + parentInvoiceId + "', '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
+    '',
+    'COMMIT;',
+  ];
+  return lines.join('\n');
+}
+
+/**
+ * 差し戻し・否認の全加盟店を一括で再送信する。
+ * CSV をアップロードし、全要対応 store_invoices を is_latest=FALSE → 新規INSERT、
+ * wholesaler_invoices を金額再計算してINSERTする。
+ *
+ * @param {string} rawCsvBase64   - 元CSVのBase64
+ * @param {string} utf8CsvBase64  - UTF-8変換済みCSVのBase64
+ * @param {Object} summaryData    - { wholesalerTotal, merchantTotals }
+ * @param {Object} remarks        - { [customerCode]: string }
+ * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
+ * @returns {{ status: 'success', data: Object }}
+ */
+function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers) {
+  try {
+    const accountInfo = getServerAccountInfo_();
+    const mappings    = accountInfo.merchant_mappings || [];
+
+    if (!rawCsvBase64)     throw new Error('rawCsvBase64 が空です');
+    if (!utf8CsvBase64)    throw new Error('utf8CsvBase64 が空です');
+    if (!parentInvoiceId)  throw new Error('parentInvoiceId が指定されていません');
+    if (!summaryData || !summaryData.wholesalerTotal || !Array.isArray(summaryData.merchantTotals)) {
+      throw new Error('summaryData の形式が不正です');
+    }
+    if (summaryData.merchantTotals.length === 0) {
+      throw new Error('summaryData.merchantTotals が空です');
+    }
+
+    const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
+    const mallCodeMap   = buildMallCodeMap_(mappings, summaryData.merchantTotals);
+
+    // ヘッダー検証
+    const utf8Bytes = Utilities.base64Decode(utf8CsvBase64);
+    const csvText   = Utilities.newBlob(utf8Bytes, MimeType.CSV).getDataAsString('UTF-8');
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      validateCsvHeaderByRules_(csvText, accountInfo.csv_format_rules);
+    } else {
+      validateCsvHeader_(csvText, getExpectedHeaders_());
+    }
+
+    const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
+    const config    = getConfig_();
+    const projectId = config.gcpProjectId;
+    const datasetId = config.bqDatasetId;
+    const location  = config.bqLocation;
+    const now       = new Date();
+
+    // Drive 保存
+    const rawBytes    = Utilities.base64Decode(rawCsvBase64);
+    const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
+    const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
+    const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
+    const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
+    const fileName    = formatTimestamp_(now) + '_bulk_resubmit.csv';
+    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
+    const csvFile     = monthFolder.createFile(saveBlob);
+    const csvUrl      = csvFile.getUrl();
+    Logger.log('[Drive] bulk_resubmit 保存完了: ' + csvUrl);
+
+    // BQ Load Job
+    const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema, location);
+    waitForLoadJob_(projectId, jobId, location);
+
+    // 最新の wholesaler_invoices と旧対象 store_invoices の金額を取得（再計算用）
+    const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
+    if (!latestWi) throw new Error('最新の wholesaler_invoices が見つかりませんでした: ' + parentInvoiceId);
+    const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, null);
+
+    // トランザクション SQL 実行
+    let sql;
+    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+      sql = buildMappedBulkResubmitTransactionSql_({
+        parentInvoiceId, stagingId, summaryData, remarks,
+        handovers: handovers || {},
+        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        csvFormatRules: accountInfo.csv_format_rules,
+        latestWi, oldStoreAmounts,
+      });
+    } else {
+      sql = buildBulkResubmitTransactionSql_(
+        parentInvoiceId, stagingId, summaryData, remarks,
+        handovers || {},
+        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        latestWi, oldStoreAmounts
+      );
+    }
+    Logger.log('[BQ] bulk_resubmit SQL:\n' + sql);
+    runTransactionSql_(projectId, sql);
+
+    // staging DROP
+    try {
+      dropStagingTable_(projectId, datasetId, stagingId);
+    } catch (dropErr) {
+      Logger.log('[BQ] ⚠️ staging DROP 失敗: ' + dropErr.message);
+    }
+
+    Logger.log('[bulkResubmitInvoiceData] 完了: parentInvoiceId=' + parentInvoiceId);
+    return success_({ csv_url: csvUrl });
+  } catch (err) {
+    throw new Error('bulkResubmitInvoiceData failed: ' + err.message);
+  }
+}
+
+/**
+ * Drive フォルダ構造: DRIVE_ROOT / wholesaler_id_wholesaler_name / YYYYMM / タイムスタンプ_original.csv
  *
  * フロー:
  *   ① Drive に CSV を保存（元ファイル保全）
@@ -454,6 +952,70 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
   } catch (err) {
     throw new Error('sendInvoiceData failed: ' + err.message);
+  }
+}
+
+// =============================================================================
+// 変更なしで再請求（ステータス更新のみ）
+// =============================================================================
+
+/**
+ * 変更なしで再請求する。CSV の再アップロードは不要。
+ * store_invoices の backoffice_review_status を PENDING_REVIEW に更新し、
+ * 否認の場合は wholesaler_handover を更新する。
+ * invoice_status（DISPUTED等）はそのまま維持する。
+ *
+ * @param {string}      storeInvoiceId     - 対象の store_invoices.id
+ * @param {string}      parentInvoiceId    - 大元の wholesaler_invoices.id
+ * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容（差し戻しの場合はnull）
+ * @returns {{ status: 'success', data: Object }}
+ */
+function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover) {
+  try {
+    const accountInfo  = getServerAccountInfo_();
+    const wholesalerId = accountInfo.wholesaler_id;
+
+    if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
+    if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(storeInvoiceId))  throw new Error('storeInvoiceId の形式が不正です: ' + storeInvoiceId);
+    if (!UUID_RE.test(parentInvoiceId)) throw new Error('parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+
+    const config    = getConfig_();
+    const projectId = config.gcpProjectId;
+    const datasetId = config.bqDatasetId;
+    const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
+
+    const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+
+    // wholesaler_handover の更新:
+    //   - 値が渡された場合（否認で入力あり）→ その値で更新
+    //   - null/空の場合（差し戻し等）→ 既存値を維持
+    let handoverSetClause;
+    if (wholesalerHandover != null && wholesalerHandover !== '') {
+      handoverSetClause = "wholesaler_handover = '" + esc(wholesalerHandover) + "'";
+    } else {
+      handoverSetClause = 'wholesaler_handover = wholesaler_handover';
+    }
+
+    const sql =
+      'UPDATE ' + storeRef + ' ' +
+      "SET backoffice_review_status = 'PENDING_REVIEW', " +
+      handoverSetClause + ' ' +
+      "WHERE id = '" + storeInvoiceId + "' " +
+      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
+      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
+      '  AND is_latest = TRUE ' +
+      "  AND (backoffice_review_status = 'RETURNED' OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED'))";
+
+    Logger.log('[BQ] resubmitWithoutChanges SQL: ' + sql);
+    runTransactionSql_(projectId, sql);
+
+    Logger.log('[resubmitWithoutChanges] 完了: storeInvoiceId=' + storeInvoiceId);
+    return success_({ store_invoice_id: storeInvoiceId });
+  } catch (err) {
+    throw new Error('resubmitWithoutChanges failed: ' + err.message);
   }
 }
 

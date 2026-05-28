@@ -18,49 +18,60 @@
     </div>
 
     <!-- ================================================================
-         差し戻しの一覧 (RETURNED)
+         要対応の請求一覧（差し戻し / 否認）
          ================================================================ -->
-    <section class="detail-section hidden" id="detailReturnedSection">
+    <section class="detail-section hidden" id="detailActionRequiredSection">
       <div class="detail-section-header detail-section-header--returned">
-        <div class="detail-section-header__left">
+        <div class="detail-section-header__top">
           <h2 class="detail-section-title detail-section-title--returned">
-            <i class="fa-solid fa-triangle-exclamation"></i> 差し戻しの一覧
+            要対応の請求一覧
           </h2>
-          <p class="detail-section-desc">
-            差し戻しされた店舗があります。内容を確認し、CSVファイルをアップロードしなおして、請求内容を差し戻しして下さい。
-          </p>
+          <div class="detail-section-header__actions">
+            <button type="button" class="btn btn-outline btn-sm" id="detailBtnUploadCsv">
+              <i class="fa-solid fa-upload"></i> CSV一括アップロード
+            </button>
+          </div>
         </div>
-        <div class="detail-section-header__actions">
-          <button type="button" class="btn btn-outline btn-sm" id="detailBtnDownloadCsv">
-            <i class="fa-solid fa-download"></i> CSVダウンロード
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" id="detailBtnUploadCsv">
-            <i class="fa-solid fa-upload"></i> CSVアップロード
-          </button>
-        </div>
+        <p class="detail-section-desc detail-section-desc--alert">
+          <i class="fa-solid fa-circle-exclamation"></i> 差戻し、もしくは否認された請求があります。内容に修正がある場合、CSVファイルをアップロードしなおして、請求内容を再送信してください。
+        </p>
       </div>
 
-      <div class="store-list-wrap" id="detailReturnedList">
-        <!-- JS で動的生成 -->
+      <!-- 差戻し -->
+      <div class="detail-subsection hidden" id="detailReturnedSubsection">
+        <div class="detail-subsection-header">
+          <span class="detail-subsection-title">
+            差戻し
+          </span>
+        </div>
+        <div class="store-list-wrap" id="detailReturnedList"></div>
+      </div>
+
+      <!-- 否認 -->
+      <div class="detail-subsection hidden" id="detailDisputedSubsection">
+        <div class="detail-subsection-header">
+          <span class="detail-subsection-title">
+            否認
+          </span>
+        </div>
+        <div class="store-list-wrap" id="detailDisputedList"></div>
       </div>
     </section>
 
     <!-- ================================================================
-         確認中・承認済みの一覧 (PENDING_REVIEW / MERCHANT_CONFIRMATION_REQUESTED)
+         確認中・承認済みの請求一覧
          ================================================================ -->
-    <section class="detail-section hidden" id="detailOtherSection">
+    <section class="detail-section hidden" id="detailNormalSection">
       <div class="detail-section-header">
         <div class="detail-section-header__left">
-          <h2 class="detail-section-title">確認中・承認済みの一覧</h2>
+          <h2 class="detail-section-title">確認中・承認済みの請求一覧</h2>
           <p class="detail-section-desc">
-            以下の請求書は、UTFでは確認済みか承認済みですので、対象外です。
+            以下の請求は、現在確認中、または承認済みです。対応は不要です。
           </p>
         </div>
       </div>
 
-      <div class="store-list-wrap" id="detailOtherList">
-        <!-- JS で動的生成 -->
-      </div>
+      <div class="store-list-wrap" id="detailNormalList"></div>
     </section>
 
     <!-- 下部ボタン -->
@@ -71,6 +82,53 @@
     </div>
 
   </main>
+
+  <!-- ================================================================
+       修正ファイルアップロード モーダル
+       ================================================================ -->
+  <div id="detailUploadModal" class="detail-upload-modal hidden" role="dialog" aria-modal="true">
+    <div class="detail-upload-modal__overlay"></div>
+    <div class="detail-upload-modal__dialog">
+      <div class="detail-upload-modal__header">
+        <h2 class="detail-upload-modal__title">修正ファイルをアップロード</h2>
+        <button type="button" class="detail-upload-modal__close" id="detailUploadModalClose" aria-label="閉じる">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="detail-upload-modal__body">
+        <p class="detail-upload-modal__desc">修正した請求CSVファイルを選択してください。</p>
+        <div class="detail-upload-modal__dropzone" id="detailUploadDropZone">
+          <i class="fa-regular fa-file-lines drop-zone__icon"></i>
+          <p class="drop-zone__text">ここにドラッグ＆ドロップ<br>または</p>
+          <button type="button" class="btn btn-select-file" id="detailUploadBtnSelect">
+            <i class="fa-regular fa-folder-open"></i> ファイルを選択
+          </button>
+          <input type="file" id="detailUploadFileInput" accept=".csv" hidden />
+        </div>
+        <div class="detail-upload-modal__analyzing hidden" id="detailUploadAnalyzing">
+          <div class="drop-zone__spinner"></div>
+          <p class="drop-zone__analyzing-text">CSVを確認中...</p>
+          <p class="drop-zone__analyzing-sub" id="detailUploadAnalyzingName"></p>
+        </div>
+        <div class="error-card hidden" id="detailUploadErrorCard">
+          <h2 class="error-card__title">エラー／アラート一覧</h2>
+          <p class="error-card__desc">下記のエラーを確認の上、CSVファイルを修正し、再度アップロードしてください。</p>
+          <ul class="alert-list" id="detailUploadAlertList"></ul>
+        </div>
+        <div class="detail-upload-modal__selected hidden" id="detailUploadSelectedArea">
+          <i class="fa-regular fa-file-lines"></i>
+          <span id="detailUploadFileName"></span>
+          <button type="button" class="detail-upload-modal__remove" id="detailUploadRemove" aria-label="取り消し">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+      <div class="detail-upload-modal__footer">
+        <button type="button" class="btn btn-outline" id="detailUploadModalCancel">キャンセル</button>
+        <button type="button" class="btn btn-primary" id="detailUploadModalConfirm" disabled>このファイルを使用する</button>
+      </div>
+    </div>
+  </div>
 
   <footer class="site-footer">
     <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
