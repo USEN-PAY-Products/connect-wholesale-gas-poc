@@ -2641,7 +2641,12 @@ window.addEventListener('hashchange', navigate);
           return;
         }
         const summaryData_ = buildResubmitSummaryData_(parsedData, null);
-        const remarks_     = {}; // 一括の場合は備考なし
+        // 全アコーディオンから備考を収集
+        const remarks_ = {};
+        document.querySelectorAll('.remarks-input[data-customer-code]').forEach(function (el) {
+          const cc = el.dataset.customerCode || '';
+          if (cc && el.value) remarks_[cc] = el.value;
+        });
 
         // 否認行の handover を収集 & 必須チェック
         const handovers_ = {};
@@ -2882,7 +2887,7 @@ function buildResubmitSummaryData_(rows, storeInvoiceId) {
   // customerCode ごとに集計
   const merchantMap = {};
   (rows || []).forEach(function (row) {
-    var cc = String(row.customer_code || '');
+    const cc = String(row.customer_code || '');
     if (!merchantMap[cc]) {
       merchantMap[cc] = {
         customerCode: cc,
@@ -2890,10 +2895,10 @@ function buildResubmitSummaryData_(rows, storeInvoiceId) {
         exTax10: 0, tax10: 0, exTax8: 0, tax8: 0,
       };
     }
-    var m       = merchantMap[cc];
-    var exTax   = Number(row.amount_ex_tax  || 0);
-    var tax     = Number(row.tax_amount     || 0);
-    var taxRate = Number(row.tax_rate       || 0);
+    const m       = merchantMap[cc];
+    const exTax   = Number(row.amount_ex_tax  || 0);
+    const tax     = Number(row.tax_amount     || 0);
+    const taxRate = Number(row.tax_rate       || 0);
     m.subtotalAmount += exTax;
     m.taxAmount      += tax;
     m.totalAmount    += exTax + tax;
@@ -2901,9 +2906,9 @@ function buildResubmitSummaryData_(rows, storeInvoiceId) {
     else if (taxRate === 8) { m.exTax8 += exTax; m.tax8 += tax; }
   });
 
-  var merchantTotals = Object.values(merchantMap);
+  const merchantTotals = Object.values(merchantMap);
 
-  var wt = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0, feeAmount: 0, paymentAmount: 0 };
+  const wt = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0, feeAmount: 0, paymentAmount: 0 };
   merchantTotals.forEach(function (m) {
     wt.totalAmount    += m.totalAmount;
     wt.subtotalAmount += m.subtotalAmount;

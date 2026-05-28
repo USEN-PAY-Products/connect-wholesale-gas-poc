@@ -306,7 +306,7 @@ function fetchTargetStoreInvoiceAmounts_(rootInvoiceId, wholesalerId, storeInvoi
   if (!rows || rows.length === 0) {
     return { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 };
   }
-  var r = rows[0];
+  const r = rows[0];
   return {
     totalAmount:    Number(r.totalAmount || 0),
     subtotalAmount: Number(r.subtotalAmount || 0),

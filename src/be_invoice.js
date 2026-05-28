@@ -992,7 +992,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     // wholesaler_handover の更新:
     //   - 値が渡された場合（否認で入力あり）→ その値で更新
     //   - null/空の場合（差し戻し等）→ 既存値を維持
-    var handoverSetClause;
+    let handoverSetClause;
     if (wholesalerHandover != null && wholesalerHandover !== '') {
       handoverSetClause = "wholesaler_handover = '" + esc(wholesalerHandover) + "'";
     } else {
