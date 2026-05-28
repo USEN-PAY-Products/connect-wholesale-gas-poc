@@ -230,12 +230,16 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
  * @param {number} wsId           - 卸業者ID（wholesaler_merchants の絞り込みに使用）
  * @param {string} merchantsRef   - wholesaler_merchants テーブルの完全修飾参照
  * @param {string} storeRef       - store_invoices テーブルの完全修飾参照
- * @returns {{ insertColumns: string[], selectSql: string }}
+ * @param {Object} [options]      - オプション
+ * @param {boolean} [options.isLatestOnly=false] - true の場合 si.is_latest = TRUE を JOIN 条件に追加（再送信用）
+ * @returns {{ insertColumns: string[], selectSql: string, validateCases: Array }}
  *   - insertColumns: INSERT 句に使用するカラム名配列
  *   - selectSql:     SELECT ... FROM staging JOIN ... の SQL 文字列（末尾の `;` を含む）
+ *   - validateCases: バリデーション条件配列
  * @throws {Error} amount_ex_tax, tax_rate, customer_code が columns に定義されていない場合
  */
-function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, wsId, merchantsRef, storeRef) {
+function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, wsId, merchantsRef, storeRef, options) {
+  const opts = options || {};
   const columns = csvFormatRules.columns;
 
   // ── 前提検証: col.index の型・範囲チェック ────────────────────────────────
@@ -558,7 +562,8 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     '  AND wm.deleted_at IS NULL',
     'JOIN ' + storeRef + ' si',
     '  ON si.mall_code = wm.mall_code',
-    "  AND si.wholesaler_invoice_id = '" + escSql_(invoiceUuid) + "';",
+    "  AND si.wholesaler_invoice_id = '" + escSql_(invoiceUuid) + "'",
+    opts.isLatestOnly ? '  AND si.is_latest = TRUE;' : ';',
   ].join('\n');
 
   Logger.log(
@@ -845,6 +850,343 @@ function buildMappedTransactionSql_(params) {
   const sql = sqlLines.join('\n');
   Logger.log('[CsvMapper] トランザクション SQL 生成完了 (' + sql.length + ' 文字)');
   return sql;
+}
+
+
+// =============================================================================
+// ④ 再送信用 (Resubmit) トランザクション SQL 組み立て
+// =============================================================================
+
+/**
+ * カスタム CSV 形式の卸向け、個別再送信用トランザクション SQL を組み立てる。
+ * buildResubmitTransactionSql_（固定カラム版）と同等の処理を、
+ * csv_format_rules のカスタムカラム名で行う。
+ *
+ * @param {Object} params
+ * @param {string} params.parentInvoiceId  - wholesaler_invoices.id
+ * @param {string} params.storeInvoiceId   - 再送信対象の store_invoices.id
+ * @param {string} params.stagingId        - Staging テーブル名
+ * @param {Object} params.summaryData      - { wholesalerTotal, merchantTotals }
+ * @param {Object} params.remarks          - { [customerCode]: string }
+ * @param {string|null} params.wholesalerHandover - 否認時の加盟店との合意内容
+ * @param {Object} params.accountInfo      - getServerAccountInfo_() の返り値
+ * @param {Object} params.mallCodeMap      - { [customerCode]: mallCode }
+ * @param {string} params.csvUrl           - Drive 保存後の CSV URL
+ * @param {string} params.projectId        - GCP プロジェクトID
+ * @param {string} params.datasetId        - BQ データセットID
+ * @param {Object} params.csvFormatRules   - csv_format_rules
+ * @param {Object} params.latestWi         - 最新の wholesaler_invoices レコード
+ * @param {Object} params.oldStoreAmounts  - 旧対象 store_invoices の金額
+ * @returns {string} トランザクション SQL 全文
+ */
+function buildMappedResubmitTransactionSql_(params) {
+  const {
+    parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
+    wholesalerHandover, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+    csvFormatRules, latestWi, oldStoreAmounts,
+  } = params;
+
+  const wsId     = Number(accountInfo.wholesaler_id);
+  const wsUserId = String(accountInfo.wholesaler_user_id);
+  const feeRate  = Number(accountInfo.fee_rate || 0);
+  const wt       = summaryData.wholesalerTotal;
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[CsvMapper] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+  if (!UUID_RE.test(storeInvoiceId))  throw new Error('[CsvMapper] storeInvoiceId の形式が不正です: ' + storeInvoiceId);
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[CsvMapper] stagingId に不正な文字が含まれています: ' + stagingId);
+
+  const q            = function(tbl) { return '`' + projectId + '.' + datasetId + '.' + tbl + '`'; };
+  const stagingRef   = q(stagingId);
+  const storeRef     = q('store_invoices');
+  const merchantsRef = q('wholesaler_merchants');
+  const linesRef     = q('invoice_lines');
+  const invRef       = q('wholesaler_invoices');
+
+  const newWiUuid = Utilities.getUuid();
+  const handoverSql = wholesalerHandover ? "'" + escSql_(wholesalerHandover) + "'" : 'NULL';
+
+  // store_invoices VALUES
+  const childRows = summaryData.merchantTotals.map(function(m) {
+    const childUuid = Utilities.getUuid();
+    const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
+    const remark    = escSql_(remarks[String(m.customerCode)] || '');
+    const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    return (
+      "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
+      Number(m.totalAmount || 0) + ', ' + Number(m.subtotalAmount || 0) + ', ' + Number(m.taxAmount || 0) + ', ' +
+      Number(m.exTax10 || 0) + ', ' + Number(m.tax10 || 0) + ', ' +
+      Number(m.exTax8 || 0) + ', ' + Number(m.tax8 || 0) + ', 0, ' +
+      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
+    );
+  });
+
+  // 金額再計算
+  const amountFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'];
+  const wiFieldMap = {
+    totalAmount: 'wholesaler_total_amount', subtotalAmount: 'wholesaler_subtotal_amount',
+    taxAmount: 'wholesaler_tax_amount', exTax10: 'wholesaler_standard_tax_target_amount',
+    tax10: 'wholesaler_standard_tax_amount', exTax8: 'wholesaler_reduced_tax_target_amount',
+    tax8: 'wholesaler_reduced_tax_amount',
+  };
+  const newAmounts = {};
+  amountFields.forEach(function(f) {
+    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+  });
+  newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
+  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
+
+  // invoice_lines の動的 SELECT
+  const { insertColumns, selectSql, validateCases } = buildInvoiceLinesSelectSql_(
+    csvFormatRules, stagingRef, parentInvoiceId, wsId, merchantsRef, storeRef,
+    { isLatestOnly: true }
+  );
+
+  // バリデーションブロック
+  const declareBlock = validateCases.length > 0 ? ['DECLARE _validate_error STRING DEFAULT NULL;', ''] : [];
+  const validateBlock = validateCases.length > 0
+    ? [
+        '-- バリデーション',
+        'SET _validate_error = (',
+        '  SELECT CASE',
+      ].concat(
+        validateCases.map(function(c) {
+          return '    WHEN ' + c.countifExpr + " > 0\n      THEN '" + c.message + "'";
+        })
+      ).concat([
+        '    ELSE NULL',
+        '  END',
+        '  FROM ' + stagingRef + ' s',
+        ');',
+        'IF _validate_error IS NOT NULL THEN',
+        '  RAISE USING MESSAGE = _validate_error;',
+        'END IF;',
+        '',
+      ])
+    : [];
+
+  const sqlLines = [
+    ...declareBlock,
+    'BEGIN TRANSACTION;',
+    '',
+    ...validateBlock,
+    '-- 旧レコードを is_latest = FALSE に更新',
+    'UPDATE ' + storeRef,
+    'SET is_latest = FALSE',
+    "WHERE id = '" + escSql_(storeInvoiceId) + "'",
+    '  AND is_latest = TRUE;',
+    '',
+    '-- 新しい store_invoices を INSERT',
+    'INSERT INTO ' + storeRef + ' (',
+    '  id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  total_amount, subtotal_amount, tax_amount,',
+    '  standard_tax_target_amount, standard_tax_amount,',
+    '  reduced_tax_target_amount, reduced_tax_amount,',
+    '  non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '  backoffice_review_status, is_latest, final_updated_by, created_at',
+    ')',
+    'VALUES',
+    childRows.join(',\n') + ';',
+    '',
+    '-- invoice_lines を INSERT',
+    'INSERT INTO ' + linesRef + ' (',
+    '  ' + insertColumns.join(', '),
+    ')',
+    selectSql,
+    '',
+    '-- 新しい wholesaler_invoices を INSERT（金額再計算済み）',
+    'INSERT INTO ' + invRef,
+    '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+    '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+    '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+    '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+    '   wholesaler_non_taxable_amount,',
+    '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+    '   wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+    'VALUES',
+    "  ('" + escSql_(newWiUuid) + "', '" + escSql_(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
+    '   ' + newAmounts.totalAmount + ', ' + newAmounts.subtotalAmount + ', ' + newAmounts.taxAmount + ',',
+    '   ' + newAmounts.exTax10 + ', ' + newAmounts.tax10 + ',',
+    '   ' + newAmounts.exTax8 + ', ' + newAmounts.tax8 + ',',
+    '   ' + newAmounts.nonTaxable + ',',
+    '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
+    "   '" + escSql_(parentInvoiceId) + "', '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP());",
+    '',
+    'COMMIT;',
+  ];
+  return sqlLines.join('\n');
+}
+
+/**
+ * カスタム CSV 形式の卸向け、一括再送信用トランザクション SQL を組み立てる。
+ * buildBulkResubmitTransactionSql_（固定カラム版）と同等の処理を、
+ * csv_format_rules のカスタムカラム名で行う。
+ *
+ * @param {Object} params
+ * @param {string} params.parentInvoiceId  - wholesaler_invoices.id
+ * @param {string} params.stagingId        - Staging テーブル名
+ * @param {Object} params.summaryData      - { wholesalerTotal, merchantTotals }
+ * @param {Object} params.remarks          - { [customerCode]: string }
+ * @param {Object} params.accountInfo      - getServerAccountInfo_() の返り値
+ * @param {Object} params.mallCodeMap      - { [customerCode]: mallCode }
+ * @param {string} params.csvUrl           - Drive 保存後の CSV URL
+ * @param {string} params.projectId        - GCP プロジェクトID
+ * @param {string} params.datasetId        - BQ データセットID
+ * @param {Object} params.csvFormatRules   - csv_format_rules
+ * @param {Object} params.latestWi         - 最新の wholesaler_invoices レコード
+ * @param {Object} params.oldStoreAmounts  - 旧対象 store_invoices の金額
+ * @returns {string} トランザクション SQL 全文
+ */
+function buildMappedBulkResubmitTransactionSql_(params) {
+  const {
+    parentInvoiceId, stagingId, summaryData, remarks,
+    handovers,
+    accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+    csvFormatRules, latestWi, oldStoreAmounts,
+  } = params;
+
+  const _handovers = handovers || {};
+
+  const wsId     = Number(accountInfo.wholesaler_id);
+  const wsUserId = String(accountInfo.wholesaler_user_id);
+  const feeRate  = Number(accountInfo.fee_rate || 0);
+  const wt       = summaryData.wholesalerTotal;
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[CsvMapper] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[CsvMapper] stagingId に不正な文字が含まれています: ' + stagingId);
+
+  const q            = function(tbl) { return '`' + projectId + '.' + datasetId + '.' + tbl + '`'; };
+  const stagingRef   = q(stagingId);
+  const storeRef     = q('store_invoices');
+  const merchantsRef = q('wholesaler_merchants');
+  const linesRef     = q('invoice_lines');
+  const invRef       = q('wholesaler_invoices');
+
+  const newWiUuid = Utilities.getUuid();
+
+  // store_invoices VALUES
+  const childRows = summaryData.merchantTotals.map(function(m) {
+    const childUuid = Utilities.getUuid();
+    const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
+    const remark    = escSql_(remarks[String(m.customerCode)] || '');
+    const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    const handover = _handovers[String(m.customerCode)] || '';
+    const handoverSql = handover ? "'" + escSql_(handover) + "'" : 'NULL';
+    return (
+      "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
+      Number(m.totalAmount || 0) + ', ' + Number(m.subtotalAmount || 0) + ', ' + Number(m.taxAmount || 0) + ', ' +
+      Number(m.exTax10 || 0) + ', ' + Number(m.tax10 || 0) + ', ' +
+      Number(m.exTax8 || 0) + ', ' + Number(m.tax8 || 0) + ', 0, ' +
+      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
+    );
+  });
+
+  // 金額再計算
+  const amountFields = ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'];
+  const wiFieldMap = {
+    totalAmount: 'wholesaler_total_amount', subtotalAmount: 'wholesaler_subtotal_amount',
+    taxAmount: 'wholesaler_tax_amount', exTax10: 'wholesaler_standard_tax_target_amount',
+    tax10: 'wholesaler_standard_tax_amount', exTax8: 'wholesaler_reduced_tax_target_amount',
+    tax8: 'wholesaler_reduced_tax_amount',
+  };
+  const newAmounts = {};
+  amountFields.forEach(function(f) {
+    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+  });
+  newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
+  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
+
+  // invoice_lines の動的 SELECT
+  const { insertColumns, selectSql, validateCases } = buildInvoiceLinesSelectSql_(
+    csvFormatRules, stagingRef, parentInvoiceId, wsId, merchantsRef, storeRef,
+    { isLatestOnly: true }
+  );
+
+  // バリデーションブロック
+  const declareBlock = validateCases.length > 0 ? ['DECLARE _validate_error STRING DEFAULT NULL;', ''] : [];
+  const validateBlock = validateCases.length > 0
+    ? [
+        '-- バリデーション',
+        'SET _validate_error = (',
+        '  SELECT CASE',
+      ].concat(
+        validateCases.map(function(c) {
+          return '    WHEN ' + c.countifExpr + " > 0\n      THEN '" + c.message + "'";
+        })
+      ).concat([
+        '    ELSE NULL',
+        '  END',
+        '  FROM ' + stagingRef + ' s',
+        ');',
+        'IF _validate_error IS NOT NULL THEN',
+        '  RAISE USING MESSAGE = _validate_error;',
+        'END IF;',
+        '',
+      ])
+    : [];
+
+  const sqlLines = [
+    ...declareBlock,
+    'BEGIN TRANSACTION;',
+    '',
+    ...validateBlock,
+    '-- ① 差し戻し store_invoices を is_latest = FALSE に更新',
+    'UPDATE ' + storeRef,
+    'SET is_latest = FALSE',
+    "WHERE wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "  AND backoffice_review_status = 'RETURNED'",
+    '  AND is_latest = TRUE;',
+    '',
+    '-- ② 否認 store_invoices を is_latest = FALSE に更新',
+    'UPDATE ' + storeRef,
+    'SET is_latest = FALSE',
+    "WHERE wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
+    "  AND invoice_status = 'DISPUTED'",
+    '  AND is_latest = TRUE;',
+    '',
+    '-- ③ 新しい store_invoices を INSERT',
+    'INSERT INTO ' + storeRef + ' (',
+    '  id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  total_amount, subtotal_amount, tax_amount,',
+    '  standard_tax_target_amount, standard_tax_amount,',
+    '  reduced_tax_target_amount, reduced_tax_amount,',
+    '  non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '  backoffice_review_status, is_latest, final_updated_by, created_at',
+    ')',
+    'VALUES',
+    childRows.join(',\n') + ';',
+    '',
+    '-- ④ invoice_lines を INSERT',
+    'INSERT INTO ' + linesRef + ' (',
+    '  ' + insertColumns.join(', '),
+    ')',
+    selectSql,
+    '',
+    '-- ⑤ 新しい wholesaler_invoices を INSERT（金額再計算済み）',
+    'INSERT INTO ' + invRef,
+    '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+    '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+    '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+    '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+    '   wholesaler_non_taxable_amount,',
+    '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+    '   wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+    'VALUES',
+    "  ('" + escSql_(newWiUuid) + "', '" + escSql_(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
+    '   ' + newAmounts.totalAmount + ', ' + newAmounts.subtotalAmount + ', ' + newAmounts.taxAmount + ',',
+    '   ' + newAmounts.exTax10 + ', ' + newAmounts.tax10 + ',',
+    '   ' + newAmounts.exTax8 + ', ' + newAmounts.tax8 + ',',
+    '   ' + newAmounts.nonTaxable + ',',
+    '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
+    "   '" + escSql_(parentInvoiceId) + "', '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP());",
+    '',
+    'COMMIT;',
+  ];
+  return sqlLines.join('\n');
 }
 
 

@@ -2142,7 +2142,7 @@ function buildDetailAccordion_(store, openByDefault) {
         '</div>' +
         '<div class="backoffice-remark__disputed-handover">' +
           '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
-          '<textarea class="backoffice-remark__handover-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(store.wholesaler_handover || '') + '</textarea>' +
+          '<textarea class="backoffice-remark__handover-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(store.wholesaler_handover || '') + '</textarea>' +
         '</div>' +
       '</div>' +
       '<div class="backoffice-remark__actions">' +
@@ -2642,6 +2642,25 @@ window.addEventListener('hashchange', navigate);
         }
         const summaryData_ = buildResubmitSummaryData_(parsedData, null);
         const remarks_     = {}; // 一括の場合は備考なし
+
+        // 否認行の handover を収集 & 必須チェック
+        const handovers_ = {};
+        const missingHandoverCodes = [];
+        document.querySelectorAll('.backoffice-remark__handover-input[data-customer-code]').forEach(function (el) {
+          const cc = el.dataset.customerCode || '';
+          if (!cc) return;
+          const val = (el.value || '').trim();
+          if (val) {
+            handovers_[cc] = val;
+          } else {
+            missingHandoverCodes.push(cc);
+          }
+        });
+        if (missingHandoverCodes.length > 0) {
+          alert('\u26A0 否認された加盟店（顧客コード: ' + missingHandoverCodes.join(', ') + '）の〈加盟店との合意内容〉が未入力です。一括再送信の前にすべて記入してください。');
+          return;
+        }
+
         closeModal();
         showLoadingOverlay('一括登録中...');
         if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -2660,7 +2679,7 @@ window.addEventListener('hashchange', navigate);
               hideLoadingOverlay();
               alert('登録に失敗しました: ' + (err.message || err));
             })
-            .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData_, remarks_, parentInvoiceId);
+            .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData_, remarks_, parentInvoiceId, handovers_);
         } else {
           console.warn('[bulkResubmit] google.script.run が利用できません（モック）');
           setTimeout(function () {
@@ -2790,6 +2809,23 @@ window.addEventListener('hashchange', navigate);
       const bodyEl        = reuploadSubmitBtn.closest('.store-accordion__body');
       const handoverInput = bodyEl && bodyEl.querySelector('.backoffice-remark__handover-input');
       const wholesalerHandover = handoverInput ? (handoverInput.value || '') : '';
+      // 対象加盟店の customer_code を特定し、CSV に対象外の加盟店が含まれていないかチェック
+      const accordion5    = reuploadSubmitBtn.closest('.store-accordion');
+      const mallCode5     = accordion5 && accordion5.dataset.mallCode;
+      const mappings5     = getMerchantMappings();
+      const targetCc5     = (mappings5.find(function (m) { return String(m.mall_code) === String(mallCode5); }) || {}).customer_code || '';
+      if (targetCc5 && parsedData) {
+        const csvCodes5 = [];
+        parsedData.forEach(function (row) {
+          const cc = String(row.customer_code || '');
+          if (cc && csvCodes5.indexOf(cc) === -1) csvCodes5.push(cc);
+        });
+        const excessCodes5 = csvCodes5.filter(function (cc) { return cc !== targetCc5; });
+        if (excessCodes5.length > 0) {
+          alert('\u26A0 対象外の加盟店（顧客コード: ' + excessCodes5.join(', ') + '）のデータがCSVに含まれています。\n個別修正アップロードでは対象の加盟店（顧客コード: ' + targetCc5 + '）のみを含めてください。');
+          return;
+        }
+      }
       // summaryData / remarks を parsedData から構築
       const summaryData_  = buildResubmitSummaryData_(parsedData, storeInvoiceId);
       const remarks_      = buildResubmitRemarks_(bodyEl);
