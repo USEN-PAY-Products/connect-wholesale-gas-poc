@@ -1034,6 +1034,8 @@ function validateCsv(csvText) {
   // ── データ行チェック ────────────────────────────────────────────────────────
   for (let i = 1; i < lines.length; i++) {
     const rowNum  = i + 1;
+    // 空行（末尾改行等）はスキップ
+    if (lines[i].trim() === '') continue;
     const cols    = parseCsvLine(lines[i]);
     const rowErrors = [];
 
@@ -1124,7 +1126,9 @@ function validateCsv(csvText) {
 
     // customer_code の有効性チェック（merchant_mappings）
     const cc = rowObj['customer_code'];
-    if (cc !== undefined && cc !== '') {
+    if (cc === undefined || cc === '') {
+      rowErrors.push(`${rowNum}行目: "得意先コード" は必須です`);
+    } else {
       if (validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
         rowErrors.push(`${rowNum}行目: "${cc}" は請求可能な加盟店コードではありません`);
       }
@@ -1799,6 +1803,7 @@ function renderConfirmPage() {
 
 /** 現在表示中の卸インボイスID（同じ ID の再描画をスキップするためのキャッシュ） */
 let _detailCurrentInvoiceId = null;
+let _detailActionRequiredMallCodes = [];
 
 /**
  * 詳細画面を初期化する。
@@ -1900,15 +1905,15 @@ function renderDetailSummary_(s) {
     ? Number(s.wholesaler_fee_rate).toFixed(1) + '%' : '―';
 
   card.innerHTML = `
+    <div class="detail-summary-title">請求基本情報</div>
     <div class="detail-summary-inner">
       <div class="detail-summary-meta">
-        <h3 class="detail-summary-meta__title">請求基本情報</h3>
         <div class="detail-meta-row">
           <span class="detail-meta-label">登録日時</span>
           <span class="detail-meta-value">${escapeHtml(date)}</span>
         </div>
         <div class="detail-meta-row">
-          <span class="detail-meta-label">手数料（${escapeHtml(feeRate)}）</span>
+          <span class="detail-meta-label">手数料（${escapeHtml(feeRate)}）<span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help"></i><span class="detail-meta-tooltip">手数料は、卸コネクトサービスの使用料としての料金です。<br>加盟店への請求金額の総額に対して、設定された手数料率をかけることで算出されます。<br>その他、手数料に関するお問い合わせは000-0000-0000までご連絡ください。</span></span></span>
           <span class="detail-meta-value">${fmt(s.invoice_fee_amount)}円</span>
         </div>
         <div class="detail-meta-row">
@@ -1916,32 +1921,41 @@ function renderDetailSummary_(s) {
           <span class="detail-meta-value">${fmt(s.payment_amount)}円</span>
         </div>
         <div class="detail-meta-row--handover">
-          <span class="detail-meta-label detail-meta-label--block">チェック者からの申送事項</span>
-          <textarea class="detail-handover-textarea" readonly placeholder="差戻などが発生した場合は、こちらに申し送り事項が記載される場合があります。">${escapeHtml(s.handover_matter || '')}</textarea>
-          <span class="detail-handover-note">＊ご不明点・ご確認がある場合は、運営窓口【090-XXXX-XXXX】までご連絡ください。</span>
+          <span class="detail-meta-label detail-meta-label--block">USEN PAY社<br>からのコメント</span>
+          <textarea class="detail-handover-textarea" readonly placeholder="差し戻しなどが発生した場合は、こちらに申し送り事項が記載される場合があります。">${escapeHtml(s.handover_matter || '')}</textarea>
         </div>
+        <span class="detail-handover-note">＊ご不明点・ご確認がある場合は、運営窓口【090-XXXX-XXXX】までご連絡ください。</span>
       </div>
 
-      <div class="detail-summary-amount">
+      <div class="summary-card__divider"></div>
+
+      <div class="detail-summary-amount confirm-summary-amount">
         <div class="detail-amount-header">請求金額</div>
-        <div class="detail-amount-main-row">
-          <span class="detail-amount-sublabel">合計（税込）</span>
-          <span class="detail-amount-total">${fmt(s.wholesaler_total_amount)}<span class="detail-amount-unit">円</span></span>
-        </div>
-        <div class="detail-amount-rows">
-          <div class="detail-amount-row">
+        <div class="confirm-amount-group">
+          <div class="confirm-amount-row confirm-amount-row--total">
+            <span>合計（税込）</span><span>${fmt(s.wholesaler_total_amount)}円</span>
+          </div>
+          <div class="confirm-amount-row confirm-amount-row--sub">
             <span>小計（税抜）</span><span>${fmt(s.wholesaler_subtotal_amount)}円</span>
           </div>
-          <div class="detail-amount-row">
+          <div class="confirm-amount-row confirm-amount-row--sub">
             <span>消費税</span><span>${fmt(s.wholesaler_tax_amount)}円</span>
           </div>
-          <div class="detail-amount-divider"></div>
+        </div>
+        <div class="detail-amount-divider"></div>
+        <div class="confirm-amount-group">
           <div class="detail-amount-section-label">内訳</div>
-          <div class="detail-amount-row">
-            <span>税内訳（10%）</span><span>${fmt(s.wholesaler_standard_tax_amount)}円</span>
+          <div class="confirm-amount-row confirm-amount-row--sub">
+            <span>10%対象小計（税抜）</span><span>${fmt(s.wholesaler_standard_tax_target_amount)}円</span>
           </div>
-          <div class="detail-amount-row">
-            <span>税内訳（8%）</span><span>${fmt(s.wholesaler_reduced_tax_amount)}円</span>
+          <div class="confirm-amount-row confirm-amount-row--sub">
+            <span>10%対象消費税</span><span>${fmt(s.wholesaler_standard_tax_amount)}円</span>
+          </div>
+          <div class="confirm-amount-row confirm-amount-row--sub">
+            <span>8%対象小計（税抜）</span><span>${fmt(s.wholesaler_reduced_tax_target_amount)}円</span>
+          </div>
+          <div class="confirm-amount-row confirm-amount-row--sub">
+            <span>8%対象消費税</span><span>${fmt(s.wholesaler_reduced_tax_amount)}円</span>
           </div>
         </div>
       </div>
@@ -1954,14 +1968,25 @@ function renderDetailSummary_(s) {
  * @param {string} status
  * @returns {string}
  */
-function getDetailStatusBadge_(status) {
-  const MAP = {
-    'PENDING_REVIEW':                  { label: '未検閲',      cls: 'badge--pending'   },
-    'MERCHANT_CONFIRMATION_REQUESTED': { label: '確認依頼中',  cls: 'badge--requested' },
-    'RETURNED':                        { label: '差し戻し',    cls: 'badge--returned'  },
-  };
-  const s = MAP[status] || { label: status || '不明', cls: 'badge--pending' };
-  return '<span class="detail-status-badge ' + escapeHtml(s.cls) + '">' + escapeHtml(s.label) + '</span>';
+function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
+  // 否認差戻: MERCHANT_CONFIRMATION_REQUESTED + DISPUTED
+  if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'DISPUTED') {
+    return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認差戻</span>';
+  }
+  // 差戻し: RETURNED
+  if (backofficeStatus === 'RETURNED') {
+    return '<span class="detail-status-badge badge--returned"><i class="fa-solid fa-rotate-left"></i> 差戻し</span>';
+  }
+  // 承認: MERCHANT_CONFIRMATION_REQUESTED + APPROVED
+  if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'APPROVED') {
+    return '<span class="detail-status-badge badge--approved"><i class="fa-solid fa-circle-check"></i> 承認</span>';
+  }
+  // 確認中: MERCHANT_CONFIRMATION_REQUESTED + PENDING_CONFIRMATION
+  if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'PENDING_CONFIRMATION') {
+    return '<span class="detail-status-badge badge--requested">確認中</span>';
+  }
+  // 未検閲: PENDING_REVIEW
+  return '<span class="detail-status-badge badge--pending">未検閲</span>';
 }
 
 /**
@@ -1969,39 +1994,71 @@ function getDetailStatusBadge_(status) {
  * @param {Array<Object>} stores
  */
 function renderDetailStoreList_(stores) {
-  const returned = stores.filter(function (s) { return s.backoffice_review_status === 'RETURNED'; });
-  const others   = stores.filter(function (s) { return s.backoffice_review_status !== 'RETURNED'; });
+  // 差し戻し: RETURNED
+  const returned  = stores.filter(function (s) {
+    return s.backoffice_review_status === 'RETURNED';
+  });
+  // 否認: MERCHANT_CONFIRMATION_REQUESTED + DISPUTED
+  const disputed  = stores.filter(function (s) {
+    return s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED';
+  });
+  // 正常: 上記以外すべて
+  const normal    = stores.filter(function (s) {
+    return s.backoffice_review_status !== 'RETURNED' &&
+      !(s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED');
+  });
+
+  // 要対応の mall_code 一覧をグローバル変数に保持（バリデーション用）
+  _detailActionRequiredMallCodes = returned.concat(disputed).map(function (s) { return s.mall_code; });
 
   const colHeader =
-    '<div class="dsl-header">' +
-      '<span class="dsl-col dsl-col--name">加盟店名</span>' +
-      '<span class="dsl-col dsl-col--code">顧客コード</span>' +
-      '<span class="dsl-col dsl-col--amount">請求金額</span>' +
-      '<span class="dsl-col dsl-col--extax">小計（税抜）</span>' +
-      '<span class="dsl-col dsl-col--tax">消費税</span>' +
-      '<span class="dsl-col dsl-col--tax10">税内訳（10%）</span>' +
-      '<span class="dsl-col dsl-col--tax8">税内訳（8%）</span>' +
-      '<span class="dsl-col dsl-col--status">ステータス</span>' +
-      '<span class="dsl-col dsl-col--toggle"></span>' +
+    '<div class="store-list-header">' +
+      '<span class="slh-col slh-col--name">加盟店名</span>' +
+      '<span class="slh-col slh-col--mallcode">顧客ID</span>' +
+      '<span class="slh-col slh-col--amount">請求金額</span>' +
+      '<span class="slh-col slh-col--extax">小計（税抜）</span>' +
+      '<span class="slh-col slh-col--nontax">小計（非課税）</span>' +
+      '<span class="slh-col slh-col--tax">消費税</span>' +
+      '<span class="slh-col slh-col--tax10">税内訳（10%）</span>' +
+      '<span class="slh-col slh-col--tax8">税内訳（8%）</span>' +
+      '<span class="slh-col slh-col--status">ステータス</span>' +
+      '<span class="slh-col slh-col--toggle"></span>' +
     '</div>';
 
-  if (returned.length > 0) {
-    const section = document.getElementById('detailReturnedSection');
-    const list    = document.getElementById('detailReturnedList');
+  // 要対応セクション（差し戻し or 否認があれば表示）
+  if (returned.length > 0 || disputed.length > 0) {
+    const section = document.getElementById('detailActionRequiredSection');
     if (section) section.classList.remove('hidden');
-    if (list) {
-      list.innerHTML = colHeader;
-      returned.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, true)); });
+
+    if (returned.length > 0) {
+      const sub  = document.getElementById('detailReturnedSubsection');
+      const list = document.getElementById('detailReturnedList');
+      if (sub)  sub.classList.remove('hidden');
+      if (list) {
+        list.innerHTML = colHeader;
+        returned.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, false)); });
+      }
+    }
+
+    if (disputed.length > 0) {
+      const sub  = document.getElementById('detailDisputedSubsection');
+      const list = document.getElementById('detailDisputedList');
+      if (sub)  sub.classList.remove('hidden');
+      if (list) {
+        list.innerHTML = colHeader;
+        disputed.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, false)); });
+      }
     }
   }
 
-  if (others.length > 0) {
-    const section = document.getElementById('detailOtherSection');
-    const list    = document.getElementById('detailOtherList');
+  // 確認中・承認済みセクション
+  if (normal.length > 0) {
+    const section = document.getElementById('detailNormalSection');
+    const list    = document.getElementById('detailNormalList');
     if (section) section.classList.remove('hidden');
     if (list) {
       list.innerHTML = colHeader;
-      others.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, false)); });
+      normal.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, false)); });
     }
   }
 }
@@ -2013,32 +2070,35 @@ function renderDetailStoreList_(stores) {
  * @returns {HTMLElement}
  */
 function buildDetailAccordion_(store, openByDefault) {
-  const fmt       = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
+  const fmt        = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
   const isReturned = store.backoffice_review_status === 'RETURNED';
+  const isDisputed = store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED';
 
   const accordion = document.createElement('div');
-  accordion.className = 'dsl-accordion' +
-    (openByDefault  ? ' is-open'            : '') +
-    (isReturned     ? ' dsl-accordion--returned' : '');
+  accordion.className = 'store-accordion' +
+    (openByDefault          ? ' is-open'                  : '') +
+    (isReturned || isDisputed ? ' store-accordion--returned' : '');
   accordion.dataset.storeInvoiceId = store.store_invoice_id;
+  accordion.dataset.mallCode = store.mall_code || '';
 
   // ── ヘッダー行 ───────────────────────────────────────────────────────────
   const header = document.createElement('div');
-  header.className = 'dsl-accordion__header';
+  header.className = 'store-accordion__header';
   header.innerHTML =
-    '<span class="dsl-col dsl-col--name dsl-store-name">' + escapeHtml(store.store_name || store.mall_code) + '</span>' +
-    '<span class="dsl-col dsl-col--code">'    + escapeHtml(store.mall_code   || '') + '</span>' +
-    '<span class="dsl-col dsl-col--amount">'  + fmt(store.total_amount)    + '円</span>' +
-    '<span class="dsl-col dsl-col--extax">'   + fmt(store.subtotal_amount)  + '円</span>' +
-    '<span class="dsl-col dsl-col--tax">'     + fmt(store.tax_amount)       + '円</span>' +
-    '<span class="dsl-col dsl-col--tax10">'   + fmt(store.standard_tax_amount) + '円</span>' +
-    '<span class="dsl-col dsl-col--tax8">'    + fmt(store.reduced_tax_amount) + '円</span>' +
-    '<span class="dsl-col dsl-col--status">'  + getDetailStatusBadge_(store.backoffice_review_status) + '</span>' +
-    '<span class="dsl-col dsl-col--toggle"><i class="fa-solid fa-chevron-down dsl-accordion__icon"></i></span>';
+    '<span class="slh-col slh-col--name store-accordion__code">' + escapeHtml(store.store_name || store.mall_code) + '</span>' +
+    '<span class="slh-col slh-col--mallcode">' + escapeHtml(store.mall_code   || '') + '</span>' +
+    '<span class="slh-col slh-col--amount">'   + fmt(store.total_amount)             + '円</span>' +
+    '<span class="slh-col slh-col--extax">'    + fmt(store.subtotal_amount)          + '円</span>' +
+    '<span class="slh-col slh-col--nontax">'   + fmt(store.non_taxable_amount)       + '円</span>' +
+    '<span class="slh-col slh-col--tax">'      + fmt(store.tax_amount)               + '円</span>' +
+    '<span class="slh-col slh-col--tax10">'    + fmt(store.standard_tax_amount)      + '円</span>' +
+    '<span class="slh-col slh-col--tax8">'     + fmt(store.reduced_tax_amount)       + '円</span>' +
+    '<span class="slh-col slh-col--status">'   + getDetailStatusBadge_(store.backoffice_review_status, store.invoice_status) + '</span>' +
+    '<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>';
 
   // ── ボディ ────────────────────────────────────────────────────────────────
   const body = document.createElement('div');
-  body.className = 'dsl-accordion__body';
+  body.className = 'store-accordion__body';
 
   // 差し戻し理由バナー
   if (isReturned && store.backoffice_handover) {
@@ -2051,42 +2111,113 @@ function buildDetailAccordion_(store, openByDefault) {
     body.appendChild(reason);
   }
 
-  // 申し送りコメント（wholesaler_handover）
-  if (store.wholesaler_handover) {
-    const note = document.createElement('div');
-    note.className = 'dsl-wholesaler-note';
-    note.innerHTML =
-      '<span class="dsl-wholesaler-note__label">申し送り：</span>' +
-      '<span>' + escapeHtml(store.wholesaler_handover) + '</span>';
-    body.appendChild(note);
+  // 否認コメントバナー
+  if (isDisputed && store.backoffice_handover) {
+    const reason = document.createElement('div');
+    reason.className = 'dsl-returned-reason';
+    reason.innerHTML =
+      '<i class="fa-solid fa-comment-dots"></i>' +
+      '<span class="dsl-returned-reason__label">否認コメント：</span>' +
+      '<span class="dsl-returned-reason__text">' + escapeHtml(store.backoffice_handover) + '</span>';
+    body.appendChild(reason);
   }
 
-  // 卸備考（wholesaler_remark）: CSV アップロード時に卸が入力した備考
-  if (store.wholesaler_remark) {
-    const remark = document.createElement('div');
-    remark.className = 'dsl-wholesaler-note';
-    remark.innerHTML =
-      '<span class="dsl-wholesaler-note__label">備考：</span>' +
-      '<span>' + escapeHtml(store.wholesaler_remark) + '</span>';
-    body.appendChild(remark);
+  // USEN PAY社からのコメント（差し戻しのみ表示）
+  if (isReturned) {
+    const remarkRow = document.createElement('div');
+    remarkRow.className = 'store-accordion__backoffice-remark';
+    remarkRow.innerHTML =
+      '<span class="backoffice-remark__label">USEN PAY社<br>からのコメント</span>' +
+      '<div class="backoffice-remark__text">' + escapeHtml(store.backoffice_remark || '') + '</div>' +
+      '<div class="backoffice-remark__actions">' +
+        '<button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can"></i> 請求取り下げ</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload"></i> 修正ファイルをアップ</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate"></i> 変更なしで再請求</button>' +
+      '</div>';
+    body.appendChild(remarkRow);
   }
+
+  // 否認理由 + 加盟店との合意内容（否認のみ表示）
+  if (isDisputed) {
+    const disputedRow = document.createElement('div');
+    disputedRow.className = 'store-accordion__backoffice-remark';
+    disputedRow.innerHTML =
+      '<div class="backoffice-remark__disputed-left">' +
+        '<div class="backoffice-remark__disputed-reason">' +
+          '<span class="backoffice-remark__label">・ 否認理由</span>' +
+          '<span class="backoffice-remark__reason-text">' + escapeHtml(store.store_disputed_reason || '') + '</span>' +
+        '</div>' +
+        '<div class="backoffice-remark__disputed-handover">' +
+          '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
+          '<textarea class="backoffice-remark__handover-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(store.wholesaler_handover || '') + '</textarea>' +
+        '</div>' +
+      '</div>' +
+      '<div class="backoffice-remark__actions">' +
+        '<button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can"></i> 請求取り下げ</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload"></i> 修正ファイルをアップ</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate"></i> 変更なしで再請求</button>' +
+      '</div>';
+    body.appendChild(disputedRow);
+  }
+
+  // 備考エリア（常時表示）
+  const remarksDiv = document.createElement('div');
+  remarksDiv.className = 'store-accordion__remarks';
+  if (isReturned || isDisputed) {
+    // 要対応: 編集可能
+    remarksDiv.innerHTML =
+      '<label class="remarks-label">・ 加盟店請求書備考</label>' +
+      '<input type="text" class="remarks-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" placeholder="備考があれば入力してください" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
+  } else {
+    // 確認中・承認済み: 読み取り専用
+    remarksDiv.innerHTML =
+      '<label class="remarks-label">・ 加盟店請求書備考</label>' +
+      '<input type="text" class="remarks-input remarks-input--readonly" readonly placeholder="備考なし" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
+  }
+  body.appendChild(remarksDiv);
+
+  // ── 明細アコーディオン（ネスト）────────────────────────────────────────
+  const linesAccordion = document.createElement('div');
+  linesAccordion.className = 'detail-accordion' + (openByDefault ? ' is-open' : '');
+
+  const linesHeader = document.createElement('div');
+  linesHeader.className = 'detail-accordion__header';
+  linesHeader.innerHTML =
+    '<span class="detail-accordion__label">・ 明細</span>' +
+    '<i class="fa-solid fa-chevron-down detail-accordion__icon"></i>';
+
+  const linesBody = document.createElement('div');
+  linesBody.className = 'detail-accordion__body';
 
   // 明細コンテナ（オンデマンドで内容を入れる / 閉じたら空にしてメモリ解放）
   const linesContainer = document.createElement('div');
-  linesContainer.className = 'dsl-lines-container';
-  body.appendChild(linesContainer);
+  linesBody.appendChild(linesContainer);
+
+  linesAccordion.appendChild(linesHeader);
+  linesAccordion.appendChild(linesBody);
+  body.appendChild(linesAccordion);
 
   accordion.appendChild(header);
   accordion.appendChild(body);
 
-  // ── 開閉ロジック ──────────────────────────────────────────────────────────
+  // ── 開閉ロジック（外側アコーディオン）──────────────────────────────────
   header.addEventListener('click', function () {
     const isNowOpen = accordion.classList.contains('is-open');
     if (isNowOpen) {
       accordion.classList.remove('is-open');
       linesContainer.innerHTML = ''; // DOM を空にしてブラウザのメモリを解放
+      linesAccordion.classList.remove('is-open');
     } else {
       accordion.classList.add('is-open');
+    }
+  });
+
+  // ── 開閉ロジック（内側: 明細アコーディオン）────────────────────────────
+  linesHeader.addEventListener('click', function () {
+    const isOpen = linesAccordion.classList.toggle('is-open');
+    if (!isOpen) {
+      linesContainer.innerHTML = ''; // DOM を空にしてブラウザのメモリを解放
+    } else {
       loadDetailInvoiceLines_(store.store_invoice_id, linesContainer);
     }
   });
@@ -2230,6 +2361,7 @@ function navigate() {
   if (targetId !== 'pageDetail') {
     // 詳細画面以外に遷移したら次回の再描画を許可するためキャッシュをクリア
     _detailCurrentInvoiceId = null;
+    _detailActionRequiredMallCodes = [];
   }
 
   console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
@@ -2237,4 +2369,515 @@ function navigate() {
 
 // ハッシュ変化時にルーティング実行（初回ロードは getAccountInfo 完了後に呼ぶ）
 window.addEventListener('hashchange', navigate);
+
+// =============================================================================
+// Detail page: 修正ファイルアップロード モーダル
+// =============================================================================
+(function () {
+  var _targetStoreInvoiceId = null;
+  var _targetActionsEl      = null;
+  var _selectedFile         = null;
+  var _analyzeTimer         = null;
+  var _currentReader        = null;
+
+  var modal         = document.getElementById('detailUploadModal');
+  var overlay       = modal && modal.querySelector('.detail-upload-modal__overlay');
+  var dropZoneEl    = document.getElementById('detailUploadDropZone');
+  var fileInput     = document.getElementById('detailUploadFileInput');
+  var btnSelect     = document.getElementById('detailUploadBtnSelect');
+  var analyzingEl   = document.getElementById('detailUploadAnalyzing');
+  var analyzingName = document.getElementById('detailUploadAnalyzingName');
+  var errorCard     = document.getElementById('detailUploadErrorCard');
+  var alertList     = document.getElementById('detailUploadAlertList');
+  var selectedArea  = document.getElementById('detailUploadSelectedArea');
+  var fileNameEl    = document.getElementById('detailUploadFileName');
+  var btnRemove     = document.getElementById('detailUploadRemove');
+  var btnClose      = document.getElementById('detailUploadModalClose');
+  var btnCancel     = document.getElementById('detailUploadModalCancel');
+  var btnConfirm    = document.getElementById('detailUploadModalConfirm');
+
+  function openModal(storeInvoiceId, actionsEl) {
+    _targetStoreInvoiceId = storeInvoiceId;
+    _targetActionsEl      = actionsEl;
+    resetModalState_();
+    modal.classList.remove('hidden');
+  }
+
+  function closeModal() {
+    modal.classList.add('hidden');
+  }
+
+  function resetModalState_() {
+    _selectedFile = null;
+    if (_analyzeTimer)  { clearTimeout(_analyzeTimer); _analyzeTimer = null; }
+    if (_currentReader) { _currentReader.abort(); _currentReader = null; }
+    dropZoneEl.classList.remove('hidden');
+    analyzingEl.classList.add('hidden');
+    errorCard.classList.add('hidden');
+    selectedArea.classList.add('hidden');
+    alertList.innerHTML = '';
+    fileNameEl.textContent = '';
+    fileInput.value = '';
+    btnConfirm.disabled = true;
+  }
+
+  function showAnalyzing_(fileName) {
+    dropZoneEl.classList.add('hidden');
+    analyzingEl.classList.remove('hidden');
+    errorCard.classList.add('hidden');
+    selectedArea.classList.add('hidden');
+    if (analyzingName) analyzingName.textContent = fileName;
+    btnConfirm.disabled = true;
+  }
+
+  function showErrors_(errors) {
+    dropZoneEl.classList.remove('hidden');
+    analyzingEl.classList.add('hidden');
+    errorCard.classList.remove('hidden');
+    selectedArea.classList.add('hidden');
+    alertList.innerHTML = '';
+    errors.forEach(function (msg) {
+      var li = document.createElement('li');
+      li.className = 'alert-item alert-item--error';
+      li.innerHTML = '<i class="fa-solid fa-circle alert-icon"></i>' + escapeHtml(msg);
+      alertList.appendChild(li);
+    });
+    btnConfirm.disabled = true;
+  }
+
+  function showSuccess_(file) {
+    _selectedFile = file;
+    dropZoneEl.classList.remove('hidden');
+    analyzingEl.classList.add('hidden');
+    errorCard.classList.add('hidden');
+    selectedArea.classList.remove('hidden');
+    fileNameEl.textContent = file.name;
+    btnConfirm.disabled = false;
+  }
+
+  function handleFile_(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      alert('CSVファイルを選択してください');
+      return;
+    }
+    if (_analyzeTimer)  { clearTimeout(_analyzeTimer); _analyzeTimer = null; }
+    if (_currentReader) { _currentReader.abort(); _currentReader = null; }
+
+    showAnalyzing_(file.name);
+    var analyzeStartMs = Date.now();
+    var MIN_ANALYZE_MS = 600;
+
+    var reader = new FileReader();
+    _currentReader = reader;
+
+    reader.onload = function (e) {
+      if (reader !== _currentReader) return;
+      _currentReader = null;
+
+      var buffer = e.target.result;
+      var text;
+      try {
+        text = decodeBuffer_(buffer);
+      } catch (err) {
+        analyzingEl.classList.add('hidden');
+        dropZoneEl.classList.remove('hidden');
+        alert('ファイルの読み込みに失敗しました');
+        return;
+      }
+
+      var errors, rows;
+      try {
+        var result = validateCsv(text);
+        errors = result.errors;
+        rows   = result.rows;
+      } catch (err) {
+        analyzingEl.classList.add('hidden');
+        dropZoneEl.classList.remove('hidden');
+        alert(err.message || 'CSVの検証中にエラーが発生しました');
+        return;
+      }
+
+      // --- 追加バリデーション: 加盟店の網羅性チェック ---
+      if (errors.length === 0 && rows && rows.length > 0) {
+        var csvCustomerCodes = {};
+        rows.forEach(function (row) { csvCustomerCodes[String(row.customer_code || '')] = true; });
+
+        var acctInfo = null;
+        try {
+          var mappingsJson = sessionStorage.getItem('shiire_merchant_mappings');
+          acctInfo = { merchant_mappings: mappingsJson ? JSON.parse(mappingsJson) : [] };
+        } catch (_e) { acctInfo = { merchant_mappings: [] }; }
+        var mappings = (acctInfo && acctInfo.merchant_mappings) || [];
+        // mall_code → customer_code の逆引きマップ
+        var mallToCustomer = {};
+        mappings.forEach(function (m) {
+          if (m.mall_code && m.customer_code) mallToCustomer[String(m.mall_code)] = String(m.customer_code);
+        });
+
+        if (!_targetStoreInvoiceId && _targetActionsEl === null) {
+          // 一括アップロード: 要対応全加盟店の網羅性チェック
+          (_detailActionRequiredMallCodes || []).forEach(function (mallCode) {
+            var cc = mallToCustomer[String(mallCode)];
+            if (cc && !csvCustomerCodes[cc]) {
+              var storeName = '';
+              mappings.forEach(function (m) { if (String(m.mall_code) === String(mallCode)) storeName = m.store_name || ''; });
+              errors.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません');
+            }
+          });
+        } else if (_targetStoreInvoiceId) {
+          // 個別修正: 対象加盟店のデータが含まれているかチェック
+          var targetMallCode = _targetActionsEl && _targetActionsEl.closest('.store-accordion') ?
+            _targetActionsEl.closest('.store-accordion').dataset.mallCode : null;
+          if (targetMallCode) {
+            var targetCc = mallToCustomer[String(targetMallCode)];
+            if (targetCc && !csvCustomerCodes[targetCc]) {
+              errors.push('修正対象の加盟店（顧客コード: ' + targetCc + '）のデータがCSVに含まれていません');
+            }
+          }
+        }
+      }
+
+      var elapsed   = Date.now() - analyzeStartMs;
+      var remaining = Math.max(0, MIN_ANALYZE_MS - elapsed);
+      _analyzeTimer = setTimeout(function () {
+        _analyzeTimer = null;
+        analyzingEl.classList.add('hidden');
+        if (errors.length > 0) {
+          showErrors_(errors);
+        } else {
+          showSuccess_(file);
+        }
+      }, remaining);
+    };
+
+    reader.onerror = function () {
+      if (reader !== _currentReader) return;
+      _currentReader = null;
+      analyzingEl.classList.add('hidden');
+      dropZoneEl.classList.remove('hidden');
+      alert('ファイルの読み込みに失敗しました');
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
+
+  // CSV一括アップロードボタン
+  var btnBulkUpload = document.getElementById('detailBtnUploadCsv');
+  if (btnBulkUpload) {
+    btnBulkUpload.addEventListener('click', function () {
+      openModal(null, null);
+    });
+  }
+
+  // ファイル選択ボタン
+  if (btnSelect) btnSelect.addEventListener('click', function () { fileInput.click(); });
+
+  // ファイル input change
+  if (fileInput) {
+    fileInput.addEventListener('change', function () {
+      if (fileInput.files[0]) handleFile_(fileInput.files[0]);
+      fileInput.value = '';
+    });
+  }
+
+  // ドラッグ&ドロップ
+  if (dropZoneEl) {
+    dropZoneEl.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropZoneEl.classList.add('drag-over');
+    });
+    dropZoneEl.addEventListener('dragleave', function () {
+      dropZoneEl.classList.remove('drag-over');
+    });
+    dropZoneEl.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropZoneEl.classList.remove('drag-over');
+      var file = e.dataTransfer.files[0] || null;
+      if (file) handleFile_(file);
+    });
+  }
+
+  // 取り消しボタン
+  if (btnRemove) btnRemove.addEventListener('click', function () { resetModalState_(); });
+
+  // 閉じる系
+  if (btnClose)  btnClose.addEventListener('click',  closeModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeModal);
+  if (overlay)   overlay.addEventListener('click',   closeModal);
+
+  // 「このファイルを使用する」→ ボタンエリアをファイル名+登録ボタンに切り替え
+  if (btnConfirm) {
+    btnConfirm.addEventListener('click', function () {
+      if (!_selectedFile) return;
+      var storeInvoiceId = _targetStoreInvoiceId;
+      var file = _selectedFile;
+
+      // 一括アップロードの場合: BE 呼び出し → 画面リロード
+      if (!_targetActionsEl && !storeInvoiceId) {
+        if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
+          alert('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。');
+          return;
+        }
+        var parentInvoiceId = _detailCurrentInvoiceId;
+        if (!parentInvoiceId) {
+          alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+          return;
+        }
+        var summaryData_ = buildResubmitSummaryData_(parsedData, null);
+        var remarks_     = {}; // 一括の場合は備考なし
+        closeModal();
+        showLoadingOverlay('一括登録中...');
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler(function (result) {
+              hideLoadingOverlay();
+              if (result && result.status === 'error') {
+                alert('登録に失敗しました: ' + (result.message || '不明なエラー'));
+                return;
+              }
+              rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+              _detailCurrentInvoiceId = null;
+              initDetailPage(parentInvoiceId);
+            })
+            .withFailureHandler(function (err) {
+              hideLoadingOverlay();
+              alert('登録に失敗しました: ' + (err.message || err));
+            })
+            .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData_, remarks_, parentInvoiceId);
+        } else {
+          console.warn('[bulkResubmit] google.script.run が利用できません（モック）');
+          setTimeout(function () {
+            hideLoadingOverlay();
+            _detailCurrentInvoiceId = null;
+            initDetailPage(parentInvoiceId);
+          }, 1500);
+        }
+        return;
+      }
+
+      // 個別アコーディオンから開いた場合のみボタンエリアを切り替え
+      if (_targetActionsEl) {
+        _targetActionsEl.innerHTML =
+          '<div class="detail-reupload-file">' +
+            '<i class="fa-regular fa-file-lines"></i>' +
+            '<span class="detail-reupload-file__name">' + escapeHtml(file.name) +
+              ' <span class="detail-reupload-file__size">(' + Math.round(file.size / 1024) + 'KB)</span>' +
+            '</span>' +
+            '<button type="button" class="detail-reupload-file__remove" data-action="reupload-remove" data-id="' + escapeHtml(storeInvoiceId || '') + '" aria-label="取り消し"><i class="fa-solid fa-xmark"></i></button>' +
+          '</div>' +
+          '<button type="button" class="btn btn-primary detail-reupload-submit" data-action="reupload-submit" data-id="' + escapeHtml(storeInvoiceId || '') + '">上記ファイルを登録する</button>';
+        _targetActionsEl._pendingFile = file;
+      }
+      closeModal();
+    });
+  }
+
+  // イベント委譲: reuploadボタン押下 → モーダルを開く
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-action="reupload"]');
+    if (btn) {
+      var actionsEl = btn.closest('.backoffice-remark__actions');
+      openModal(btn.dataset.id, actionsEl);
+      return;
+    }
+    // ファイル取り消し → ボタン3つに戻す
+    var removeBtn = e.target.closest('[data-action="reupload-remove"]');
+    if (removeBtn) {
+      var actionsEl2 = removeBtn.closest('.backoffice-remark__actions');
+      if (actionsEl2) {
+        var id = removeBtn.dataset.id;
+        actionsEl2.innerHTML =
+          '<button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="withdraw" data-id="' + escapeHtml(id) + '"><i class="fa-regular fa-trash-can"></i> 請求取り下げ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm" data-action="reupload" data-id="' + escapeHtml(id) + '"><i class="fa-solid fa-upload"></i> 修正ファイルをアップ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm" data-action="resubmit" data-id="' + escapeHtml(id) + '"><i class="fa-solid fa-rotate"></i> 変更なしで再請求</button>';
+      }
+      return;
+    }
+    // 取り下げ → 「取り下げ済み」バッジに切り替え
+    var withdrawBtn = e.target.closest('[data-action="withdraw"]');
+    if (withdrawBtn) {
+      var actionsEl3 = withdrawBtn.closest('.backoffice-remark__actions');
+      if (actionsEl3) {
+        actionsEl3.innerHTML =
+          '<span class="detail-action-badge detail-action-badge--withdrawn">' +
+            '<i class="fa-solid fa-check"></i> 取り下げ済み' +
+          '</span>';
+      }
+      return;
+    }
+    // 変更なしで再請求 → BE: resubmitWithoutChanges 呼び出し
+    var resubmitBtn = e.target.closest('[data-action="resubmit"]');
+    if (resubmitBtn) {
+      var storeInvoiceId = resubmitBtn.dataset.id;
+      var parentInvoiceId = _detailCurrentInvoiceId;
+      if (!parentInvoiceId) {
+        alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+        return;
+      }
+      // 否認の場合: wholesaler_handover テキストエリアの内容を取得
+      var bodyEl4        = resubmitBtn.closest('.store-accordion__body');
+      var handoverInput4 = bodyEl4 && bodyEl4.querySelector('.backoffice-remark__handover-input');
+      var wholesalerHandover4 = handoverInput4 ? (handoverInput4.value || '') : '';
+      // 否認（handover入力欄がある）の場合、未入力ならエラー
+      if (handoverInput4 && !wholesalerHandover4.trim()) {
+        alert('\u26A0 否認された請求を「変更なしで再申請」する場合は、〈加盟店との合意事項〉の項目を記入ください。');
+        return;
+      }
+      showLoadingOverlay('再請求中...');
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            hideLoadingOverlay();
+            if (result && result.status === 'error') {
+              alert('再請求に失敗しました: ' + (result.message || '不明なエラー'));
+              return;
+            }
+            _detailCurrentInvoiceId = null;
+            initDetailPage(parentInvoiceId);
+          })
+          .withFailureHandler(function (err) {
+            hideLoadingOverlay();
+            alert('再請求に失敗しました: ' + (err.message || err));
+          })
+          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null);
+      } else {
+        console.warn('[resubmitWithoutChanges] google.script.run が利用できません（モック）');
+        setTimeout(function () {
+          hideLoadingOverlay();
+          _detailCurrentInvoiceId = null;
+          initDetailPage(parentInvoiceId);
+        }, 1500);
+      }
+      return;
+    }
+    // 「上記ファイルを登録する」ボタン押下 → resubmitInvoiceData 呼び出し
+    var reuploadSubmitBtn = e.target.closest('[data-action="reupload-submit"]');
+    if (reuploadSubmitBtn) {
+      var storeInvoiceId = reuploadSubmitBtn.dataset.id;
+      var actionsEl5     = reuploadSubmitBtn.closest('.backoffice-remark__actions');
+      var pendingFile    = actionsEl5 && actionsEl5._pendingFile;
+      if (!pendingFile) {
+        alert('ファイルが選択されていません');
+        return;
+      }
+      if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
+        alert('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。');
+        return;
+      }
+      var parentInvoiceId = _detailCurrentInvoiceId;
+      if (!parentInvoiceId) {
+        alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+        return;
+      }
+      // 否認の場合: wholesaler_handover テキストエリアの内容を取得
+      var bodyEl        = reuploadSubmitBtn.closest('.store-accordion__body');
+      var handoverInput = bodyEl && bodyEl.querySelector('.backoffice-remark__handover-input');
+      var wholesalerHandover = handoverInput ? (handoverInput.value || '') : '';
+      // summaryData / remarks を parsedData から構築
+      var summaryData_  = buildResubmitSummaryData_(parsedData, storeInvoiceId);
+      var remarks_      = buildResubmitRemarks_(bodyEl);
+      showLoadingOverlay('登録中...');
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            hideLoadingOverlay();
+            if (result && result.status === 'error') {
+              alert('登録に失敗しました: ' + (result.message || '不明なエラー'));
+              return;
+            }
+            rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+            // 詳細画面をリロードして最新データを表示
+            _detailCurrentInvoiceId = null;
+            initDetailPage(parentInvoiceId);
+          })
+          .withFailureHandler(function (err) {
+            hideLoadingOverlay();
+            alert('登録に失敗しました: ' + (err.message || err));
+          })
+          .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData_, remarks_, parentInvoiceId, storeInvoiceId, wholesalerHandover || null);
+      } else {
+        console.warn('[resubmit] google.script.run が利用できません（モック）');
+        console.log('[resubmit] parentInvoiceId:', parentInvoiceId, 'storeInvoiceId:', storeInvoiceId, 'handover:', wholesalerHandover);
+        setTimeout(function () {
+          hideLoadingOverlay();
+          if (actionsEl5) {
+            actionsEl5.innerHTML =
+              '<span class="detail-action-badge detail-action-badge--resubmitted">' +
+                '<i class="fa-solid fa-check"></i> 再請求済み' +
+              '</span>';
+          }
+        }, 1500);
+      }
+      return;
+    }
+  });
+}());
+
+// =============================================================================
+// Detail page: resubmit ヘルパー関数
+// =============================================================================
+
+/**
+ * parsedData（バリデーション済みCSVデータ）から summaryData を構築する。
+ * parsedData は validateCsv() が返す rows 配列（確認画面と同じ形式）。
+ *
+ * @param {Array<Object>} rows
+ * @param {string}        storeInvoiceId - 対象の store_invoices.id（未使用だが将来拡張用）
+ * @returns {{ wholesalerTotal: Object, merchantTotals: Array<Object> }}
+ */
+function buildResubmitSummaryData_(rows, storeInvoiceId) {
+  // customerCode ごとに集計
+  const merchantMap = {};
+  (rows || []).forEach(function (row) {
+    var cc = String(row.customer_code || '');
+    if (!merchantMap[cc]) {
+      merchantMap[cc] = {
+        customerCode: cc,
+        totalAmount: 0, subtotalAmount: 0, taxAmount: 0,
+        exTax10: 0, tax10: 0, exTax8: 0, tax8: 0,
+      };
+    }
+    var m       = merchantMap[cc];
+    var exTax   = Number(row.amount_ex_tax  || 0);
+    var tax     = Number(row.tax_amount     || 0);
+    var taxRate = Number(row.tax_rate       || 0);
+    m.subtotalAmount += exTax;
+    m.taxAmount      += tax;
+    m.totalAmount    += exTax + tax;
+    if (taxRate === 10) { m.exTax10 += exTax; m.tax10 += tax; }
+    else if (taxRate === 8) { m.exTax8 += exTax; m.tax8 += tax; }
+  });
+
+  var merchantTotals = Object.values(merchantMap);
+
+  var wt = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0, feeAmount: 0, paymentAmount: 0 };
+  merchantTotals.forEach(function (m) {
+    wt.totalAmount    += m.totalAmount;
+    wt.subtotalAmount += m.subtotalAmount;
+    wt.taxAmount      += m.taxAmount;
+    wt.exTax10        += m.exTax10;
+    wt.tax10          += m.tax10;
+    wt.exTax8         += m.exTax8;
+    wt.tax8           += m.tax8;
+  });
+  wt.paymentAmount = wt.totalAmount; // fee 計算は省略（POC）
+
+  return { wholesalerTotal: wt, merchantTotals: merchantTotals };
+}
+
+/**
+ * アコーディオンボディ内の備考inputから { customerCode: remarks } を収集する。
+ * @param {HTMLElement} bodyEl
+ * @returns {Object.<string, string>}
+ */
+function buildResubmitRemarks_(bodyEl) {
+  var remarks = {};
+  if (!bodyEl) return remarks;
+  bodyEl.querySelectorAll('.remarks-input[data-store-invoice-id]').forEach(function (el) {
+    // customerCode が取れない場合は store_invoice_id をキーにする（BE側で適宜対応）
+    var key = el.dataset.customerCode || el.dataset.storeInvoiceId || '';
+    remarks[key] = el.value || '';
+  });
+  return remarks;
+}
 </script>
