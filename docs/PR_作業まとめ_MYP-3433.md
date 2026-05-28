@@ -141,8 +141,9 @@ sequenceDiagram
     participant BQ as BigQuery
 
     FE->>FE: CSVファイル選択・バリデーション<br/>（全要対応加盟店のcustomer_codeが<br/>CSVに含まれるかチェック）
-    FE->>GAS: bulkResubmitInvoiceData(<br/>rawCsv, utf8Csv, summaryData,<br/>remarks, parentInvoiceId)
+    FE->>GAS: bulkResubmitInvoiceData(<br/>rawCsv, utf8Csv, summaryData,<br/>remarks, parentInvoiceId, handovers)
 
+    GAS->>Drive: CSV保存（_bulk_resubmit.csv）
     GAS->>BQ: Load Job → staging
     GAS->>BQ: fetchLatestWholesalerInvoice_()
     GAS->>BQ: fetchTargetStoreInvoiceAmounts_(null)<br/>※ null = 全要対応を対象
