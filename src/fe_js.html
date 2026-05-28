@@ -284,6 +284,30 @@ let calMonth = _today.getMonth(); // 0始まり
 /** スケジュールデータのキャッシュ（日付文字列 → オブジェクト配列） */
 let scheduleMap = {};
 
+// カレンダーモーダル: 開閉制御（ページに依存しないためグローバルで登録）
+(function() {
+  const calOverlay = document.getElementById('calendarModalOverlay');
+  const btnOpen    = document.getElementById('btnCalendarOpen');
+  const btnClose   = document.getElementById('calendarModalClose');
+
+  if (btnOpen) {
+    btnOpen.addEventListener('click', function() {
+      calOverlay.classList.remove('hidden');
+      renderCalendar();
+    });
+  }
+  if (btnClose) {
+    btnClose.addEventListener('click', function() {
+      calOverlay.classList.add('hidden');
+    });
+  }
+  if (calOverlay) {
+    calOverlay.addEventListener('click', function(e) {
+      if (e.target === calOverlay) calOverlay.classList.add('hidden');
+    });
+  }
+})();
+
 // =============================================================================
 // Home page: 初期化
 // =============================================================================
@@ -313,17 +337,17 @@ function initHomePage() {
   });
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
-    // スケジュールデータ取得
+    // スケジュールデータ取得（business_calendar）
     google.script.run
       .withSuccessHandler(function(result) {
         buildScheduleMap(result && result.data ? result.data : []);
-        renderCalendar();
+        // モーダルが開いていれば再描画
+        if (!calOverlay.classList.contains('hidden')) renderCalendar();
       })
       .withFailureHandler(function(err) {
-        console.error('[home] getMockScheduleData failed:', err);
-        renderCalendar(); // データなしでもカレンダーは表示
+        console.error('[home] fetchScheduleData failed:', err);
       })
-      .getMockScheduleData();
+      .fetchScheduleData();
 
     // 請求履歴取得（BQ直接取得: wholesaler_id はサーバー側でログインユーザーから確定するため引数不要）
     showLoadingOverlay('請求情報を取得中...');
@@ -352,14 +376,34 @@ function initHomePage() {
 // =============================================================================
 
 /**
- * 配列 → { '2026-05-13': [{...}], ... } の形に変換してキャッシュ
- * @param {Array<{date:string, title:string, type:string}>} items
+ * business_calendar の行を日付 → イベント配列のマップに変換してキャッシュ。
+ * start_at〜end_at の範囲を日毎に展開し、位置情報（start/middle/end/single）を付与する。
+ * @param {Array<{event_type:string, start_at:string, end_at:string, event_description:string, display_color_code:string}>} items
  */
+let _rawScheduleItems = [];
 function buildScheduleMap(items) {
+  _rawScheduleItems = items || [];
   scheduleMap = {};
-  (items || []).forEach(item => {
-    if (!scheduleMap[item.date]) scheduleMap[item.date] = [];
-    scheduleMap[item.date].push(item);
+  _rawScheduleItems.forEach(item => {
+    var start = new Date(item.start_at);
+    var end   = new Date(item.end_at);
+    var isSingle = (start.getTime() === end.getTime());
+    for (var d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      var key = d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+      if (!scheduleMap[key]) scheduleMap[key] = [];
+      var pos = isSingle ? 'single'
+        : (d.getTime() === start.getTime()) ? 'start'
+        : (d.getTime() === end.getTime()) ? 'end'
+        : 'middle';
+      scheduleMap[key].push({
+        title: item.event_description,
+        color: item.display_color_code || '#ccc',
+        event_type: item.event_type,
+        pos: pos,
+      });
+    }
   });
 }
 
@@ -372,8 +416,20 @@ function renderCalendar() {
   const grid  = document.getElementById('calGrid');
   if (!label || !grid) return;
 
-  label.innerHTML = `<span class="cal-label__year">${calYear}年</span><span class="cal-label__month">${calMonth + 1}月</span>`;
+  // 月ラベル（右横のカレンダーアイコンで月選択パネル表示）
+  label.innerHTML = `<span class="cal-label__year">${calYear}年</span><span class="cal-label__month">${calMonth + 1}月</span>` +
+    `<button class="cal-month-toggle" id="calMonthToggle" aria-label="月選択"><i class="fa-regular fa-calendar"></i></button>`;
+  label.style.cursor = 'default';
+  label.onclick = null;
+  document.getElementById('calMonthToggle').addEventListener('click', function(e) {
+    e.stopPropagation();
+    toggleMonthPicker_();
+  });
+
   grid.innerHTML  = '';
+
+  // 月選択パネル（既存なら再利用）
+  renderMonthPicker_();
 
   // 月の初日の曜日（0=日, 6=土）
   const firstDay  = new Date(calYear, calMonth, 1).getDay();
@@ -409,13 +465,13 @@ function renderCalendar() {
     num.textContent = String(d);
     cell.appendChild(num);
 
-    // スケジュールバッジ
+    // スケジュール帯（連続する日を色帯としてつなげる）
     const events = scheduleMap[key] || [];
     events.forEach(ev => {
-      const badge = document.createElement('div');
-      badge.className = `cal-badge cal-badge--${ev.type}`;
-      badge.textContent = ev.title;
-      cell.appendChild(badge);
+      const band = document.createElement('div');
+      band.className = 'cal-band cal-band--' + ev.pos;
+      band.style.background = ev.color;
+      cell.appendChild(band);
     });
 
     if (events.length > 0) {
@@ -423,6 +479,81 @@ function renderCalendar() {
     }
 
     grid.appendChild(cell);
+  }
+}
+
+// 月選択パネル
+let _pickerYear = null; // 月選択パネルで表示中の年
+
+function renderMonthPicker_() {
+  const modal = document.querySelector('.calendar-modal');
+  if (!modal) return;
+  if (_pickerYear === null) _pickerYear = calYear;
+
+  let picker = document.getElementById('calMonthPicker');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'calMonthPicker';
+    picker.className = 'cal-month-picker hidden';
+    modal.insertBefore(picker, modal.querySelector('.calendar-weekdays'));
+  }
+  picker.innerHTML = '';
+
+  // 年ヘッダー（< 年 >）
+  const yearHeader = document.createElement('div');
+  yearHeader.className = 'cal-month-picker__year-header';
+  yearHeader.innerHTML =
+    '<button class="calendar-nav cal-picker-nav" id="pickerYearPrev">&lt;</button>' +
+    '<span class="cal-month-picker__year-label">' + _pickerYear + '年</span>' +
+    '<button class="calendar-nav cal-picker-nav" id="pickerYearNext">&gt;</button>';
+  picker.appendChild(yearHeader);
+
+  // 年ナビイベント
+  yearHeader.querySelector('#pickerYearPrev').addEventListener('click', function(e) {
+    e.stopPropagation();
+    _pickerYear--;
+    renderMonthPicker_();
+    picker.classList.remove('hidden');
+  });
+  yearHeader.querySelector('#pickerYearNext').addEventListener('click', function(e) {
+    e.stopPropagation();
+    _pickerYear++;
+    renderMonthPicker_();
+    picker.classList.remove('hidden');
+  });
+
+  // 月グリッド（4x3）
+  const grid = document.createElement('div');
+  grid.className = 'cal-month-picker__grid';
+  const today = new Date();
+  for (let m = 0; m < 12; m++) {
+    const btn = document.createElement('button');
+    const isSelected = (m === calMonth && _pickerYear === calYear);
+    const isCurrent  = (m === today.getMonth() && _pickerYear === today.getFullYear());
+    let cls = 'cal-month-picker__btn';
+    if (isSelected) cls += ' cal-month-picker__btn--active';
+    else if (isCurrent) cls += ' cal-month-picker__btn--current';
+    btn.className = cls;
+    btn.textContent = (m + 1) + '月';
+    btn.addEventListener('click', function() {
+      calYear = _pickerYear;
+      calMonth = m;
+      picker.classList.add('hidden');
+      renderCalendar();
+    });
+    grid.appendChild(btn);
+  }
+  picker.appendChild(grid);
+}
+
+function toggleMonthPicker_() {
+  const picker = document.getElementById('calMonthPicker');
+  if (picker) {
+    _pickerYear = calYear;
+    picker.classList.toggle('hidden');
+    if (!picker.classList.contains('hidden')) {
+      renderMonthPicker_();
+    }
   }
 }
 
@@ -448,74 +579,54 @@ function renderCalendar() {
  * }>} items
  */
 function renderBillingHistory(items) {
-  const list = document.getElementById('billingHistoryList');
-  if (!list) return;
-  list.innerHTML = '';
+  const tbody = document.getElementById('billingHistoryBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
 
   if (!items || items.length === 0) {
-    list.innerHTML = '<p class="billing-empty">請求履歴がありません。</p>';
+    tbody.innerHTML = '<tr><td colspan="7" class="billing-empty">請求履歴がありません。</td></tr>';
     return;
   }
 
+  const fmt = n => Number(n).toLocaleString('ja-JP');
+
   items.forEach(item => {
-    const card = document.createElement('div');
-    card.className = 'billing-card';
+    const tr = document.createElement('tr');
 
-    const fmt = n => Number(n).toLocaleString('ja-JP');
-
-    // wholesaler_invoice_date（例: '2026-04-30'）から「4月」形式に変換
+    // 請求月
     const monthLabel = item.wholesaler_invoice_date
-      ? String(Number(item.wholesaler_invoice_date.slice(5, 7))) + '月'
+      ? String(Number(item.wholesaler_invoice_date.slice(0, 4))) + '年' + String(Number(item.wholesaler_invoice_date.slice(5, 7))) + '月'
       : '';
 
-    // 税率別内訳を4カラムから組み立てる
-    const breakdown = [
-      { rate: 10, subtotalExTax: item.wholesaler_standard_tax_target_amount, taxAmount: item.wholesaler_standard_tax_amount },
-      { rate: 8,  subtotalExTax: item.wholesaler_reduced_tax_target_amount,  taxAmount: item.wholesaler_reduced_tax_amount },
-    ];
-    const breakdownDataRows = breakdown.map(b => `
-      <div class="bc-breakdown__cell bc-breakdown__rate">${escapeHtml(String(b.rate))}%</div>
-      <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.subtotalExTax)}円</div>
-      <div class="bc-breakdown__cell bc-breakdown__col-val">${fmt(b.taxAmount)}円</div>
-    `).join('');
+    // 登録日時（created_at があれば使用、なければ invoice_date）
+    const regDate = item.created_at || item.wholesaler_invoice_date || '';
+    const regLabel = regDate ? regDate.replace('T', ' ').slice(0, 16) : '';
 
-    card.innerHTML = `
-      <div class="bc-month">${escapeHtml(monthLabel)}</div>
+    // 手数料（税込）
+    const feeAmount = item.invoice_fee_amount != null ? fmt(item.invoice_fee_amount) + '円' : '';
 
-      <div class="bc-billing">
-        <div class="bc-billing__label">請求金額</div>
-        <div class="bc-billing__amount">${fmt(item.wholesaler_total_amount)}円</div>
-        <div class="bc-billing__sub">小計（税抜）<span>${fmt(item.wholesaler_subtotal_amount)}円</span></div>
-        <div class="bc-billing__sub">税額<span>${fmt(item.wholesaler_tax_amount)}円</span></div>
-      </div>
+    // 差戻し・否認バッジ（BQから has_resubmit / has_denial を 0/1 で取得）
+    const resubmitBadge = Number(item.has_resubmit)
+      ? '<span class="badge badge--resubmit"><i class="fa-solid fa-rotate-left"></i> 差戻し有</span>'
+      : '<span class="badge badge--none">差戻し無</span>';
+    const denialBadge = Number(item.has_denial)
+      ? '<span class="badge badge--denial"><i class="fa-solid fa-minus-circle"></i> 否認有</span>'
+      : '<span class="badge badge--none">否認無</span>';
 
-      <div class="bc-divider"></div>
+    tr.innerHTML = 
+      '<td>' + escapeHtml(monthLabel) + '</td>' +
+      '<td>' + escapeHtml(regLabel) + '</td>' +
+      '<td>' + fmt(item.wholesaler_total_amount) + '円</td>' +
+      '<td>' + feeAmount + '</td>' +
+      '<td>' + resubmitBadge + '</td>' +
+      '<td>' + denialBadge + '</td>' +
+      '<td><button type="button" class="btn-detail-link" data-id="' + escapeHtml(item.root_id || item.wholesaler_invoice_id) + '">詳細を見る &gt;</button></td>';
 
-      <div class="bc-breakdown">
-        <div class="bc-breakdown__grid">
-          <div class="bc-breakdown__cell bc-breakdown__title">内訳</div>
-          <div class="bc-breakdown__cell bc-breakdown__col-label">小計（税抜）</div>
-          <div class="bc-breakdown__cell bc-breakdown__col-label">税額</div>
-          ${breakdownDataRows}
-        </div>
-      </div>
-
-      <div class="bc-divider"></div>
-
-      <div class="bc-fee">
-        <div class="bc-fee__row">手数料<span>${fmt(item.invoice_fee_amount)}円</span></div>
-        <div class="bc-fee__row">振込金額<span>${fmt(item.payment_amount)}円</span></div>
-      </div>
-
-      <button type="button" class="bc-detail-link" data-id="${escapeHtml(item.wholesaler_invoice_id)}">詳細を見る &gt;</button>
-    `;
-
-    // 詳細リンク: invoiceId をハッシュクエリに含めて #detail へ遷移
-    card.querySelector('.bc-detail-link').addEventListener('click', function() {
+    tr.querySelector('.btn-detail-link').addEventListener('click', function() {
       location.hash = '#detail?invoiceId=' + encodeURIComponent(this.dataset.id);
     });
 
-    list.appendChild(card);
+    tbody.appendChild(tr);
   });
 }
 
@@ -1277,7 +1388,7 @@ function downloadCsvTemplate() {
   URL.revokeObjectURL(url);
 }
 
-document.getElementById('btnTemplateDlHeader').addEventListener('click', downloadCsvTemplate);
+// btnTemplateDlHeader は削除済み（ヘッダーはカレンダーボタンに置換）
 document.getElementById('btnTemplateDlPage').addEventListener('click', e => {
   e.preventDefault();
   downloadCsvTemplate();
@@ -2337,6 +2448,12 @@ function navigate() {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('hidden', id !== targetId);
   });
+
+  // ヘッダーの請求スケジュールボタン: TOP と詳細画面のみ表示
+  const btnCal = document.getElementById('btnCalendarOpen');
+  if (btnCal) {
+    btnCal.classList.toggle('hidden', targetId !== 'pageHome' && targetId !== 'pageDetail');
+  }
 
   if (targetId === 'pageHome') {
     initHomePage();
