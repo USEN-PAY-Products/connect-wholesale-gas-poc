@@ -49,7 +49,7 @@ const DEFAULT_CSV_COLUMNS_ = [
   { index: 0, csv_header: '顧客コード',       system_column: 'customer_code',         type: 'string',  required: true  },
   { index: 1, csv_header: '日付',             system_column: 'transaction_date',      type: 'date',    required: true  },
   { index: 2, csv_header: '品目',             system_column: 'item_name',             type: 'string',  required: true  },
-  { index: 3, csv_header: '数量',             system_column: 'quantity',              type: 'integer', required: true  },
+  { index: 3, csv_header: '数量',             system_column: 'quantity',              type: 'decimal', required: true  },
   { index: 4, csv_header: '単価',             system_column: 'unit_price',            type: 'integer', required: true  },
   { index: 5, csv_header: '税率区分(%)',       system_column: 'tax_rate',              type: 'integer', required: true,  enum: [8, 10] },
   { index: 6, csv_header: '請求金額（税抜）', system_column: 'amount_ex_tax',         type: 'integer', required: true  },
@@ -407,7 +407,13 @@ function initHomePage() {
     google.script.run
       .withSuccessHandler(function(result) {
         hideLoadingOverlay();
-        renderBillingHistory(result && result.data ? result.data : []);
+        var invoices = result && result.data ? result.data : [];
+        try {
+          sessionStorage.setItem('shiire_invoices_cache', JSON.stringify(invoices));
+        } catch (e) {
+          console.warn('[home] sessionStorage への請求キャッシュ保存に失敗しました:', e);
+        }
+        renderBillingHistory(invoices);
       })
       .withFailureHandler(function(err) {
         console.error('[home] fetchInvoices failed:', err);
@@ -695,8 +701,10 @@ const dropZone       = document.getElementById('dropZone');
 const btnSelectFile  = document.getElementById('btnSelectFile');
 const fileInput      = document.getElementById('fileInput');
 const btnToConfirm   = document.getElementById('btnToConfirm');
-const btnCancel      = document.getElementById('btnCancel');
 const btnFinalSubmit = document.getElementById('btnFinalSubmit');
+const fileInfoEl     = document.getElementById('fileInfo');
+const fileInfoName   = document.getElementById('fileInfoName');
+const btnFileDelete  = document.getElementById('btnFileDelete');
 const errorCard      = document.getElementById('errorCard');
 const alertList      = document.getElementById('alertList');
 const toast          = document.getElementById('toast');
@@ -851,28 +859,15 @@ function setDropZoneAnalyzing(fileName) {
  * dropZone を成功表示に切り替える
  * @param {string} fileName
  */
-function setDropZoneSuccess(fileName) {
-  dropZone.innerHTML = `
-    <i class="fa-regular fa-circle-check drop-zone__icon drop-zone__icon--success"></i>
-    <p class="drop-zone__text drop-zone__text--success">
-      📄 <strong id="dropZoneFileName"></strong> を読み込みました
-    </p>
-    <button class="btn btn-select-file" id="btnSelectFile">
-      <i class="fa-regular fa-folder-open"></i> 別のファイルを選択
-    </button>
-    <input type="file" id="fileInput" accept=".csv" hidden />
-  `;
-  // XSS対策: ファイル名は textContent で挿入
-  dropZone.querySelector('#dropZoneFileName').textContent = fileName;
-  dropZone.classList.add('is-success');
-  // 再バインド
-  const newBtn   = dropZone.querySelector('#btnSelectFile');
-  const newInput = dropZone.querySelector('#fileInput');
-  newBtn.addEventListener('click', () => newInput.click());
-  newInput.addEventListener('change', function () {
-    if (this.files[0]) handleFile(this.files[0]);
-    this.value = '';
-  });
+function setDropZoneSuccess(fileName, fileSize) {
+  // ドロップゾーンは初期状態に戻す（成功表示にしない）
+  resetDropZone();
+  // ドロップゾーン下のファイル情報エリアを表示
+  const sizeText = fileSize != null
+    ? '（' + (fileSize / 1024).toFixed(1) + 'KB）'
+    : '';
+  fileInfoName.textContent = fileName + sizeText;
+  fileInfoEl.classList.remove('hidden');
 }
 
 // =============================================================================
@@ -972,6 +967,35 @@ function handleFile(file) {
       return;
     }
 
+    // ── 当月重複チェック（sessionStorage キャッシュ参照）────────────────
+    try {
+      const cachedInvoices = JSON.parse(sessionStorage.getItem('shiire_invoices_cache') || '[]');
+      const now = new Date();
+      const currentYM = now.getFullYear() + '/' + String(now.getMonth() + 1).padStart(2, '0');
+      const hasCurrentMonth = cachedInvoices.some(inv => inv.created_at && inv.created_at.startsWith(currentYM));
+      if (hasCurrentMonth) {
+        errors.push('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
+      }
+    } catch (e) {
+      console.warn('[upload] 当月重複チェックに失敗しました:', e);
+    }
+
+    // ── 加盟店網羅性チェック（アラート: 非ブロッキング）────────────────────
+    const warnings = [];
+    if (rows.length > 0) {
+      try {
+        const mappings = getMerchantMappings();
+        const csvCustomerCodes = new Set(rows.map(r => String(r.customer_code)));
+        mappings.forEach(m => {
+          if (m.is_active !== false && !csvCustomerCodes.has(String(m.customer_code))) {
+            warnings.push((m.store_name || m.customer_code) + 'の請求明細がありません。');
+          }
+        });
+      } catch (e) {
+        console.warn('[upload] 加盟店網羅性チェックに失敗しました:', e);
+      }
+    }
+
     if (errors.length === 0) {
       // 成功: Base64はメモリのみ保持（sessionStorageには保存しない・容量超過防止）
       rawCsvBase64  = arrayBufferToBase64_(buffer);
@@ -1003,7 +1027,7 @@ function handleFile(file) {
     _analyzeTimer = setTimeout(() => {
       _analyzeTimer = null;
       dropZone.classList.remove('is-analyzing');
-      renderErrors(errors, file.name);
+      renderErrors(errors, warnings, file.name, file.size);
     }, remaining);
   };
 
@@ -1281,6 +1305,18 @@ function validateCsv(csvText) {
             }
           }
           break;
+        case 'decimal':
+          if (val === '' || !/^-?\d+(\.\d+)?$/.test(val.trim())) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は数値で入力してください`);
+          } else {
+            const num = Number(val);
+            if (col.enum && !col.enum.includes(num)) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は ${col.enum.join(' または ')} を入力してください`);
+            } else {
+              rowObj[key] = num;
+            }
+          }
+          break;
         default: // string
           if (col.max_length && val.length > col.max_length) {
             rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${col.max_length}文字以内で入力してください`);
@@ -1315,27 +1351,46 @@ function validateCsv(csvText) {
 // =============================================================================
 
 /**
- * @param {string[]} errors
- * @param {string}   [fileName] - 成功時に dropZone に表示するファイル名
+ * @param {string[]} errors   - ブロッキングエラー（送信ボタンを disabled にする）
+ * @param {string[]} warnings - 非ブロッキングアラート（送信は可能）
+ * @param {string}   [fileName] - 成功時に表示するファイル名
+ * @param {number}   [fileSize] - ファイルサイズ（バイト）
  */
-function renderErrors(errors, fileName) {
+function renderErrors(errors, warnings, fileName, fileSize) {
   // リストをいったん空にする
   alertList.innerHTML = '';
+  const hasErrors   = errors.length > 0;
+  const hasWarnings = warnings && warnings.length > 0;
 
-  if (errors.length > 0) {
-    // エラーがある → dropZone を初期状態に戻す → リスト生成 → errorCard 表示 → 送信ボタン disabled
-    resetDropZone();
+  if (hasErrors || hasWarnings) {
+    // エラーがある場合は dropZone を初期状態に戻しファイル情報も非表示、アラートのみなら成功表示
+    if (hasErrors) {
+      resetDropZone();
+      fileInfoEl.classList.add('hidden');
+    } else {
+      setDropZoneSuccess(fileName || '', fileSize);
+    }
+
+    // エラーを先に表示
     errors.forEach(msg => {
       const li = document.createElement('li');
       li.className = 'alert-item alert-item--error';
       li.innerHTML = '<i class="fa-solid fa-circle alert-icon"></i>' + msg;
       alertList.appendChild(li);
     });
+    // アラートを後に表示
+    (warnings || []).forEach(msg => {
+      const li = document.createElement('li');
+      li.className = 'alert-item alert-item--warn';
+      li.innerHTML = '<i class="fa-solid fa-triangle-exclamation alert-icon"></i>' + msg;
+      alertList.appendChild(li);
+    });
+
     errorCard.classList.remove('hidden');
-    btnToConfirm.disabled = true;
+    btnToConfirm.disabled = hasErrors; // エラーがなければボタン有効
   } else {
-    // エラーなし → dropZone を成功表示に → errorCard 非表示 → 送信ボタン活性
-    setDropZoneSuccess(fileName || '');
+    // エラーもアラートもなし → 成功表示
+    setDropZoneSuccess(fileName || '', fileSize);
     errorCard.classList.add('hidden');
     btnToConfirm.disabled = false;
   }
@@ -1375,6 +1430,7 @@ function resetPage() {
     console.warn('[state] sessionStorage のクリアに失敗しました:', e);
   }
   resetDropZone();
+  fileInfoEl.classList.add('hidden');
   alertList.innerHTML = '';
   errorCard.classList.add('hidden');
   btnToConfirm.disabled = true;
@@ -1392,63 +1448,53 @@ btnToConfirm.addEventListener('click', () => {
   location.hash = '#confirm';
 });
 
-// アップロードページ: キャンセルボタン → アップロード前の初期状態に戻す
-btnCancel.addEventListener('click', () => {
+// アップロードページ: ファイル削除ボタン → アップロード前の初期状態に戻す
+btnFileDelete.addEventListener('click', () => {
   resetPage();
 });
 
 // =============================================================================
-// Upload page: CSV テンプレートダウンロード
+// =============================================================================
+// Upload page: 一覧に戻る確認モーダル
 // =============================================================================
 
-/** BOM 付き UTF-8 CSV テンプレートをダウンロードする */
-function downloadCsvTemplate() {
-  // csv_format_rules（またはデフォルト定義）からヘッダーを動的生成
-  // getCsvFormatRules() は不正な csv_format_rules データが保存されている場合に throw するため
-  // catch してトースト表示する。不正データの場合はテンプレートを誤って渡さないよう DL しない。
-  let rules;
-  try {
-    rules = getCsvFormatRules();
-  } catch (err) {
-    showToast(err.message || 'CSVテンプレートの生成に失敗しました。管理者に連絡してください。');
-    return;
+const uploadBackModal      = document.getElementById('uploadBackModal');
+const btnUploadBack        = document.getElementById('btnUploadBack');
+const uploadBackModalClose = document.getElementById('uploadBackModalClose');
+const uploadBackModalOk    = document.getElementById('uploadBackModalOk');
+
+// 一覧に戻るボタン: ファイルがアップロード済みならモーダル表示、そうでなければそのまま戻る
+btnUploadBack.addEventListener('click', function () {
+  if (parsedData && parsedData.length > 0) {
+    uploadBackModal.classList.remove('hidden');
+  } else {
+    location.hash = '#home';
   }
-  const columns = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
-
-  // columns.map() の並び順ではなく col.index（CSV上の列位置）に基づいてヘッダーを配置する。
-  // index に欠番がある場合でも列位置がずれないよう、最大index+1 の配列を作り
-  // headers[col.index] に代入してから join する。
-  const MAX_COL_INDEX = 200; // バックエンドの buildStagingSchema_() と同じ上限値
-  const maxIndex = columns.reduce((max, col) => Math.max(max, col.index), 0);
-  // maxIndex が極端に大きいと Array(maxIndex+1) でブラウザがフリーズ/クラッシュするため中断する。
-  // getCsvFormatRules() で既にチェック済みだが、DEFAULT_CSV_COLUMNS_ を使う場合も念のためガード。
-  if (maxIndex > MAX_COL_INDEX) {
-    showToast('CSVテンプレートの生成に失敗しました。列のindex値が上限(' + MAX_COL_INDEX + ')を超えています。管理者に連絡してください。');
-    return;
-  }
-  const headers  = Array(maxIndex + 1).fill('');
-  columns.forEach(col => { headers[col.index] = `"${col.csv_header}"`; });
-
-  const csvContent = headers.join(',') + '\r\n';
-
-  // BOM (0xEF 0xBB 0xBF) を先頭に付与して UTF-8 BOM 付きにする
-  const bom  = '\uFEFF';
-  const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = '請求CSVテンプレート.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// btnTemplateDlHeader は削除済み（ヘッダーはカレンダーボタンに置換）
-document.getElementById('btnTemplateDlPage').addEventListener('click', e => {
-  e.preventDefault();
-  downloadCsvTemplate();
 });
 
+// モーダル: ×ボタンで閉じる
+uploadBackModalClose.addEventListener('click', () => {
+  uploadBackModal.classList.add('hidden');
+});
+
+// モーダル: 一覧に戻るボタン → データリセットしてホームへ
+uploadBackModalOk.addEventListener('click', () => {
+  uploadBackModal.classList.add('hidden');
+  resetPage();
+  location.hash = '#home';
+});
+
+// モーダル: オーバーレイクリックで閉じる
+uploadBackModal.addEventListener('click', function (e) {
+  if (e.target === this) uploadBackModal.classList.add('hidden');
+});
+
+// モーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !uploadBackModal.classList.contains('hidden')) {
+    uploadBackModal.classList.add('hidden');
+  }
+});
 
 // ---- confirm.js ----
 // =============================================================================

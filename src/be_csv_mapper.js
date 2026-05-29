@@ -486,6 +486,31 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
           });
         }
         break;
+      case 'decimal':
+        // 小数対応: SAFE_CAST を NUMERIC に設定（BQ の quantity カラムは NUMERIC(6)）
+        castExpr = 'SAFE_CAST(NULLIF(' + fieldRef + ", '') AS NUMERIC)";
+        if (col.required) {
+          // 非数値チェック（空でないのに SAFE_CAST が NULL になる行）
+          validateCases.push({
+            countifExpr:
+              'COUNTIF(\n' +
+              '      SAFE_CAST(NULLIF(' + fieldRef + ", '') AS NUMERIC) IS NULL\n" +
+              '      AND ' + fieldRef + ' IS NOT NULL\n' +
+              "      AND " + fieldRef + " != '')",
+            message:
+              '\u5217\u300c' + escSql_(col.csv_header) +
+              '\u300d(index:' + col.index + ') \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002\u6570\u5024\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          });
+          // 空文字・NULL チェック
+          validateCases.push({
+            countifExpr:
+              'COUNTIF(' + fieldRef + " IS NULL OR " + fieldRef + " = '')",
+            message:
+              '\u5217\u300c' + escSql_(col.csv_header) +
+              '\u300d(index:' + col.index + ') \u306f\u5fc5\u9808\u9805\u76ee\u3067\u3059\u3002\u7a7a\u6b04\u306a\u304f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          });
+        }
+        break;
       case 'string':
       default:
         castExpr = fieldRef;

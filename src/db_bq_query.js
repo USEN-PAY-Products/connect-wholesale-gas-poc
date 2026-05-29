@@ -412,6 +412,31 @@ function runQuery_(projectId, sql, params) {
   });
 }
 /**
+ * 指定された卸業者が当月に既に請求書を登録しているかチェックする。
+ * created_at が当月（Asia/Tokyo 基準）の範囲内にある wholesaler_invoices が存在すれば true。
+ *
+ * @param {number} wholesalerId - 卸業者ID
+ * @returns {boolean} 当月に請求書が存在すれば true
+ * @throws {Error} クエリ失敗時
+ */
+function hasCurrentMonthInvoice_(wholesalerId) {
+  const config = getConfig_();
+  const tbl = '`' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`';
+  const sql =
+    'SELECT COUNT(*) AS cnt FROM ' + tbl + ' ' +
+    'WHERE wholesaler_id = @wholesaler_id ' +
+    '  AND created_at >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE(\'Asia/Tokyo\'), MONTH), \'Asia/Tokyo\') ' +
+    '  AND created_at < TIMESTAMP(DATE_ADD(DATE_TRUNC(CURRENT_DATE(\'Asia/Tokyo\'), MONTH), INTERVAL 1 MONTH), \'Asia/Tokyo\')';
+
+  var params = [
+    { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
+  ];
+
+  var rows = runQuery_(config.gcpProjectId, sql, params);
+  return rows.length > 0 && Number(rows[0].cnt) > 0;
+}
+
+/**
  * 卸業者IDに紐づくビジネスカレンダー（スケジュール）を BQ から取得する。
  * 対象イベント: WHOLESALER_INVOICE_STORAGE, WHOLESALER_INVOICE_FIXATION, DEPOSIT, OBJECTION_PERIOD
  * 卸向け表示フラグ (is_visible_to_wholesaler = TRUE) のみ取得する。
