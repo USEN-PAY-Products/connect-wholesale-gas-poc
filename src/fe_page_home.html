@@ -43,44 +43,6 @@
 
   </main>
 
-  <!-- ================================================================
-       カレンダーモーダル
-       ================================================================ -->
-  <div class="calendar-modal-overlay hidden" id="calendarModalOverlay">
-    <div class="calendar-modal">
-      <button class="calendar-modal__close" id="calendarModalClose" aria-label="閉じる">&times;</button>
-
-      <!-- カレンダーヘッダー -->
-      <div class="calendar-header">
-        <button class="calendar-nav" id="calPrev" aria-label="前の月">&lt;</button>
-        <span class="calendar-month-label" id="calMonthLabel"></span>
-        <button class="calendar-nav" id="calNext" aria-label="次の月">&gt;</button>
-      </div>
-
-      <!-- 曜日ヘッダー -->
-      <div class="calendar-weekdays">
-        <span class="calendar-weekday calendar-weekday--sun">日</span>
-        <span class="calendar-weekday">月</span>
-        <span class="calendar-weekday">火</span>
-        <span class="calendar-weekday">水</span>
-        <span class="calendar-weekday">木</span>
-        <span class="calendar-weekday">金</span>
-        <span class="calendar-weekday calendar-weekday--sat">土</span>
-      </div>
-
-      <!-- 日付グリッド（JS で生成） -->
-      <div class="calendar-grid" id="calGrid"></div>
-
-      <!-- 凡例 -->
-      <div class="calendar-legend">
-        <span class="calendar-legend__item"><span class="cal-legend-dot cal-legend-dot--upload"></span>請求書アップロード期間</span>
-        <span class="calendar-legend__item"><span class="cal-legend-dot cal-legend-dot--correction"></span>加盟店異議申立・修正期間</span>
-        <span class="calendar-legend__item"><span class="cal-legend-dot cal-legend-dot--billing"></span>請求額確定日</span>
-        <span class="calendar-legend__item"><span class="cal-legend-dot cal-legend-dot--payment"></span>ご入金日</span>
-      </div>
-    </div>
-  </div>
-
   <footer class="site-footer">
     <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
   </footer>

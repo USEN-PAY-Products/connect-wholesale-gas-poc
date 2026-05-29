@@ -298,7 +298,7 @@ function loadScheduleData_() {
   google.script.run
     .withSuccessHandler(function(result) {
       buildScheduleMap(result && result.data ? result.data : []);
-      var overlay = document.getElementById('calendarModalOverlay');
+      const overlay = document.getElementById('calendarModalOverlay');
       if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
     })
     .withFailureHandler(function(err) {
