@@ -524,8 +524,8 @@ function renderCalendar() {
       const band = document.createElement('div');
       band.className = 'cal-band cal-band--' + ev.pos;
       band.style.background = ev.color;
-      band.title = ev.description || '';
-      band.setAttribute('aria-label', ev.description || '');
+      band.title = ev.title || '';
+      band.setAttribute('aria-label', ev.title || '');
       cell.appendChild(band);
     });
 
