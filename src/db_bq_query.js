@@ -9,6 +9,7 @@
 //   fetchAccountInfoByEmail_(email)          … メールアドレスからアカウント情報を取得
 //   fetchInvoicesByWholesaler_(wholesalerId) … 卸IDに紐づく請求一覧を取得
 //   fetchInvoiceDetail_(invoiceId)           … 請求IDに紐づく明細を取得
+//   fetchBusinessCalendar_(wholesalerId)     … 卸IDに紐づくスケジュールを取得
 //   runQuery_(projectId, sql, params)        … 汎用クエリ実行ラッパー
 // =============================================================================
 
@@ -85,18 +86,39 @@ function fetchAccountInfoByEmail_(email) {
  */
 function fetchInvoicesByWholesaler_(wholesalerId) {
   const config = getConfig_();
+  const tbl = '`' + config.gcpProjectId + '.' + config.bqDatasetId;
   const sql =
+    'WITH ranked AS ( ' +
+    '  SELECT *, ' +
+    '    COALESCE(wholesaler_invoice_id, id) AS root_id, ' +
+    '    ROW_NUMBER() OVER ( ' +
+    '      PARTITION BY COALESCE(wholesaler_invoice_id, id) ' +
+    '      ORDER BY created_at DESC ' +
+    '    ) AS rn ' +
+    '  FROM ' + tbl + '.wholesaler_invoices` ' +
+    '  WHERE wholesaler_id = @wholesaler_id ' +
+    ') ' +
     'SELECT ' +
-    '  id AS wholesaler_invoice_id, wholesaler_invoice_date, ' +
-    '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
-    '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
-    '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
-    '  wholesaler_non_taxable_amount, ' +
-    '  wholesaler_fee_rate, invoice_fee_amount, payment_amount ' +
-    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
-    'WHERE wholesaler_id = @wholesaler_id ' +
-    '  AND wholesaler_invoice_id IS NULL ' +
-    'ORDER BY wholesaler_invoice_date DESC ' +
+    '  wi.id AS wholesaler_invoice_id, wi.root_id, wi.wholesaler_invoice_date, ' +
+    '  FORMAT_TIMESTAMP(\'%Y/%m/%d\', wi.created_at, \'Asia/Tokyo\') AS created_at, ' +
+    '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +
+    '  wi.wholesaler_standard_tax_target_amount, wi.wholesaler_standard_tax_amount, ' +
+    '  wi.wholesaler_reduced_tax_target_amount, wi.wholesaler_reduced_tax_amount, ' +
+    '  wi.wholesaler_non_taxable_amount, ' +
+    '  wi.wholesaler_fee_rate, wi.invoice_fee_amount, wi.payment_amount, ' +
+    '  MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' THEN 1 ELSE 0 END) AS has_resubmit, ' +
+    '  MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
+    'FROM ranked AS wi ' +
+    'LEFT JOIN ' + tbl + '.store_invoices` AS si ' +
+    '  ON si.wholesaler_invoice_id = wi.root_id AND si.is_latest = TRUE ' +
+    'WHERE wi.rn = 1 ' +
+    'GROUP BY wi.id, wi.root_id, wi.wholesaler_invoice_date, created_at, ' +
+    '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +
+    '  wi.wholesaler_standard_tax_target_amount, wi.wholesaler_standard_tax_amount, ' +
+    '  wi.wholesaler_reduced_tax_target_amount, wi.wholesaler_reduced_tax_amount, ' +
+    '  wi.wholesaler_non_taxable_amount, ' +
+    '  wi.wholesaler_fee_rate, wi.invoice_fee_amount, wi.payment_amount ' +
+    'ORDER BY wi.wholesaler_invoice_date DESC ' +
     'LIMIT 100';
 
   const params = [
@@ -388,4 +410,30 @@ function runQuery_(projectId, sql, params) {
     });
     return obj;
   });
+}
+/**
+ * 卸業者IDに紐づくビジネスカレンダー（スケジュール）を BQ から取得する。
+ * 対象イベント: WHOLESALER_INVOICE_STORAGE, WHOLESALER_INVOICE_FIXATION, DEPOSIT, OBJECTION_PERIOD
+ * 卸向け表示フラグ (is_visible_to_wholesaler = TRUE) のみ取得する。
+ *
+ * @param {number} wholesalerId - 卸業者ID
+ * @returns {Array<Object>} スケジュール行の配列
+ * @throws {Error} クエリ失敗時
+ */
+function fetchBusinessCalendar_(wholesalerId) {
+  const config = getConfig_();
+  const sql =
+    'SELECT ' +
+    '  event_type, start_at, end_at, event_description, display_color_code ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.business_calendar` ' +
+    'WHERE wholesaler_id = @wholesaler_id ' +
+    '  AND is_visible_to_wholesaler = TRUE ' +
+    '  AND event_type IN (\'WHOLESALER_INVOICE_STORAGE\', \'WHOLESALER_INVOICE_FIXATION\', \'DEPOSIT\', \'OBJECTION_PERIOD\') ' +
+    'ORDER BY start_at ASC';
+
+  const params = [
+    { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
+  ];
+
+  return runQuery_(config.gcpProjectId, sql, params);
 }

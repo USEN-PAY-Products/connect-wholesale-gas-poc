@@ -7,7 +7,7 @@
 //   sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks)
 //   fetchInvoices()            ← サーバー側で wholesaler_id を確定（引数不要）
 //   fetchInvoiceDetail(invoiceId)
-//   getMockScheduleData()    ← BackOffice API 実装後に削除
+//   fetchScheduleData()        ← business_calendar からスケジュール取得
 //
 // 依存:
 //   be_config.js        … getConfig_()
@@ -1087,28 +1087,22 @@ function getInvoiceLinesByStore(storeInvoiceId) {
 }
 
 // =============================================================================
-// モックデータ定数
-// =============================================================================
-
-/** @type {Array<{date:string, title:string, type:string}>} */
-const MOCK_SCHEDULE_ = [
-  { date: '2026-05-13', title: '請求確定', type: 'billing' },
-  { date: '2026-05-27', title: '口座振替', type: 'payment' },
-];
-
-// =============================================================================
-// モック公開関数
+// スケジュール取得（business_calendar）
 // =============================================================================
 
 /**
- * スケジュールデータのモックを返す。
+ * business_calendar テーブルからスケジュールデータを取得する。
+ * サーバー側で wholesaler_id を確定するため、フロントからの引数は不要。
  * @returns {{ status: 'success', data: Array }}
  */
-function getMockScheduleData() {
+function fetchScheduleData() {
   try {
-    return success_(MOCK_SCHEDULE_);
+    const accountInfo  = getServerAccountInfo_();
+    const wholesalerId = accountInfo.wholesaler_id;
+    const rows = fetchBusinessCalendar_(wholesalerId);
+    return success_(rows || []);
   } catch (err) {
-    throw new Error('getMockScheduleData failed: ' + err.message);
+    throw new Error('fetchScheduleData failed: ' + err.message);
   }
 }
 

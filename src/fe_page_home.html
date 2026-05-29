@@ -3,52 +3,43 @@
   <main class="main-content home-content">
 
     <!-- ================================================================
-         請求／支払いスケジュール
+         請求の登録
          ================================================================ -->
     <section class="home-section">
-      <h2 class="home-section-title">請求／支払いスケジュール</h2>
-
-      <div class="card calendar-card">
-        <!-- カレンダーヘッダー -->
-        <div class="calendar-header">
-          <button class="calendar-nav" id="calPrev" aria-label="前の月">&#8592;</button>
-          <span class="calendar-month-label" id="calMonthLabel"></span>
-          <button class="calendar-nav" id="calNext" aria-label="次の月">&#8594;</button>
-        </div>
-
-        <!-- 曜日ヘッダー -->
-        <div class="calendar-weekdays">
-          <span class="calendar-weekday calendar-weekday--sun">SUN</span>
-          <span class="calendar-weekday">MON</span>
-          <span class="calendar-weekday">TUE</span>
-          <span class="calendar-weekday">WED</span>
-          <span class="calendar-weekday">THU</span>
-          <span class="calendar-weekday">FRI</span>
-          <span class="calendar-weekday calendar-weekday--sat">SAT</span>
-        </div>
-
-        <!-- 日付グリッド（JS で生成） -->
-        <div class="calendar-grid" id="calGrid"></div>
+      <h2 class="home-section-title">請求の登録</h2>
+      <!-- 新規請求登録ボタン -->
+      <div class="home-fab-area home-fab-area--center">
+        <a href="#upload" class="btn btn-fab">
+          新規請求を登録する <span class="btn-fab__plus">＋</span>
+        </a>
       </div>
     </section>
 
     <!-- ================================================================
-         請求履歴
+         請求履歴一覧
          ================================================================ -->
     <section class="home-section">
-      <h2 class="home-section-title">請求履歴</h2>
+      <h2 class="home-section-title">請求履歴一覧</h2>
 
-      <div class="billing-history-list" id="billingHistoryList">
-        <!-- JS で動的生成 -->
+      <div class="billing-history-table-wrap">
+        <table class="billing-history-table" id="billingHistoryTable">
+          <thead>
+            <tr>
+              <th>請求月</th>
+              <th>登録日時 <span class="sort-icon">&#9660;</span></th>
+              <th>請求金額</th>
+              <th>手数料（税込）</th>
+              <th>差戻し有無</th>
+              <th>否認有無</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="billingHistoryBody">
+            <!-- JS で動的生成 -->
+          </tbody>
+        </table>
       </div>
     </section>
-
-    <!-- 新規請求登録 FAB -->
-    <div class="home-fab-area">
-      <a href="#upload" class="btn btn-fab">
-        新規請求を登録する <span class="btn-fab__plus">＋</span>
-      </a>
-    </div>
 
   </main>
 

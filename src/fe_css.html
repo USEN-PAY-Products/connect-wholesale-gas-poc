@@ -3,6 +3,14 @@
    Utility
    ===================================================== */
 .hidden { display: none !important; }
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  border: 0;
+}
 
 /* =====================================================
    Reset / Base
@@ -76,23 +84,38 @@ button { cursor: pointer; font-family: inherit; }
   gap: 16px;
 }
 
-.btn-template-dl {
+.btn-calendar-open {
   display: flex;
-  height: 32px;
-  padding: 0 16px;
+  width: 251px;
+  height: 48px;
+  padding: 16px 80px;
   justify-content: center;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   border: none;
-  border-radius: 24px;
-  background: #00A7B8;
-  box-shadow: 0 0 8px 0 rgba(0, 0, 0, 0.10);
-  color: #fff;
-  font-size: 13px;
+  border-radius: 64px;
+  background: #FFF;
+  box-shadow: 0 0 4px 0 rgba(0, 0, 0, 0.12), 0 0 8px 0 rgba(0, 0, 0, 0.12);
+  color: #3C3C3C;
+  text-align: center;
+  font-family: "Noto Sans JP";
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
   white-space: nowrap;
   cursor: pointer;
 }
-.btn-template-dl:hover { background: #0096a5; }
+.btn-calendar-open:hover { background: #f5f5f5; }
+.btn-calendar-open i {
+  color: #003255;
+  font-size: 20px;
+  width: 20px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .header-store {
   display: flex;
@@ -1241,56 +1264,117 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* =====================================================
-   Home: カレンダー
+   Home: カレンダーモーダル
    ===================================================== */
-.calendar-card {
-  width: 100%;
-  max-width: 426px;
-  padding: 20px 24px 24px;
-  margin: 0 auto;
-  overflow: hidden;
+.calendar-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 200;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
+
+.calendar-modal {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  width: 560px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 28px 32px 24px;
+  position: relative;
+  animation: calModalIn 0.2s ease-out;
+}
+
+@keyframes calModalIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.calendar-modal__close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #888;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+}
+.calendar-modal__close:hover { color: #333; }
 
 .calendar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 24px;
+  margin-top: 28px;
   margin-bottom: 16px;
 }
 
 .calendar-month-label {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  gap: 8px;
   line-height: 1.2;
 }
 
+.cal-month-toggle {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #555;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.cal-month-toggle:hover { background: #eee; }
+
 .cal-label__year {
-  font-size: 13px;
+  font-family: "Noto Sans JP";
+  font-size: 16px;
+  font-style: normal;
   font-weight: 400;
-  color: #888;
+  line-height: normal;
+  color: #3C3C3C;
+  text-align: center;
+  text-overflow: ellipsis;
 }
 
 .cal-label__month {
-  font-size: 22px;
-  font-weight: 700;
-  color: #1a2b4a;
-  letter-spacing: 0.02em;
+  font-family: "Noto Sans JP";
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
+  color: #3C3C3C;
+  text-align: center;
+  text-overflow: ellipsis;
 }
 
 .calendar-nav {
   background: none;
-  border: none;
-  font-size: 20px;
-  color: #3a7bd5;
-  padding: 4px 8px;
-  border-radius: 4px;
+  border: 1.5px solid #ccc;
+  font-size: 14px;
+  color: #333;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
   line-height: 1;
-  transition: background 0.15s;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
-.calendar-nav:hover { background: #e8f0fe; }
+.calendar-nav:hover { background: #f0f0f0; border-color: #999; }
 
 .calendar-weekdays {
   display: grid;
@@ -1311,8 +1395,8 @@ button { cursor: pointer; font-family: inherit; }
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 48px;
-  gap: 2px;
+  grid-auto-rows: 64px;
+  gap: 4px;
 }
 
 .cal-cell {
@@ -1354,12 +1438,113 @@ button { cursor: pointer; font-family: inherit; }
   border-radius: 50%;
 }
 
-/* イベントあり */
+/* イベントあり（position基準） */
 .cal-cell--has-event {
-  background: #f5f7ff;
+  position: relative;
 }
 
-/* スケジュールバッジ */
+/* スケジュール帯（連続色帯） */
+.cal-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  bottom: 8px;
+  border-radius: 0;
+  opacity: 0.85;
+}
+.cal-band + .cal-band {
+  bottom: 16px;
+}
+.cal-band + .cal-band + .cal-band {
+  bottom: 24px;
+}
+
+/* 帯の位置による角丸 */
+.cal-band--start {
+  border-radius: 3px 0 0 3px;
+  left: 4px;
+}
+.cal-band--end {
+  border-radius: 0 3px 3px 0;
+  right: 4px;
+}
+.cal-band--single {
+  border-radius: 3px;
+  left: 4px;
+  right: 4px;
+}
+.cal-band--middle {
+  border-radius: 0;
+}
+
+/* 月選択パネル */
+.cal-month-picker {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  border: 1px solid #eee;
+}
+
+.cal-month-picker__year-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.cal-month-picker__year-label {
+  font-size: 22px;
+  font-weight: 700;
+  color: #333;
+}
+
+.cal-picker-nav {
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+}
+
+.cal-month-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.cal-month-picker__btn {
+  background: #fff;
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  padding: 12px 4px;
+  font-size: 16px;
+  font-weight: 400;
+  color: #333;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  text-align: center;
+}
+.cal-month-picker__btn:hover {
+  background: #f5f5f5;
+  border-color: #bbb;
+}
+.cal-month-picker__btn--current {
+  background: #E0F7FA;
+  border-color: #B2EBF2;
+  color: #00838F;
+}
+.cal-month-picker__btn--active {
+  background: #00A7B8;
+  color: #fff;
+  border-color: #00A7B8;
+  font-weight: 700;
+}
+.cal-month-picker__btn--active:hover {
+  background: #0096a5;
+}
+
+/* スケジュールバッジ（レガシー・未使用だが念のため残す） */
 .cal-badge {
   font-size: 9px;
   font-weight: 600;
@@ -1386,188 +1571,149 @@ button { cursor: pointer; font-family: inherit; }
   color: #fff;
 }
 
-/* =====================================================
-   Home: 請求履歴
-   ===================================================== */
-.billing-history-list {
+/* カレンダー凡例 */
+.calendar-legend {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+.calendar-legend__item {
+  display: flex;
+  align-items: center;
   gap: 6px;
-}
-
-/* カード全体: 均等幅グリッドで各ブロックを並べる */
-.billing-card {
-  background: #EFEFEF;
-  border-radius: 6px;
-  padding: 10px 16px;
-  display: grid;
-  grid-template-columns: 40px 1fr 1px 1fr 1px 1fr auto;
-  align-items: start;
-  gap: 0;
-  font-size: 12px;
-  color: #333;
-  min-height: 60px;
-}
-
-/* ── 月ラベル ── */
-.bc-month {
-  font-size: 14px;
-  font-weight: 700;
-  color: #333;
-  text-align: center;
-  padding-right: 8px;
-  align-self: center;
-}
-
-/* ── 請求金額ブロック ── */
-.bc-billing {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto auto;
-  align-items: baseline;
-  column-gap: 6px;
-  row-gap: 0;
-  padding: 0 16px;
-}
-
-.bc-billing__label {
-  grid-column: 1;
-  grid-row: 1;
-  font-size: 18px;
-  font-style: normal;
-  font-weight: 400;
+  font-size: 11px;
   color: #555;
-  white-space: nowrap;
-  line-height: 1.8;
 }
-
-.bc-billing__amount {
-  grid-column: 2;
-  grid-row: 1;
-  font-size: 18px;
-  font-style: normal;
-  font-weight: 400;
-  white-space: nowrap;
-  text-align: right;
-  line-height: 1.8;
-}
-
-.bc-billing__sub {
-  grid-column: 1 / -1;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
-  color: #666;
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  line-height: 1.8;
-}
-
-.bc-billing__sub span {
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
-  color: #333;
-}
-
-/* ── 縦区切り線 ── */
-.bc-divider {
-  width: 1px;
-  align-self: stretch;
-  background: #ccc;
-  margin: 4px 0;
+.cal-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
+.cal-legend-dot--upload    { background: #FFB74D; }
+.cal-legend-dot--correction { background: #FFD54F; }
+.cal-legend-dot--billing   { background: linear-gradient(135deg, #ff5252, #ff9800); }
+.cal-legend-dot--payment   { background: linear-gradient(135deg, #3a7bd5, #00A7B8); }
 
-/* ── 内訳ブロック ── */
-.bc-breakdown {
-  padding: 0 14px;
+/* =====================================================
+   Home: 請求履歴テーブル
+   ===================================================== */
+.billing-history-table-wrap {
+  overflow-x: auto;
+}
+
+.billing-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: #fff;
+  border-radius: 8px;
   overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 
-/* 3列グリッド: [内訳/税率] [小計] [税額] */
-.bc-breakdown__grid {
-  display: grid;
-  grid-template-columns: auto 1fr 1fr;
-  gap: 2px 12px;
-  align-items: baseline;
+.billing-history-table thead tr {
+  background: #CCD6DD;
 }
 
-.bc-breakdown__cell {
-  font-size: 14px;
+.billing-history-table thead th {
+  color: #335B77;
+  font-size: 16px;
   font-style: normal;
   font-weight: 400;
-  line-height: 1.8;
+  line-height: 120%;
+  padding: 8px 16px;
   white-space: nowrap;
+  text-align: left;
+  border: none;
 }
 
-.bc-breakdown__title {
-  font-size: 18px;
-  font-style: normal;
-  font-weight: 400;
-  color: #555;
-  line-height: 1.8;
+.billing-history-table thead th .sort-icon {
+  font-size: 10px;
+  margin-left: 4px;
 }
 
-.bc-breakdown__col-label {
-  color: #777;
-  text-align: center;
+.billing-history-table tbody tr {
+  border-bottom: 1px solid #eee;
+  transition: background 0.1s;
+}
+.billing-history-table tbody tr:hover {
+  background: #f5fafa;
 }
 
-.bc-breakdown__rate {
-  color: #555;
-}
-
-.bc-breakdown__col-val {
-  color: #333;
-  text-align: center;
-}
-
-/* ── 手数料・振込金額ブロック ── */
-.bc-fee {
-  padding: 0 14px;
-  align-self: center;
-}
-
-.bc-fee__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 18px;
-  font-style: normal;
-  font-weight: 400;
-  color: #555;
-  line-height: 1.8;
+.billing-history-table tbody td {
+  padding: 12px 16px;
   white-space: nowrap;
-}
-
-.bc-fee__row span {
-  font-size: 18px;
-  font-style: normal;
-  font-weight: 400;
+  vertical-align: middle;
   color: #333;
 }
 
-/* ── 詳細リンク ── */
-.bc-detail-link {
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
-  color: #555;
+/* ステータスバッジ */
+.badge {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
-  text-decoration: none;
-  flex-shrink: 0;
-  padding-left: 12px;
-  align-self: center;
-  transition: opacity 0.15s;
+}
+.badge--none {
+  background: #B4B4B4;
+  color: #fff;
+}
+.badge--resubmit {
+  background: #FF7846;
+  color: #fff;
+}
+.badge--denial {
+  background: #DF4C4C;
+  color: #fff;
+}
+.badge--pending {
+  background: #FFF3E0;
+  color: #E65100;
+}
+
+.btn-detail-link {
   background: none;
   border: none;
-  outline: none;
+  color: #00A7B8;
+  font-family: "Noto Sans JP";
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 120%;
   cursor: pointer;
+  white-space: nowrap;
 }
-.bc-detail-link:hover { opacity: 0.7; text-decoration: underline; }
+.btn-detail-link:hover { text-decoration: underline; }
+
+/* ページネーション */
+.billing-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 0;
+  font-size: 13px;
+  color: #555;
+}
+.billing-pagination button {
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+}
+.billing-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .billing-empty {
   color: #9C9C9C;
@@ -1583,6 +1729,10 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   justify-content: flex-end;
   padding: 16px 0 32px;
+}
+
+.home-fab-area--center {
+  justify-content: center;
 }
 
 .btn-fab {
