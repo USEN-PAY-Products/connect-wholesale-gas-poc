@@ -313,22 +313,59 @@ function loadScheduleData_() {
   const calOverlay = document.getElementById('calendarModalOverlay');
   const btnOpen    = document.getElementById('btnCalendarOpen');
   const btnClose   = document.getElementById('calendarModalClose');
+  const FOCUSABLE_SEL = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  let _calTrigger  = null; // モーダルを開いた要素（閉じ後にフォーカスを戻す）
+
+  function openCalendarModal() {
+    loadScheduleData_();
+    _calTrigger = document.activeElement;
+    calOverlay.classList.remove('hidden');
+    renderCalendar();
+    // フォーカスをモーダル内へ転送
+    const first = calOverlay.querySelector(FOCUSABLE_SEL);
+    if (first) first.focus();
+  }
+
+  function closeCalendarModal() {
+    calOverlay.classList.add('hidden');
+    // フォーカスをトリガー要素に戻す
+    if (_calTrigger && typeof _calTrigger.focus === 'function') _calTrigger.focus();
+    _calTrigger = null;
+  }
 
   if (btnOpen) {
-    btnOpen.addEventListener('click', function() {
-      loadScheduleData_(); // 未取得なら遅延ロード
-      calOverlay.classList.remove('hidden');
-      renderCalendar();
-    });
+    btnOpen.addEventListener('click', openCalendarModal);
   }
   if (btnClose) {
-    btnClose.addEventListener('click', function() {
-      calOverlay.classList.add('hidden');
-    });
+    btnClose.addEventListener('click', closeCalendarModal);
   }
   if (calOverlay) {
     calOverlay.addEventListener('click', function(e) {
-      if (e.target === calOverlay) calOverlay.classList.add('hidden');
+      if (e.target === calOverlay) closeCalendarModal();
+    });
+  }
+
+  // Escape キーで閉じる
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && calOverlay && !calOverlay.classList.contains('hidden')) {
+      e.stopPropagation();
+      closeCalendarModal();
+    }
+  });
+
+  // フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+  if (calOverlay) {
+    calOverlay.addEventListener('keydown', function(e) {
+      if (e.key !== 'Tab') return;
+      const focusable = Array.from(calOverlay.querySelectorAll(FOCUSABLE_SEL));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last  = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     });
   }
 })();
@@ -487,6 +524,8 @@ function renderCalendar() {
       const band = document.createElement('div');
       band.className = 'cal-band cal-band--' + ev.pos;
       band.style.background = ev.color;
+      band.title = ev.description || '';
+      band.setAttribute('aria-label', ev.description || '');
       cell.appendChild(band);
     });
 

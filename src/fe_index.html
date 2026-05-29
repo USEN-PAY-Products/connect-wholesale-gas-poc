@@ -47,11 +47,12 @@
        カレンダーモーダル（全ページ共通・ページコンテナの外）
        ================================================================ -->
   <div class="calendar-modal-overlay hidden" id="calendarModalOverlay">
-    <div class="calendar-modal">
+    <div class="calendar-modal" role="dialog" aria-modal="true" aria-labelledby="calendarModalTitle">
       <button class="calendar-modal__close" id="calendarModalClose" aria-label="閉じる">&times;</button>
 
       <!-- カレンダーヘッダー -->
       <div class="calendar-header">
+        <h2 id="calendarModalTitle" class="visually-hidden">スケジュールカレンダー</h2>
         <button class="calendar-nav" id="calPrev" aria-label="前の月">&lt;</button>
         <span class="calendar-month-label" id="calMonthLabel"></span>
         <button class="calendar-nav" id="calNext" aria-label="次の月">&gt;</button>
