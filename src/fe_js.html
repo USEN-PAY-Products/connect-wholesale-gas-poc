@@ -283,6 +283,30 @@ let calMonth = _today.getMonth(); // 0始まり
 
 /** スケジュールデータのキャッシュ（日付文字列 → オブジェクト配列） */
 let scheduleMap = {};
+let _scheduleLoaded = false;
+
+/**
+ * スケジュールデータを取得する（未取得の場合のみ）。
+ * カレンダーモーダルを開く際やinitHomePage()から呼ばれる。
+ */
+function loadScheduleData_() {
+  if (_scheduleLoaded) return;
+  if (!sessionStorage.getItem('shiire_wholesaler_id')) return;
+  if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+  _scheduleLoaded = true;
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      buildScheduleMap(result && result.data ? result.data : []);
+      var overlay = document.getElementById('calendarModalOverlay');
+      if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
+    })
+    .withFailureHandler(function(err) {
+      console.error('[calendar] fetchScheduleData failed:', err);
+      _scheduleLoaded = false; // 失敗時は再取得可能にする
+    })
+    .fetchScheduleData();
+}
 
 // カレンダーモーダル: 開閉制御（ページに依存しないためグローバルで登録）
 (function() {
@@ -292,6 +316,7 @@ let scheduleMap = {};
 
   if (btnOpen) {
     btnOpen.addEventListener('click', function() {
+      loadScheduleData_(); // 未取得なら遅延ロード
       calOverlay.classList.remove('hidden');
       renderCalendar();
     });
@@ -337,17 +362,8 @@ function initHomePage() {
   });
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
-    // スケジュールデータ取得（business_calendar）
-    google.script.run
-      .withSuccessHandler(function(result) {
-        buildScheduleMap(result && result.data ? result.data : []);
-        // モーダルが開いていれば再描画
-        if (!calOverlay.classList.contains('hidden')) renderCalendar();
-      })
-      .withFailureHandler(function(err) {
-        console.error('[home] fetchScheduleData failed:', err);
-      })
-      .fetchScheduleData();
+    // スケジュールデータ取得（共通関数で遅延ロード）
+    loadScheduleData_();
 
     // 請求履歴取得（BQ直接取得: wholesaler_id はサーバー側でログインユーザーから確定するため引数不要）
     showLoadingOverlay('請求情報を取得中...');
@@ -385,15 +401,15 @@ function buildScheduleMap(items) {
   _rawScheduleItems = items || [];
   scheduleMap = {};
   _rawScheduleItems.forEach(item => {
-    var start = new Date(item.start_at);
-    var end   = new Date(item.end_at);
-    var isSingle = (start.getTime() === end.getTime());
-    for (var d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      var key = d.getFullYear() + '-' +
+    const start = new Date(item.start_at);
+    const end   = new Date(item.end_at);
+    const isSingle = (start.getTime() === end.getTime());
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const key = d.getFullYear() + '-' +
         String(d.getMonth() + 1).padStart(2, '0') + '-' +
         String(d.getDate()).padStart(2, '0');
       if (!scheduleMap[key]) scheduleMap[key] = [];
-      var pos = isSingle ? 'single'
+      const pos = isSingle ? 'single'
         : (d.getTime() === start.getTime()) ? 'start'
         : (d.getTime() === end.getTime()) ? 'end'
         : 'middle';

@@ -110,7 +110,7 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '  MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
     'FROM ranked AS wi ' +
     'LEFT JOIN ' + tbl + '.store_invoices` AS si ' +
-    '  ON si.wholesaler_invoice_id = wi.id AND si.is_latest = TRUE ' +
+    '  ON si.wholesaler_invoice_id = wi.root_id AND si.is_latest = TRUE ' +
     'WHERE wi.rn = 1 ' +
     'GROUP BY wi.id, wi.root_id, wi.wholesaler_invoice_date, created_at, ' +
     '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +
@@ -421,8 +421,8 @@ function runQuery_(projectId, sql, params) {
  * @throws {Error} クエリ失敗時
  */
 function fetchBusinessCalendar_(wholesalerId) {
-  var config = getConfig_();
-  var sql =
+  const config = getConfig_();
+  const sql =
     'SELECT ' +
     '  event_type, start_at, end_at, event_description, display_color_code ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.business_calendar` ' +
@@ -431,7 +431,7 @@ function fetchBusinessCalendar_(wholesalerId) {
     '  AND event_type IN (\'WHOLESALER_INVOICE_STORAGE\', \'WHOLESALER_INVOICE_FIXATION\', \'DEPOSIT\', \'OBJECTION_PERIOD\') ' +
     'ORDER BY start_at ASC';
 
-  var params = [
+  const params = [
     { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
   ];
 

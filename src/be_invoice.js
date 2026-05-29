@@ -1097,9 +1097,9 @@ function getInvoiceLinesByStore(storeInvoiceId) {
  */
 function fetchScheduleData() {
   try {
-    var accountInfo  = getServerAccountInfo_();
-    var wholesalerId = accountInfo.wholesaler_id;
-    var rows = fetchBusinessCalendar_(wholesalerId);
+    const accountInfo  = getServerAccountInfo_();
+    const wholesalerId = accountInfo.wholesaler_id;
+    const rows = fetchBusinessCalendar_(wholesalerId);
     return success_(rows || []);
   } catch (err) {
     throw new Error('fetchScheduleData failed: ' + err.message);
