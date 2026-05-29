@@ -428,11 +428,11 @@ function hasCurrentMonthInvoice_(wholesalerId) {
     '  AND created_at >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE(\'Asia/Tokyo\'), MONTH), \'Asia/Tokyo\') ' +
     '  AND created_at < TIMESTAMP(DATE_ADD(DATE_TRUNC(CURRENT_DATE(\'Asia/Tokyo\'), MONTH), INTERVAL 1 MONTH), \'Asia/Tokyo\')';
 
-  var params = [
+  const params = [
     { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
   ];
 
-  var rows = runQuery_(config.gcpProjectId, sql, params);
+  const rows = runQuery_(config.gcpProjectId, sql, params);
   return rows.length > 0 && Number(rows[0].cnt) > 0;
 }
 

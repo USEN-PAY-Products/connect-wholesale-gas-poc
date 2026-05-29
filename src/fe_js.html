@@ -1375,14 +1375,14 @@ function renderErrors(errors, warnings, fileName, fileSize) {
     errors.forEach(msg => {
       const li = document.createElement('li');
       li.className = 'alert-item alert-item--error';
-      li.innerHTML = '<i class="fa-solid fa-circle alert-icon"></i>' + msg;
+      li.innerHTML = '<i class="fa-solid fa-circle alert-icon"></i>' + escapeHtml(msg);
       alertList.appendChild(li);
     });
     // アラートを後に表示
     (warnings || []).forEach(msg => {
       const li = document.createElement('li');
       li.className = 'alert-item alert-item--warn';
-      li.innerHTML = '<i class="fa-solid fa-triangle-exclamation alert-icon"></i>' + msg;
+      li.innerHTML = '<i class="fa-solid fa-triangle-exclamation alert-icon"></i>' + escapeHtml(msg);
       alertList.appendChild(li);
     });
 
