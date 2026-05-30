@@ -407,7 +407,7 @@ function initHomePage() {
     google.script.run
       .withSuccessHandler(function(result) {
         hideLoadingOverlay();
-        var invoices = result && result.data ? result.data : [];
+        const invoices = result && result.data ? result.data : [];
         try {
           sessionStorage.setItem('shiire_invoices_cache', JSON.stringify(invoices));
         } catch (e) {
