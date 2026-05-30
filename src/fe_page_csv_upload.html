@@ -5,9 +5,31 @@
     <!-- Page header row -->
     <div class="page-header">
       <h1 class="page-title">請求内容の登録</h1>
-      <a href="#home" class="btn btn-back">
+      <button class="btn btn-back" id="btnUploadBack">
         <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
-      </a>
+      </button>
+    </div>
+
+    <!-- 一覧に戻る確認モーダル（ファイルアップロード済み時のみ表示） -->
+    <div class="modal-overlay hidden"
+         id="uploadBackModal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="uploadBackModalTitle"
+         aria-describedby="uploadBackModalDesc">
+      <div class="modal modal--warn">
+        <button class="modal__close" id="uploadBackModalClose" aria-label="閉じる">&times;</button>
+        <h2 class="modal__title modal__title--warn" id="uploadBackModalTitle">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          一覧に戻ると登録作業中のファイルは削除されますがよろしいですか？
+        </h2>
+        <p class="modal__message modal__message--warn" id="uploadBackModalDesc">アップロードされたファイルは、まだ登録が完了していません。一覧画面に戻ると、登録は完了されません。</p>
+        <div class="modal__actions modal__actions--center">
+          <button class="btn btn-back modal__btn" id="uploadBackModalOk">
+            <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- アップロード・エラー・ボタンを一つの白カードにまとめる -->
@@ -27,9 +49,14 @@
           <input type="file" id="fileInput" accept=".csv" hidden disabled />
         </div>
 
-        <a href="#" class="link-template" id="btnTemplateDlPage">
-          <i class="fa-solid fa-download"></i> 請求CSVテンプレートをダウンロードする
-        </a>
+        <!-- アップロード済みファイル情報（初期非表示） -->
+        <div class="file-info hidden" id="fileInfo">
+          <span class="file-info__label">アップロードファイル：</span>
+          <span class="file-info__name" id="fileInfoName"></span>
+          <button class="btn btn-file-delete" id="btnFileDelete">
+            <i class="fa-regular fa-trash-can"></i> ファイルを削除する
+          </button>
+        </div>
       </div>
 
       <!-- Error / Alert list -->
@@ -45,9 +72,6 @@
       <div class="action-buttons">
         <button class="btn btn-primary btn-submit" id="btnToConfirm" disabled>
           確認画面へ進む <i class="fa-solid fa-chevron-right"></i>
-        </button>
-        <button class="btn btn-outline btn-cancel" id="btnCancel">
-          キャンセル
         </button>
       </div>
 

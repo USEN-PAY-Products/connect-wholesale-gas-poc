@@ -23,7 +23,7 @@ const STAGING_SCHEMA_ = {
     { name: 'customer_code',         type: 'STRING'  },
     { name: 'transaction_date',      type: 'DATE'    },
     { name: 'item_name',             type: 'STRING'  },
-    { name: 'quantity',              type: 'INTEGER' },
+    { name: 'quantity',              type: 'NUMERIC' },
     { name: 'unit_price',            type: 'INTEGER' },
     { name: 'tax_rate',              type: 'INTEGER' },
     { name: 'amount_ex_tax',         type: 'INTEGER' },

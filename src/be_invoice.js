@@ -867,6 +867,11 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
       throw new Error('summaryData.merchantTotals が空です');
     }
 
+    // ── 当月重複チェック（同一卸が当月に既に新規請求書を登録済みかチェック）──
+    if (hasCurrentMonthInvoice_(accountInfo.wholesaler_id)) {
+      throw new Error('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
+    }
+
     // ── csv_format_rules から staging スキーマを生成 ────────────────────────
     // null（デフォルト卸）→ loadCsvToBq_ が STAGING_SCHEMA_（固定9列・名前付きカラム）を使用
     // 新形式（columns 配列）→ loadCsvToBq_ が string_field_0〜N の全列 STRING 明示スキーマを使用
