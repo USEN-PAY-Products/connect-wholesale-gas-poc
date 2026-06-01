@@ -78,7 +78,12 @@ function doPost(e) {
       });
     }
 
-    return jsonResponse_({ status: 'success', userData: accountInfo });
+    // ログイン画面で必要な最小限のフィールドのみ返却（過剰な情報露出を防止）
+    const userData = {
+      wholesaler_id:   accountInfo.wholesaler_id   || '',
+      wholesaler_name: accountInfo.wholesaler_name || '',
+    };
+    return jsonResponse_({ status: 'success', userData: userData });
 
   } catch (err) {
     Logger.log('[doPost] エラー: ' + err.message);

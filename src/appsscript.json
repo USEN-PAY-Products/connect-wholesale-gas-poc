@@ -11,6 +11,7 @@
   },
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
+  "_comment_webapp": "ANYONE_ANONYMOUS: AWS上のlogin.htmlからfetch()でdoPostを呼ぶため必須（ANYONEだとGASがGoogleログインリダイレクトを返しfetchが失敗する）。認証はdoPost内でGoogleトークン検証+BQアカウント照合で担保。",
   "webapp": {
     "executeAs": "USER_DEPLOYING",
     "access": "ANYONE_ANONYMOUS"

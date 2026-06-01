@@ -361,6 +361,9 @@
   /** GCP Console で発行した OAuth 2.0 クライアント ID */
   const GOOGLE_CLIENT_ID = '922908723040-iiolmgkq3g812at66h44fjb1u1h8hgns.apps.googleusercontent.com';
 
+  /** ログインセッションの有効期限（ミリ秒）: 24時間 */
+  const LOGIN_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
   /**
    * 環境別 GAS デプロイ URL 設定
    * アクセス元のホスト名で自動的に切り替わる。
@@ -421,15 +424,22 @@
       return;
     }
 
-    // localStorage にログイン済みデータがあれば差し込み画面を表示
+    // localStorage にログイン済みデータがあれば有効期限を検証してメニュー画面を表示
     const saved = localStorage.getItem('shiire_login_data');
     if (saved) {
       try {
-        showMenuPage(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        if (!parsed.loginAt || (Date.now() - parsed.loginAt) > LOGIN_SESSION_TTL_MS) {
+          // 有効期限切れ or 旧形式 → 再ログインを要求
+          localStorage.removeItem('shiire_login_data');
+          console.log('[login] セッション期限切れのため再ログインが必要です');
+        } else {
+          showMenuPage(parsed);
+          return;
+        }
       } catch (e) {
         localStorage.removeItem('shiire_login_data');
       }
-      return;
     }
 
     if (typeof google === 'undefined' || !google.accounts) {
@@ -474,12 +484,14 @@
     hideError();
 
     // GAS doPost API にトークンを送信
-    // GAS は POST に 302 リダイレクトを返すため、redirect: 'follow' で対応。
-    // また CORS エラー回避のため mode: 'no-cors' も考慮するが、
-    // レスポンスを読む必要があるため、まず通常モードで試行する。
+    // ── CORS 対応メモ ──
+    // Content-Type: text/plain → Simple Request（プリフライトなし）。
+    // GAS は POST に 302 リダイレクトを返し、リダイレクト先
+    // (script.googleusercontent.com) が Access-Control-Allow-Origin: * を付与するため、
+    // 外部オリジン（AWS 等）からでも res.text() でレスポンスを読み取れる。
     fetch(GAS_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },  // CORS プリフライト回避
+      headers: { 'Content-Type': 'text/plain' },  // Simple Request 条件を満たす
       body: JSON.stringify({ token: idToken }),
       redirect: 'follow',
     })
@@ -499,7 +511,7 @@
 
       if (data.status === 'success') {
         // ログイン成功 → 表示に必要な最小限の情報のみ localStorage に保存
-        const loginData = { wholesaler_name: data.userData.wholesaler_name || '' };
+        const loginData = { wholesaler_name: data.userData.wholesaler_name || '', loginAt: Date.now() };
         localStorage.setItem('shiire_login_data', JSON.stringify(loginData));
         showMenuPage(loginData);
       } else if (data.status === 'fail') {
