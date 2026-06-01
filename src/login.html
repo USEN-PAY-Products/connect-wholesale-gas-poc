@@ -366,23 +366,25 @@
 
   /**
    * 環境別 GAS デプロイ URL 設定
+   * GAS_API_URL: 認証 API（別 GAS プロジェクト、ANYONE_ANONYMOUS）
+   * GAS_APP_URL: メインアプリ（卸システム、DOMAIN）
    * アクセス元のホスト名で自動的に切り替わる。
    * デプロイ後、各環境の GAS URL を設定してください。
    */
   const ENV_CONFIG = {
     // ローカル開発（localhost）
     local: {
-      GAS_API_URL: 'https://script.google.com/macros/s/AKfycbzmQJXjVO8Jj6DBI0LecYaHWq6auTI0Gci4oqSJQGypW7Dxaou70NzaGeHyBvzpKzP0Fw/exec',
+      GAS_API_URL: 'https://script.google.com/macros/s/AKfycbx77SQuxQ94OZl--XEoFwAsAfruDDatyRT3hNJ5ndYRaT_vTX9fI71S3AjZFvuASpwm7A/exec',
       GAS_APP_URL: 'https://script.google.com/macros/s/AKfycbzmQJXjVO8Jj6DBI0LecYaHWq6auTI0Gci4oqSJQGypW7Dxaou70NzaGeHyBvzpKzP0Fw/exec',
     },
     // 開発環境
     dev: {
-      GAS_API_URL: 'https://script.google.com/macros/s/AKfycbxHB_tcEaUG2yTSbDm6GehQXex1oNbJH-fINaeN8ek9viUMbSTMTl5YYbwP8S1dti_mog/exec',
+      GAS_API_URL: 'https://script.google.com/macros/s/AKfycbxyvZ7K7H__EgyO4gJ2Y3IclddbeiKBMe5QwCcktICO53fEsEqokvu2l14Hcc5RwL-4/exec',
       GAS_APP_URL: 'https://script.google.com/macros/s/AKfycbxHB_tcEaUG2yTSbDm6GehQXex1oNbJH-fINaeN8ek9viUMbSTMTl5YYbwP8S1dti_mog/exec',
     },
     // 本番環境（デプロイID が決まったら設定してください）
     prod: {
-      GAS_API_URL: 'https://script.google.com/macros/s/YOUR_PROD_DEPLOY_ID/exec',
+      GAS_API_URL: 'https://script.google.com/macros/s/YOUR_AUTH_PROD_DEPLOY_ID/exec',
       GAS_APP_URL: 'https://script.google.com/macros/s/YOUR_PROD_DEPLOY_ID/exec',
     },
   };
@@ -511,7 +513,11 @@
 
       if (data.status === 'success') {
         // ログイン成功 → 表示に必要な最小限の情報のみ localStorage に保存
-        const loginData = { wholesaler_name: data.userData.wholesaler_name || '', loginAt: Date.now() };
+        const loginData = {
+          wholesaler_id:   data.userData.wholesaler_id   || '',
+          wholesaler_name: data.userData.wholesaler_name || '',
+          loginAt: Date.now(),
+        };
         localStorage.setItem('shiire_login_data', JSON.stringify(loginData));
         showMenuPage(loginData);
       } else if (data.status === 'fail') {

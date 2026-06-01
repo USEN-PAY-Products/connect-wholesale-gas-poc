@@ -9,7 +9,12 @@
   "scripts": {
     "push:local": "cp .clasp-local.json .clasp.json && clasp push",
     "push:dev": "cp .clasp-dev.json .clasp.json && clasp push",
-    "push:prod": "cp .clasp-prod.json .clasp.json && clasp push"
+    "push:prod": "cp .clasp-prod.json .clasp.json && clasp push",
+    "deploy:local": "cp .clasp-local.json .clasp.json && clasp push && clasp deploy -i AKfycbzmQJXjVO8Jj6DBI0LecYaHWq6auTI0Gci4oqSJQGypW7Dxaou70NzaGeHyBvzpKzP0Fw",
+    "deploy:dev": "cp .clasp-dev.json .clasp.json && clasp push && clasp deploy",
+    "deploy:prod": "cp .clasp-prod.json .clasp.json && clasp push && clasp deploy",
+    "push:auth-local": "cp .clasp-auth-local.json .clasp.json && clasp push",
+    "deploy:auth-local": "cp .clasp-auth-local.json .clasp.json && clasp push && clasp deploy -i AKfycbx77SQuxQ94OZl--XEoFwAsAfruDDatyRT3hNJ5ndYRaT_vTX9fI71S3AjZFvuASpwm7A"
   },
   "engines": {
     "node": ">=20.0.0"

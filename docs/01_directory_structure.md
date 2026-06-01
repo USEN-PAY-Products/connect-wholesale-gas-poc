@@ -11,6 +11,7 @@ shiire-poc-supplier/
 ├── .clasp-dev.json            # 開発環境用 clasp 設定（push:dev で使用）
 ├── .clasp-prod.json           # 本番環境用 clasp 設定（push:prod で使用）
 ├── .clasp-local.json          # 個人ローカル検証用 clasp 設定
+├── .clasp-auth-local.json     # 認証 API 用 clasp 設定（push:auth-local で使用）
 ├── .claspignore               # GAS へ送らないファイルの除外定義
 ├── package.json               # npm 設定（clasp / 型定義パッケージ管理）
 ├── docs/                      # ドキュメント群
@@ -19,21 +20,39 @@ shiire-poc-supplier/
 │   ├── CODING_RULES.md        # コーディング規約
 │   ├── 01_directory_structure.md
 │   └── 02_system_requirements.md
-└── src/                       # 🚀 開発 & デプロイ用（ここで作業 → そのまま GAS へ push）
-    ├── appsscript.json        # GAS マニフェスト（権限・タイムゾーン設定）
-    ├── be_main.js             # Back-end: エントリーポイント（doGet / include）
-    ├── be_config.js           # Back-end: 環境設定（ScriptProperties の取得・初期設定）
-    ├── be_utils.js            # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付変換）
-    ├── be_invoice.js          # Back-end: 請求ドメイン（sendInvoiceData / fetchInvoices / fetchInvoiceDetail）
-    ├── fe_index.html          # Front-end: SPA ルート HTML（GAS テンプレート）
-    ├── fe_css.html            # Front-end: 共通スタイルシート（<style> タグ）
-    ├── fe_js.html             # Front-end: クライアント JS 全結合（<script> タグ）
-    ├── fe_part_header.html    # Front-end: 【パーツ】共通ヘッダー
-    ├── fe_page_home.html      # Front-end: 【画面】ホーム
-    ├── fe_page_csv_upload.html # Front-end: 【画面】CSV アップロード
-    ├── fe_page_confirm.html   # Front-end: 【画面】確認画面
-    └── fe_page_detail.html    # Front-end: 【画面】詳細画面
+├── src/                       # 🚀 メインアプリ（GAS Webアプリ、access=DOMAIN）
+│   ├── appsscript.json        # GAS マニフェスト（権限・タイムゾーン設定）
+│   ├── be_main.js             # Back-end: エントリーポイント（doGet / include）
+│   ├── be_config.js           # Back-end: 環境設定（ScriptProperties の取得・初期設定）
+│   ├── be_server.js           # Back-end: アカウント情報取得（google.script.run 経由）
+│   ├── be_utils.js            # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付変換）
+│   ├── be_invoice.js          # Back-end: 請求ドメイン（sendInvoiceData / fetchInvoices / fetchInvoiceDetail）
+│   ├── db_bq_connection.js    # DB: BQ Load Job投入・ポーリング・トランザクション実行
+│   ├── db_bq_query.js         # DB: BQ 参照系クエリ（請求一覧・詳細）
+│   ├── fe_index.html          # Front-end: SPA ルート HTML（GAS テンプレート）
+│   ├── fe_css.html            # Front-end: 共通スタイルシート（<style> タグ）
+│   ├── fe_js.html             # Front-end: クライアント JS 全結合（<script> タグ）
+│   ├── fe_part_header.html    # Front-end: 【パーツ】共通ヘッダー
+│   ├── fe_page_home.html      # Front-end: 【画面】ホーム
+│   ├── fe_page_csv_upload.html # Front-end: 【画面】CSV アップロード
+│   ├── fe_page_confirm.html   # Front-end: 【画面】確認画面
+│   ├── fe_page_detail.html    # Front-end: 【画面】詳細画面
+│   └── login.html             # AWS ホスティング用ログインページ（.claspignore で GAS から除外）
+└── src-auth/                  # 🔐 認証 API（別 GAS プロジェクト、access=ANYONE_ANONYMOUS）
+    ├── appsscript.json        # GAS マニフェスト（ANYONE_ANONYMOUS）
+    └── auth.js                # トークン検証・ BQ アカウント照合・ JSON レスポンス
 ```
+
+### 2つの GAS プロジェクト構成
+
+`appsscript.json` の `access` 設定が異なるため、2つの GAS プロジェクトに分離しています。
+
+| | メインアプリ（`src/`） | 認証 API（`src-auth/`） |
+|---|---|---|
+| **access** | `DOMAIN`（Google Workspace ログイン必須） | `ANYONE_ANONYMOUS`（外部 fetch 対応） |
+| **ユーザー特定** | `Session.getActiveUser().getEmail()` | Google ID トークン検証 + BQ 照合 |
+| **呼出元** | GAS 内 `google.script.run` | AWS login.html から `fetch()` |
+| **clasp 設定** | `.clasp-local.json` / `.clasp-dev.json` | `.clasp-auth-local.json` |
 
 ## 2. ファイル命名規則
 
@@ -54,10 +73,16 @@ Copilot の補完がフルに効き、型定義（`@types/google-apps-script`）
 
 ```bash
 # 個人テスト環境へ push
-npm run push:dev   # → .clasp-dev.json の scriptId へデプロイ
+npm run push:local   # → .clasp-local.json の scriptId へデプロイ
+
+# 開発環境へ push
+npm run push:dev     # → .clasp-dev.json の scriptId へデプロイ
 
 # 本番環境へ push
-npm run push:prod  # → .clasp-prod.json の scriptId へデプロイ
+npm run push:prod    # → .clasp-prod.json の scriptId へデプロイ
+
+# 認証 API（別 GAS プロジェクト）へ push
+npm run push:auth-local  # → .clasp-auth-local.json の scriptId へデプロイ
 ```
 
 各コマンドは対応する `.clasp-*.json` を `.clasp.json` にコピーしてから `clasp push` を実行します。

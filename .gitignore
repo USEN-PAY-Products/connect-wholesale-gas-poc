@@ -11,3 +11,7 @@ dist/
 
 # Local env files
 .env
+
+docs/plan/
+*.csv
+*.sql
