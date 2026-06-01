@@ -5,7 +5,7 @@
 // Google ID トークンの検証と BQ アカウント照合を行い、JSON レスポンスを返す。
 //
 // 依存: db_bq_query.js（fetchAccountInfoByEmail_）
-//       be_config.js（getConfig_） ※ GOOGLE_CLIENT_ID の取得
+//       PropertiesService（GOOGLE_CLIENT_ID スクリプトプロパティ）
 //
 // 公開関数:
 //   doPost(e)  ← GAS ウェブアプリの POST エントリーポイント
@@ -49,7 +49,11 @@ function doPost(e) {
     const tokenInfo = JSON.parse(verifyRes.getContentText());
 
     // ── aud（クライアントID）の一致を検証 ──
-    const { googleClientId } = getConfig_();
+    const googleClientId = PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID');
+    if (!googleClientId) {
+      Logger.log('[doPost] GOOGLE_CLIENT_ID がスクリプトプロパティに未設定です。');
+      return jsonResponse_({ status: 'error', message: 'サーバー設定エラーです。管理者に連絡してください。' });
+    }
     if (tokenInfo.aud !== googleClientId) {
       Logger.log('[doPost] aud 不一致: expected=' + googleClientId + ', got=' + tokenInfo.aud);
       return jsonResponse_({ status: 'error', message: '無効なトークンです。再度ログインしてください。' });
