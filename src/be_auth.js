@@ -27,35 +27,31 @@ function doPost(e) {
       return jsonResponse_({ status: 'error', message: 'リクエストボディが空です。' });
     }
 
-    var body;
+    let body;
     try {
       body = JSON.parse(e.postData.contents);
     } catch (parseErr) {
       return jsonResponse_({ status: 'error', message: 'リクエストの形式が不正です。JSON 形式で送信してください。' });
     }
 
-    var idToken = body.token;
+    const idToken = body.token;
     if (!idToken) {
       return jsonResponse_({ status: 'error', message: 'トークンが送信されていません。' });
     }
 
     // ── Google tokeninfo API でトークンを検証 ──
-    var verifyUrl = 'https://oauth2.googleapis.com/tokeninfo?id_token=' + idToken;
-    var verifyRes = UrlFetchApp.fetch(verifyUrl, { muteHttpExceptions: true });
+    const verifyUrl = 'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken);
+    const verifyRes = UrlFetchApp.fetch(verifyUrl, { muteHttpExceptions: true });
     if (verifyRes.getResponseCode() !== 200) {
       return jsonResponse_({ status: 'error', message: '無効なトークンです。再度ログインしてください。' });
     }
 
-    var tokenInfo = JSON.parse(verifyRes.getContentText());
+    const tokenInfo = JSON.parse(verifyRes.getContentText());
 
     // ── aud（クライアントID）の一致を検証 ──
-    var expectedClientId = PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID');
-    if (!expectedClientId) {
-      Logger.log('[doPost] GOOGLE_CLIENT_ID がスクリプトプロパティに未設定です。');
-      return jsonResponse_({ status: 'error', message: 'サーバー設定エラーです。管理者に連絡してください。' });
-    }
-    if (tokenInfo.aud !== expectedClientId) {
-      Logger.log('[doPost] aud 不一致: expected=' + expectedClientId + ', got=' + tokenInfo.aud);
+    const { googleClientId } = getConfig_();
+    if (tokenInfo.aud !== googleClientId) {
+      Logger.log('[doPost] aud 不一致: expected=' + googleClientId + ', got=' + tokenInfo.aud);
       return jsonResponse_({ status: 'error', message: '無効なトークンです。再度ログインしてください。' });
     }
 
@@ -64,13 +60,13 @@ function doPost(e) {
       return jsonResponse_({ status: 'error', message: 'メールアドレスが未確認のアカウントではログインできません。' });
     }
 
-    var email = tokenInfo.email;
+    const email = tokenInfo.email;
     if (!email) {
       return jsonResponse_({ status: 'error', message: 'トークンからメールアドレスを取得できませんでした。' });
     }
 
     // ── BQ でアカウント照合（既存関数を利用） ──
-    var accountInfo = fetchAccountInfoByEmail_(email);
+    const accountInfo = fetchAccountInfoByEmail_(email);
     if (!accountInfo) {
       return jsonResponse_({
         status: 'fail',

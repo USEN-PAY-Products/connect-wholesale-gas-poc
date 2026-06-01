@@ -498,9 +498,10 @@
       }
 
       if (data.status === 'success') {
-        // ログイン成功 → localStorage に保存して差し込み画面へ
-        localStorage.setItem('shiire_login_data', JSON.stringify(data.userData));
-        showMenuPage(data.userData);
+        // ログイン成功 → 表示に必要な最小限の情報のみ localStorage に保存
+        const loginData = { wholesaler_name: data.userData.wholesaler_name || '' };
+        localStorage.setItem('shiire_login_data', JSON.stringify(loginData));
+        showMenuPage(loginData);
       } else if (data.status === 'fail') {
         showError('アカウント未登録',
           data.message || 'このGoogleアカウントはサービスに登録されていません。\n登録済みのアカウントで再度ログインしてください。');
