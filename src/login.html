@@ -547,12 +547,12 @@
 
   // メニューボタン: 請求履歴確認 → GAS #home
   document.getElementById('btnGoHome').addEventListener('click', function () {
-    window.location.href = GAS_APP_URL + '#home';
+    window.location.replace(GAS_APP_URL + '?t=' + Date.now() + '#home');
   });
 
   // メニューボタン: 新規請求登録 → GAS #upload
   document.getElementById('btnGoUpload').addEventListener('click', function () {
-    window.location.href = GAS_APP_URL + '#upload';
+    window.location.replace(GAS_APP_URL + '?t=' + Date.now() + '#upload');
   });
   </script>
 </body>
