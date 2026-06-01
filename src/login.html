@@ -136,6 +136,7 @@
       font-size: 13px;
       color: #555;
       line-height: 1.6;
+      white-space: pre-line;
     }
 
     /* ── Loading Spinner ───────────────────────────────── */
@@ -335,7 +336,7 @@
         <p class="menu-card__description">
           登録済みの請求内容の確認／差戻しや否認された請求の修正・再申請対応を行います。
         </p>
-        <a class="btn-menu" id="btnGoHome">登録済みの請求を確認する</a>
+        <button type="button" class="btn-menu" id="btnGoHome">登録済みの請求を確認する</button>
       </div>
       <!-- 請求の新規登録 -->
       <div class="menu-card">
@@ -343,7 +344,7 @@
         <p class="menu-card__description">
           新しい請求を登録します。
         </p>
-        <a class="btn-menu" id="btnGoUpload">新規請求を登録する <span class="btn-menu__plus">＋</span></a>
+        <button type="button" class="btn-menu" id="btnGoUpload">新規請求を登録する <span class="btn-menu__plus">＋</span></button>
       </div>
     </div>
   </div>
@@ -358,14 +359,14 @@
   // 設定値（環境自動判定）
   // =============================================================================
   /** GCP Console で発行した OAuth 2.0 クライアント ID */
-  var GOOGLE_CLIENT_ID = '922908723040-iiolmgkq3g812at66h44fjb1u1h8hgns.apps.googleusercontent.com';
+  const GOOGLE_CLIENT_ID = '922908723040-iiolmgkq3g812at66h44fjb1u1h8hgns.apps.googleusercontent.com';
 
   /**
    * 環境別 GAS デプロイ URL 設定
    * アクセス元のホスト名で自動的に切り替わる。
    * デプロイ後、各環境の GAS URL を設定してください。
    */
-  var ENV_CONFIG = {
+  const ENV_CONFIG = {
     // ローカル開発（localhost）
     local: {
       GAS_API_URL: 'https://script.google.com/macros/s/AKfycbzmQJXjVO8Jj6DBI0LecYaHWq6auTI0Gci4oqSJQGypW7Dxaou70NzaGeHyBvzpKzP0Fw/exec',
@@ -385,33 +386,43 @@
 
   /** ホスト名から環境を判定 */
   function detectEnv() {
-    var host = window.location.hostname;
+    const host = window.location.hostname;
     if (host === 'localhost' || host === '127.0.0.1') return 'local';
     // TODO: 開発環境のドメインに書き換えてください
     if (host.indexOf('dev.') === 0 || host.indexOf('stg.') === 0) return 'dev';
     return 'prod';
   }
 
-  var currentEnv   = detectEnv();
-  var GAS_API_URL   = ENV_CONFIG[currentEnv].GAS_API_URL;
-  var GAS_APP_URL   = ENV_CONFIG[currentEnv].GAS_APP_URL;
+  const currentEnv   = detectEnv();
+  const GAS_API_URL   = ENV_CONFIG[currentEnv].GAS_API_URL;
+  const GAS_APP_URL   = ENV_CONFIG[currentEnv].GAS_APP_URL;
   console.log('[login] 環境:', currentEnv, '| API:', GAS_API_URL);
+
+  // 未設定チェック: プレースホルダのままなら初期化を中断
+  const _configError = (GAS_API_URL.indexOf('YOUR_') !== -1 || GAS_APP_URL.indexOf('YOUR_') !== -1);
 
   // =============================================================================
   // DOM 要素
   // =============================================================================
-  var btnLogin     = document.getElementById('btnGoogleLogin');
-  var elLoading    = document.getElementById('loginLoading');
-  var elError      = document.getElementById('loginError');
-  var elErrorTitle = document.getElementById('loginErrorTitle');
-  var elErrorMsg   = document.getElementById('loginErrorMessage');
+  const btnLogin     = document.getElementById('btnGoogleLogin');
+  const elLoading    = document.getElementById('loginLoading');
+  const elError      = document.getElementById('loginError');
+  const elErrorTitle = document.getElementById('loginErrorTitle');
+  const elErrorMsg   = document.getElementById('loginErrorMessage');
 
   // =============================================================================
   // Google Identity Services 初期化
   // =============================================================================
   window.onload = function () {
+    // GAS URL が未設定の場合はエラーを表示して停止
+    if (_configError) {
+      showError('設定エラー', 'この環境（' + currentEnv + '）のGASデプロイURLが未設定です。\n管理者に連絡してください。');
+      btnLogin.disabled = true;
+      return;
+    }
+
     // localStorage にログイン済みデータがあれば差し込み画面を表示
-    var saved = localStorage.getItem('shiire_login_data');
+    const saved = localStorage.getItem('shiire_login_data');
     if (saved) {
       try {
         showMenuPage(JSON.parse(saved));
@@ -438,16 +449,9 @@
   btnLogin.addEventListener('click', function () {
     hideError();
     google.accounts.id.prompt(function (notification) {
-      // ユーザーがプロンプトを閉じた場合などのフォールバック
+      // One Tap が表示されなかった場合のフォールバック
       if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-        console.log('[login] One Tap が表示されなかったため popup で fallback します');
-        // fallback: ポップアップ型の OAuth フローを試行
-        google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: 'email profile',
-          callback: function () {}, // 不要（ID トークン方式を使用するため）
-        });
-        // One Tap が使えない場合は通常の Google ボタンレンダリングで対応
+        console.log('[login] One Tap が表示されませんでした。理由:', notification.getNotDisplayedReason() || notification.getSkippedReason());
         showError('認証に失敗しました',
           'ポップアップがブロックされている可能性があります。\nブラウザの設定を確認し、再度お試しください。');
       }
@@ -458,7 +462,7 @@
   // Google 認証成功コールバック
   // =============================================================================
   function handleCredentialResponse(response) {
-    var idToken = response.credential;
+    const idToken = response.credential;
     if (!idToken) {
       showError('認証エラー', 'Googleからのトークン取得に失敗しました。再度お試しください。');
       return;
@@ -486,7 +490,7 @@
       return res.text();
     })
     .then(function (text) {
-      var data;
+      let data;
       try {
         data = JSON.parse(text);
       } catch (e) {
@@ -539,7 +543,7 @@
     document.getElementById('headerMenu').classList.remove('page-hidden');
 
     // ヘッダーに企業名を表示
-    var nameEl = document.getElementById('menuWholesalerName');
+    const nameEl = document.getElementById('menuWholesalerName');
     if (nameEl && userData && userData.wholesaler_name) {
       nameEl.textContent = userData.wholesaler_name;
     }
