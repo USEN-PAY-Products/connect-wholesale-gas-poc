@@ -12,11 +12,10 @@ GAS のファイル管理はフラット構造のため、`src/` 直下に以下
 ### ディレクトリ構成
 
 ```
-src/                             # メインアプリ（GAS Webアプリ、access=DOMAIN）
+src/
 ├── appsscript.json          # GASマニフェスト（権限・タイムゾーン設定）
 ├── be_main.js               # Back-end: エントリーポイント（doGet, include）
 ├── be_config.js             # Back-end: 環境設定（ScriptPropertiesの取得・管理）
-├── be_server.js             # Back-end: アカウント情報取得（google.script.run 経由）
 ├── be_utils.js              # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付フォーマット）
 ├── be_invoice.js            # Back-end: 請求ドメイン（sendInvoiceData, fetchInvoices, fetchInvoiceDetail）
 ├── db_bq_connection.js      # DB: BQ Load Job投入・ポーリング・トランザクション実行・staging DROP
@@ -28,12 +27,7 @@ src/                             # メインアプリ（GAS Webアプリ、acces
 ├── fe_page_home.html        # Front-end: 【画面】ホーム
 ├── fe_page_csv_upload.html  # Front-end: 【画面】CSVアップロード
 ├── fe_page_confirm.html     # Front-end: 【画面】確認画面
-├── fe_page_detail.html      # Front-end: 【画面】詳細画面
-└── login.html               # AWS ホスティング用（.claspignore で GAS から除外）
-
-src-auth/                        # 認証 API（別 GAS プロジェクト、access=ANYONE_ANONYMOUS）
-├── appsscript.json          # GASマニフェスト（ANYONE_ANONYMOUS）
-└── auth.js                  # トークン検証・ BQ アカウント照合
+└── fe_page_detail.html      # Front-end: 【画面】詳細画面
 ```
 
 ### ファイル命名プレフィックス

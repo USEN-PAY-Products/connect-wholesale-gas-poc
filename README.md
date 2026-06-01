@@ -8,28 +8,17 @@
 
 ## 📁 ディレクトリ構成
 
+開発体験とGASへのデプロイを両立するため、ソースコードは分割管理し、デプロイ時にビルド（結合）する構成をとっています。
+
 ```
 /
-├── src/          🛠️ メインアプリ（GAS Webアプリ、access=DOMAIN）
-│   ├── be_*.js       バックエンド（サーバー側ロジック）
-│   ├── db_*.js       DB層（BigQuery クエリ・接続）
-│   ├── fe_*.html     フロントエンド（HTML/CSS/JS）
-│   └── login.html    AWS ホスティング用ログインページ（GASには push されない）
-├── src-auth/     🔐 認証 API（別 GAS プロジェクト、access=ANYONE_ANONYMOUS）
-│   ├── auth.js       トークン検証・ BQ アカウント照合
-│   └── appsscript.json
-├── docs/         📄 設計書・仕様書
-└── .github/      CI/CD（GitHub Actions）
+├── src/          🛠️ 開発用ディレクトリ（ここでコーディングします）
+│   ├── backend/      GASバックエンド（APIプロキシ）
+│   └── frontend/     画面フロントエンド（HTML/CSS/JS）
+├── dist/         🚀 デプロイ用ディレクトリ（ビルドによって自動生成され、GASへPushされます）
+├── docs/         📄 設計書・仕様書・実装ロードマップ
+└── build.js          ファイル結合用のNode.jsスクリプト
 ```
-
-### 2つの GAS プロジェクト構成
-
-| | メインアプリ（`src/`） | 認証 API（`src-auth/`） |
-|---|---|---|
-| **access** | `DOMAIN` | `ANYONE_ANONYMOUS` |
-| **用途** | CSVアップロード・請求管理 | AWS login.html からのトークン検証 |
-| **ユーザー特定** | `Session.getActiveUser()` | Google ID トークン検証 |
-| **clasp 設定** | `.clasp-local.json` 等 | `.clasp-auth-local.json` |
 
 ---
 
@@ -48,34 +37,48 @@ npm install -g @google/clasp
 clasp login
 ```
 
+### 環境（デプロイ先）の切り替え設定
+
+本プロジェクトは `.clasp.json` をGit管理対象外としています。開発を始める前に、共有ドライブに作成したGASのスクリプトIDを使って設定ファイルを作成してください。
+
+1. プロジェクトルートに `.clasp-dev.json` を作成：
+
+    ```json
+    {
+      "scriptId": "あなたの開発用GASのスクリプトID",
+      "rootDir": "./dist"
+    }
+    ```
+
+2. （本番デプロイ時のみ）同様に `.clasp-prod.json` を作成。
+
 ---
 
-## 💻 開発フロー
+## 💻 開発フロー（バイブコーディング仕様）
 
-### メインアプリ（`src/`）
+### 1. コーディング
+
+`src/frontend/` 内の `index.html`、`style.css`、`app.js` を編集します。
+
+> ※ VSCodeの Live Server 機能を使ってローカルでプレビューしながら開発するとスムーズです。
+
+### 2. ビルド（ファイルの結合）
+
+フロントエンドのファイルを1つの `index.html` に結合し、`dist/` フォルダに出力します。
 
 ```bash
-# ローカルテスト環境へ push
-npm run push:local
+npm run build
+```
 
-# 開発環境へ push
+### 3. デプロイ（GASへPush）
+
+```bash
+# 開発環境（developブランチ）からデプロイする場合
 npm run push:dev
 
-# 本番環境へ push
+# 本番環境（mainブランチ）からデプロイする場合
 npm run push:prod
 ```
-
-### 認証 API（`src-auth/`）
-
-```bash
-# ローカルテスト環境へ push
-npm run push:auth-local
-
-# デプロイ（push + deploy）
-npm run deploy:auth-local
-```
-
-> 認証 API は初回デプロイ後、GAS エディタで `setupAuthScriptProperties()` を実行してスクリプトプロパティを設定してください。
 
 ---
 
@@ -83,8 +86,5 @@ npm run deploy:auth-local
 
 詳細な仕様やデザインガイドは `docs/` ディレクトリを参照してください。
 
-- [ディレクトリ構成](docs/01_directory_structure.md)
-- [システム要件](docs/02_system_requirements.md)
-- [コーディング規約](docs/CODING_RULES.md)
-- [環境構築マニュアル](docs/SETUP.md)
 - [UI/UX デザインガイドライン (DESIGN.md)](docs/DESIGN.md)
+- [実装ステップ・プロンプトガイド](docs/plan/implementation_steps.md)

@@ -103,17 +103,6 @@ function checkScriptProperties() {
 | `BACKOFFICE_API_GET_URL` | 請求一覧・詳細取得エンドポイントURL |
 | `DRIVE_ROOT_FOLDER_ID` | 監査証跡CSV保存先のDriveフォルダID |
 
-### 認証 API（`src-auth/`）の Script Properties
-
-認証 API は別 GAS プロジェクトとしてデプロイされます。
-初回デプロイ後、GAS エディタで `setupAuthScriptProperties()` を実行してください。
-
-| プロパティ名 | 説明 |
-|---|---|
-| `GCP_PROJECT_ID` | BigQuery の GCP プロジェクト ID（メインアプリと同じ） |
-| `BQ_DATASET_ID` | BigQuery のデータセット ID（メインアプリと同じ） |
-| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 クライアント ID |
-
 ### wholesaler_id について
 
 `_getWholesalerId()` はログインユーザーのメールアドレスの **@より前の部分**（ローカルパート）を卸IDとして使用します。

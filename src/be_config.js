@@ -18,9 +18,9 @@ function getConfig_() {
   const bqDatasetId   = props.getProperty('BQ_DATASET_ID');
   const bqLocation    = props.getProperty('BQ_LOCATION') || 'US';
 
-  if (!driveFolderId)  throw new Error('Script Property "DRIVE_ROOT_FOLDER_ID" が未設定です');
-  if (!gcpProjectId)   throw new Error('Script Property "GCP_PROJECT_ID" が未設定です');
-  if (!bqDatasetId)    throw new Error('Script Property "BQ_DATASET_ID" が未設定です');
+  if (!driveFolderId) throw new Error('Script Property "DRIVE_ROOT_FOLDER_ID" が未設定です');
+  if (!gcpProjectId)  throw new Error('Script Property "GCP_PROJECT_ID" が未設定です');
+  if (!bqDatasetId)   throw new Error('Script Property "BQ_DATASET_ID" が未設定です');
 
   return { driveFolderId, gcpProjectId, bqDatasetId, bqLocation };
 }

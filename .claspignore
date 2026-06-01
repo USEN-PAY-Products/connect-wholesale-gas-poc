@@ -10,9 +10,6 @@ package-lock.json
 .gitignore
 .claspignore
 
-# AWS 配信用ログインページ（GAS には不要）
-login.html
-
 # OS ファイル
 **/.DS_Store
 **/Thumbs.db
