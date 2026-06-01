@@ -47,7 +47,13 @@ function doPost(e) {
     // ── Google tokeninfo API でトークンを検証 ──
     const verifyUrl = 'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken);
     const verifyRes = UrlFetchApp.fetch(verifyUrl, { muteHttpExceptions: true });
-    if (verifyRes.getResponseCode() !== 200) {
+    const verifyCode = verifyRes.getResponseCode();
+    if (verifyCode !== 200) {
+      const verifyBody = verifyRes.getContentText();
+      Logger.log('[doPost] tokeninfo API エラー: status=' + verifyCode + ', body=' + verifyBody);
+      if (verifyCode === 429 || verifyCode >= 500) {
+        return jsonResponse_({ status: 'error', message: 'Google認証サーバーが一時的に利用できません。しばらく待ってから再度お試しください。' });
+      }
       return jsonResponse_({ status: 'error', message: '無効なトークンです。再度ログインしてください。' });
     }
 
@@ -159,15 +165,31 @@ function fetchAccountForAuth_(email) {
     throw new Error('[BQ] クエリエラー: ' + JSON.stringify(response.errors));
   }
 
-  if (!response.jobComplete) {
-    // 通常この軽量クエリでタイムアウトは発生しないが念のため
-    throw new Error('[BQ] クエリがタイムアウトしました。');
+  // jobComplete=false の場合はポーリングで完了を待つ（最大5回 = 最大10秒）
+  let result = response;
+  if (!result.jobComplete) {
+    const jobId = result.jobReference && result.jobReference.jobId;
+    if (!jobId) {
+      throw new Error('[BQ] jobId が取得できませんでした。');
+    }
+    const MAX_POLL = 5;
+    for (let i = 0; i < MAX_POLL && !result.jobComplete; i++) {
+      Logger.log('[BQ] クエリ実行中... ポーリング ' + (i + 1) + '/' + MAX_POLL);
+      Utilities.sleep(2000);
+      result = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+      if (result.errors && result.errors.length > 0) {
+        throw new Error('[BQ] クエリエラー（ポーリング中）: ' + JSON.stringify(result.errors));
+      }
+    }
+    if (!result.jobComplete) {
+      throw new Error('[BQ] クエリがタイムアウトしました。');
+    }
   }
 
-  const rows = response.rows;
+  const rows = result.rows;
   if (!rows || rows.length === 0) return null;
 
-  const fields = response.schema.fields;
+  const fields = result.schema.fields;
   const row = rows[0];
   const obj = {};
   (row.f || []).forEach(function(cell, idx) {
