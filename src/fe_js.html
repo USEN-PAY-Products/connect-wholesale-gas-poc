@@ -854,16 +854,34 @@ let _toastTimer = null;
  * @param {'error'|'success'} [type='error']
  * @param {number} [autoHideMs] - 自動非表示までのミリ秒。省略時: success=4000ms, error=0（自動非表示なし）
  */
-function showToast(message, type = 'error', autoHideMs) {
-  document.getElementById('toastMessage').textContent = message;
+function showToast(message, type = 'error', autoHideMs, body) {
+  const titleEl = document.getElementById('toastTitle');
+  const bodyEl  = document.getElementById('toastBody');
+  const iconEl  = document.getElementById('toastIcon');
+  if (titleEl) titleEl.textContent = message;
+  if (bodyEl) {
+    if (body) {
+      bodyEl.innerHTML = body;
+      bodyEl.style.display = '';
+    } else {
+      bodyEl.textContent = '';
+      bodyEl.style.display = 'none';
+    }
+  }
+  // アイコン切り替え
+  if (iconEl) {
+    iconEl.className = type === 'success'
+      ? 'fa-solid fa-circle-check'
+      : 'fa-solid fa-circle-exclamation';
+  }
   toast.classList.remove('hidden', 'toast--error', 'toast--success');
   toast.classList.add(`toast--${type}`);
 
   // 既存タイマーをクリア
   if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
 
-  // 自動非表示: success はデフォルト4秒、error は明示指定がある場合のみ
-  const delay = autoHideMs !== undefined ? autoHideMs : (type === 'success' ? 4000 : 0);
+  // 自動非表示: success はデフォルト8秒、error は明示指定がある場合のみ
+  const delay = autoHideMs !== undefined ? autoHideMs : (type === 'success' ? 8000 : 0);
   if (delay > 0) {
     _toastTimer = setTimeout(hideToast, delay);
   }
@@ -1762,14 +1780,17 @@ btnFinalSubmit.addEventListener('click', () => {
   });
 
   // 卸全体の金額チェック（wholesaler_invoices: NUMERIC(25)）
+  // 25桁は Number.MAX_SAFE_INTEGER を超えるため BigInt で比較
+  const MAX_25 = BigInt('9999999999999999999999999');
   const wt = summaryData.wholesalerTotal;
-  if (Math.abs(wt.totalAmount) > 9999999999999999999999999) {
+  const abs = v => { const b = BigInt(Math.trunc(v)); return b < 0n ? -b : b; };
+  if (abs(wt.totalAmount) > MAX_25) {
     validationErrors.push('請求金額合計（税込）が上限（25桁）を超えています');
   }
-  if (Math.abs(wt.feeAmount) > 9999999999999999999999999) {
+  if (abs(wt.feeAmount) > MAX_25) {
     validationErrors.push('手数料金額が上限（25桁）を超えています');
   }
-  if (Math.abs(wt.paymentAmount) > 9999999999999999999999999) {
+  if (abs(wt.paymentAmount) > MAX_25) {
     validationErrors.push('振込予定金額が上限（25桁）を超えています');
   }
 
@@ -1816,7 +1837,19 @@ function onSubmitSuccess(result) {
   resetPage();
   hideLoadingOverlay();
   location.hash = '#home';
-  showToast('登録が完了しました', 'success');
+
+  // 入金日をカレンダー情報から取得
+  const depositEvent = _rawScheduleItems.find(item => item.event_type === 'DEPOSIT');
+  const depositDateStr = depositEvent
+    ? String(depositEvent.end_at).replace(/-/g, '/')
+    : '●●●●';
+
+  const toastBody =
+    '請求のご登録ありがとうございます。<br>' +
+    '本請求は、本サービスの運営チームによる内容確認ののち、加盟店側での内容確認が行われます。<br>' +
+    '確認に問題がなければ最長で、' + depositDateStr + 'までに、指定口座に入金が行われます。';
+
+  showToast('請求情報の登録が完了しました。', 'success', undefined, toastBody);
 }
 
 /**
@@ -2044,10 +2077,18 @@ function renderConfirmPage() {
       recalcSummary_();
     };
     // input クリック時にアコーディオンが開閉しないよう伝播を止める
+    const MAX_TAX_VALUE = 99999999999; // NUMERIC(11)
     [tax8Input, tax10Input].forEach(el => {
       el.addEventListener('click',  e => e.stopPropagation());
       el.addEventListener('keydown', e => e.stopPropagation());
-      el.addEventListener('input',   recalcCard_);
+      el.addEventListener('input', e => {
+        // 桁数上限チェック（11桁）
+        const v = Number(el.value);
+        if (!isNaN(v) && Math.abs(v) > MAX_TAX_VALUE) {
+          el.value = v > 0 ? MAX_TAX_VALUE : -MAX_TAX_VALUE;
+        }
+        recalcCard_();
+      });
     });
 
     const body = document.createElement('div');

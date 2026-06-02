@@ -20,8 +20,11 @@
 
   <!-- グローバル Toast: 全ページ共通 -->
   <div class="toast toast--error hidden" id="toast" role="alert">
-    <i class="fa-solid fa-circle-exclamation"></i>
-    <span id="toastMessage"></span>
+    <i class="fa-solid fa-circle-exclamation" id="toastIcon"></i>
+    <div class="toast-content">
+      <span class="toast-title" id="toastTitle"></span>
+      <span class="toast-body" id="toastBody"></span>
+    </div>
     <button class="toast-close" id="toastClose" aria-label="閉じる">&times;</button>
   </div>
 
