@@ -1,4 +1,67 @@
 <script>
+// ---- utils.js ----
+/**
+ * sessionStorage の tax_rounding_method に応じて消費税を丸める。
+ * floor（切り捨て）/ ceil（切り上げ）/ round（四捨五入）
+ * @param {number} value - 丸め対象の数値
+ * @returns {number}
+ */
+function roundTax(value) {
+  const method = sessionStorage.getItem('shiire_tax_rounding_method') || 'floor';
+  if (method === 'ceil')  return Math.ceil(value);
+  if (method === 'round') return Math.round(value);
+  return Math.floor(value);
+}
+
+/**
+ * ツールチップの位置を画面内に収まるよう動的に調整する。
+ * mouseenter 時に呼び出し、画面上部に余裕があれば上に、なければ下に表示する。
+ */
+(function initTooltipPositioning() {
+  document.addEventListener('mouseenter', function (e) {
+    const wrap = e.target.closest('.detail-meta-help-wrap');
+    if (!wrap) return;
+    const tooltip = wrap.querySelector('.detail-meta-tooltip');
+    if (!tooltip) return;
+
+    // 一旦位置リセットして表示サイズを取得
+    tooltip.style.left = '';
+    tooltip.style.top = '';
+    tooltip.classList.remove('detail-meta-tooltip--above', 'detail-meta-tooltip--below');
+
+    // wrap の位置を取得
+    const rect = wrap.getBoundingClientRect();
+    const tipWidth = 280; // CSS で固定
+    // 仮に上に表示して高さを計測
+    tooltip.style.visibility = 'hidden';
+    tooltip.style.display = 'block';
+    const tipHeight = tooltip.offsetHeight;
+    tooltip.style.display = '';
+    tooltip.style.visibility = '';
+
+    const gap = 10;
+    let top, dirClass;
+
+    // 上に十分なスペースがあるか
+    if (rect.top - tipHeight - gap > 0) {
+      top = rect.top - tipHeight - gap;
+      dirClass = 'detail-meta-tooltip--above';
+    } else {
+      top = rect.bottom + gap;
+      dirClass = 'detail-meta-tooltip--below';
+    }
+
+    // 左右位置: wrap の中央を基準にし、画面外にはみ出さないよう補正
+    let left = rect.left + rect.width / 2 - tipWidth / 2;
+    if (left < 8) left = 8;
+    if (left + tipWidth > window.innerWidth - 8) left = window.innerWidth - tipWidth - 8;
+
+    tooltip.classList.add(dirClass);
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }, true);
+})();
+
 // ---- account.js ----
 // =============================================================================
 // Account: ログイン時のアカウント情報取得・SessionStorage管理
@@ -50,7 +113,7 @@ const DEFAULT_CSV_COLUMNS_ = [
   { index: 1, csv_header: '日付',             system_column: 'transaction_date',      type: 'date',    required: true  },
   { index: 2, csv_header: '品目',             system_column: 'item_name',             type: 'string',  required: true  },
   { index: 3, csv_header: '数量',             system_column: 'quantity',              type: 'decimal', required: true  },
-  { index: 4, csv_header: '単価',             system_column: 'unit_price',            type: 'integer', required: true  },
+  { index: 4, csv_header: '単価',             system_column: 'unit_price',            type: 'decimal', required: true  },
   { index: 5, csv_header: '税率区分(%)',       system_column: 'tax_rate',              type: 'integer', required: true,  enum: [8, 10] },
   { index: 6, csv_header: '請求金額（税抜）', system_column: 'amount_ex_tax',         type: 'integer', required: true  },
   { index: 7, csv_header: '消費税',           system_column: 'tax_amount',            type: 'integer', required: true  },
@@ -1535,6 +1598,9 @@ function closeCancelModal() {
 document.getElementById('btnConfirmBack').addEventListener('click', function () {
   openCancelModal(this);
 });
+document.getElementById('btnConfirmBackBottom').addEventListener('click', function () {
+  openCancelModal(this);
+});
 
 // モーダル: キャンセル（閉じるだけ）
 document.getElementById('cancelModalClose').addEventListener('click', () => {
@@ -1660,6 +1726,60 @@ btnFinalSubmit.addEventListener('click', () => {
   const summaryData    = collectSummaryData_();
   const remarks        = collectRemarks_();
 
+  // 備考の文字数バリデーション（250文字以内）
+  const overLimitRemarks = Object.entries(remarks).filter(([, v]) => v.length > 250);
+  if (overLimitRemarks.length > 0) {
+    hideLoadingOverlay();
+    resetSubmitButton();
+    showToast('加盟店別請求書備考は250文字以内で入力してください。', 'error');
+    return;
+  }
+
+  // ── 金額桁数バリデーション（DDL制約に基づく） ──────────────────────────────
+  const validationErrors = [];
+
+  // 加盟店単位の金額チェック
+  summaryData.merchantTotals.forEach(m => {
+    const cc = m.customerCode;
+    // store_invoices: total_amount NUMERIC(12), subtotal_amount NUMERIC(12),
+    //                 tax_amount NUMERIC(11), standard_tax_amount NUMERIC(11),
+    //                 reduced_tax_amount NUMERIC(11), non_taxable_amount NUMERIC(12)
+    if (Math.abs(m.totalAmount) > 999999999999) {
+      validationErrors.push(`加盟店 ${cc}: 請求金額合計が上限（12桁）を超えています`);
+    }
+    if (Math.abs(m.subtotalAmount) > 999999999999) {
+      validationErrors.push(`加盟店 ${cc}: 小計（税抜）が上限（12桁）を超えています`);
+    }
+    if (Math.abs(m.taxAmount) > 99999999999) {
+      validationErrors.push(`加盟店 ${cc}: 消費税合計が上限（11桁）を超えています`);
+    }
+    if (Math.abs(m.tax10) > 99999999999) {
+      validationErrors.push(`加盟店 ${cc}: 税内訳（10%）が上限（11桁）を超えています`);
+    }
+    if (Math.abs(m.tax8) > 99999999999) {
+      validationErrors.push(`加盟店 ${cc}: 税内訳（8%）が上限（11桁）を超えています`);
+    }
+  });
+
+  // 卸全体の金額チェック（wholesaler_invoices: NUMERIC(25)）
+  const wt = summaryData.wholesalerTotal;
+  if (Math.abs(wt.totalAmount) > 9999999999999999999999999) {
+    validationErrors.push('請求金額合計（税込）が上限（25桁）を超えています');
+  }
+  if (Math.abs(wt.feeAmount) > 9999999999999999999999999) {
+    validationErrors.push('手数料金額が上限（25桁）を超えています');
+  }
+  if (Math.abs(wt.paymentAmount) > 9999999999999999999999999) {
+    validationErrors.push('振込予定金額が上限（25桁）を超えています');
+  }
+
+  if (validationErrors.length > 0) {
+    hideLoadingOverlay();
+    resetSubmitButton();
+    showToast(validationErrors[0], 'error');
+    return;
+  }
+
   if (typeof google !== 'undefined' && google.script && google.script.run) {
     google.script.run
       .withSuccessHandler(onSubmitSuccess)
@@ -1751,11 +1871,11 @@ function renderConfirmPage() {
   mappings.forEach(m => { mappingMap[String(m.customer_code)] = m; });
 
   // ── サマリー計算（1パスで全集計）────────────────────────────────────────
-  // tax_amount は amount_ex_tax × tax_rate ÷ 100（切り捨て）で計算
+  // tax_amount は amount_ex_tax × tax_rate ÷ 100（tax_rounding_method で丸め）
   const totals = parsedData.reduce((acc, r) => {
     const amtExTax  = Number(r['amount_ex_tax'] || 0);
     const taxRate   = Number(r['tax_rate']       || 0);
-    const taxAmount = Math.floor(amtExTax * taxRate / 100);
+    const taxAmount = roundTax(amtExTax * taxRate / 100);
     acc.amountExTax += amtExTax;
     acc.tax         += taxAmount;
     if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
@@ -1777,6 +1897,11 @@ function renderConfirmPage() {
   const registeredAt = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const registeredAtEl = document.getElementById('summaryRegisteredAt');
   if (registeredAtEl) registeredAtEl.textContent = registeredAt;
+
+  // 請求月（アップロード日の年月）
+  const billingMonth = `${now.getFullYear()}年${now.getMonth()+1}月`;
+  const billingMonthEl = document.getElementById('summaryBillingMonth');
+  if (billingMonthEl) billingMonthEl.textContent = billingMonth;
 
   document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
   document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
@@ -1859,7 +1984,7 @@ function renderConfirmPage() {
     const st = rows.reduce((acc, r) => {
       const amtExTax  = Number(r['amount_ex_tax'] || 0);
       const taxRate   = Number(r['tax_rate']       || 0);
-      const taxAmount = Math.floor(amtExTax * taxRate / 100);
+      const taxAmount = roundTax(amtExTax * taxRate / 100);
       acc.amountExTax += amtExTax;
       acc.tax         += taxAmount;
       if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
@@ -1883,12 +2008,12 @@ function renderConfirmPage() {
     const mallCode = String(mapping.mall_code || customerCode);
     header.innerHTML =
       `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(displayName)}</span>` +
-      `<span class="slh-col slh-col--mallcode">${escapeHtml(mallCode)}</span>` +
+      `<span class="slh-col slh-col--mallcode">${escapeHtml(customerCode)}</span>` +
       `<span class="slh-col slh-col--amount"><span class="amount-display" data-field="totalAmount">${storeTotal.toLocaleString('ja-JP')}</span>円</span>` +
       `<span class="slh-col slh-col--extax"><span class="amount-display" data-field="subtotalAmount">${storeAmountExTax.toLocaleString('ja-JP')}</span>円</span>` +
       `<span class="slh-col slh-col--tax"><span class="amount-display" data-field="taxAmount">${storeTax.toLocaleString('ja-JP')}</span>円</span>` +
-      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（10%）（円）" />円</span>` +
-      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" min="0" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（8%）（円）" />円</span>` +
+      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（10%）（円）" /><span class="unit-label">円</span></span>` +
+      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（8%）（円）" /><span class="unit-label">円</span></span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
     const toggleAccordion = () => {
@@ -1932,8 +2057,8 @@ function renderConfirmPage() {
     const remarksDiv = document.createElement('div');
     remarksDiv.className = 'store-accordion__remarks';
     remarksDiv.innerHTML =
-      `<label class="remarks-label">・ 備考</label>` +
-      `<input type="text" class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="備考があれば入力してください" />`;
+      `<label class="remarks-label">・ 加盟店別請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>` +
+      `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="※加盟店請求書に表示される備考情報を記載ください。" rows="2" maxlength="250"></textarea>`;
     body.appendChild(remarksDiv);
 
     // 明細アコーディオン（ネスト）
@@ -1975,7 +2100,7 @@ function renderConfirmPage() {
     rows.forEach(row => {
       const amtExTax  = Number(row['amount_ex_tax'] || 0);
       const taxRate   = Number(row['tax_rate']       || 0);
-      const taxAmount = Math.floor(amtExTax * taxRate / 100);
+      const taxAmount = roundTax(amtExTax * taxRate / 100);
       const tr = document.createElement('tr');
       tr.innerHTML =
         `<td>${escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/'))}</td>` +
@@ -2372,7 +2497,7 @@ function buildDetailAccordion_(store, openByDefault) {
     // 要対応: 編集可能
     remarksDiv.innerHTML =
       '<label class="remarks-label">・ 加盟店請求書備考</label>' +
-      '<input type="text" class="remarks-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="備考があれば入力してください" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
+      '<input type="text" class="remarks-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   } else {
     // 確認中・承認済み: 読み取り専用
     remarksDiv.innerHTML =
@@ -2492,7 +2617,7 @@ function renderDetailLines_(lines, container) {
       '<table class="dsl-lines-table">' +
         '<thead><tr>' +
           '<th>取引日</th><th>品目</th><th>数量</th><th>単価</th>' +
-          '<th>税率</th><th>明細金額（税抜）</th><th>消費税</th><th>備考</th>' +
+          '<th>税率</th><th>明細金額（税抜）</th><th>消費税</th><th>加盟店別請求書備考</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
       '</table>' +

@@ -10,19 +10,25 @@
     </div>
 
     <!-- 請求概要 -->
-    <div class="summary-card">
+    <div class="card detail-summary-card">
+      <div class="detail-summary-title">請求基本情報</div>
       <!-- コンテンツ行 -->
       <div class="detail-summary-inner">
 
         <!-- 左：請求基本情報 -->
         <div class="detail-summary-meta">
-          <h3 class="detail-summary-meta__title">請求基本情報</h3>
-          <div class="detail-meta-row">
-            <span class="detail-meta-label">登録日時</span>
-            <span class="detail-meta-value" id="summaryRegisteredAt">―</span>
+          <div class="detail-meta-row detail-meta-row--twin">
+            <div class="detail-meta-col">
+              <span class="detail-meta-label">請求月</span>
+              <span class="detail-meta-value" id="summaryBillingMonth">―</span>
+            </div>
+            <div class="detail-meta-col">
+              <span class="detail-meta-label">登録日時</span>
+              <span class="detail-meta-value" id="summaryRegisteredAt">―</span>
+            </div>
           </div>
           <div class="detail-meta-row">
-            <span class="detail-meta-label">手数料（<span id="summaryFeeRate">-</span>%）</span>
+            <span class="detail-meta-label">手数料（<span id="summaryFeeRate">-</span>%）<span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">手数料は、卸コネクトサービスの使用料としての料金です。<br>加盟店への請求金額の総額に対して、設定された手数料率をかけることで算出されます。<br>その他、手数料に関するお問い合わせは000-0000-0000までご連絡ください。</span></span></span>
             <span class="detail-meta-value"><span id="summaryFee" class="summary-value-display">0</span>円</span>
           </div>
           <div class="detail-meta-row">
@@ -78,12 +84,17 @@
          aria-modal="true"
          aria-labelledby="cancelModalTitle"
          aria-describedby="cancelModalDesc">
-      <div class="modal">
-        <h2 class="modal__title" id="cancelModalTitle">キャンセルの確認</h2>
-        <p class="modal__message" id="cancelModalDesc">アップロードした内容は削除されます。<br>よろしいですか？</p>
-        <div class="modal__actions">
-          <button class="btn btn-danger modal__btn" id="cancelModalOk">OK</button>
-          <button class="btn btn-outline modal__btn" id="cancelModalClose">キャンセル</button>
+      <div class="modal modal--warn">
+        <button class="modal__close" id="cancelModalClose" aria-label="閉じる">&times;</button>
+        <h2 class="modal__title modal__title--warn" id="cancelModalTitle">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          一覧に戻ると登録作業中のファイルは削除されますがよろしいですか？
+        </h2>
+        <p class="modal__message modal__message--warn" id="cancelModalDesc">アップロードされたファイルは、まだ登録が完了していません。一覧画面に戻ると、編集中のデータは削除されます。</p>
+        <div class="modal__actions modal__actions--center">
+          <button class="btn btn-back modal__btn" id="cancelModalOk">
+            <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+          </button>
         </div>
       </div>
     </div>
@@ -109,6 +120,13 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 下部ボタン -->
+    <div class="detail-bottom-actions">
+      <button type="button" class="btn btn-back" id="btnConfirmBackBottom">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </button>
     </div>
 
   </main>
