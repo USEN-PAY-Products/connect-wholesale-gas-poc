@@ -142,6 +142,7 @@ function fetchInvoiceDetailSummary_(invoiceId, wholesalerId) {
   const sql =
     'SELECT ' +
     '  id, wholesaler_invoice_date, ' +
+    '  FORMAT_TIMESTAMP(\'%Y/%m/%d %H:%M:%S\', created_at, \'Asia/Tokyo\') AS created_at, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
     '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
     '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +

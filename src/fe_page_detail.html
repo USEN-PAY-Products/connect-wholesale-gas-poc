@@ -27,8 +27,8 @@
             要対応の請求一覧
           </h2>
           <div class="detail-section-header__actions">
-            <button type="button" class="btn btn-outline btn-sm" id="detailBtnUploadCsv">
-              <i class="fa-solid fa-upload"></i> CSV一括アップロード
+            <button type="button" class="btn btn-outline btn-sm" id="detailBtnUploadCsv" style="font-size:14px; font-style:normal; font-weight:400; line-height:normal;">
+              <i class="fa-solid fa-upload" style="color:#00A7B8; font-size:14px; width:14px; height:14px;"></i> CSV一括アップロード
             </button>
           </div>
         </div>
@@ -90,7 +90,7 @@
     <div class="detail-upload-modal__overlay"></div>
     <div class="detail-upload-modal__dialog">
       <div class="detail-upload-modal__header">
-        <h2 class="detail-upload-modal__title">修正ファイルをアップロード</h2>
+        <h2 class="detail-upload-modal__title">請求CSVファイルの再登録</h2>
         <button type="button" class="detail-upload-modal__close" id="detailUploadModalClose" aria-label="閉じる">
           <i class="fa-solid fa-xmark"></i>
         </button>
@@ -115,17 +115,18 @@
           <p class="error-card__desc">下記のエラーを確認の上、CSVファイルを修正し、再度アップロードしてください。</p>
           <ul class="alert-list" id="detailUploadAlertList"></ul>
         </div>
-        <div class="detail-upload-modal__selected hidden" id="detailUploadSelectedArea">
-          <i class="fa-regular fa-file-lines"></i>
-          <span id="detailUploadFileName"></span>
-          <button type="button" class="detail-upload-modal__remove" id="detailUploadRemove" aria-label="取り消し">
-            <i class="fa-solid fa-xmark"></i>
+        <div class="file-info hidden" id="detailUploadSelectedArea">
+          <span class="file-info__label">アップロードファイル：</span>
+          <span class="file-info__name" id="detailUploadFileName"></span>
+          <button type="button" class="btn btn-file-delete" id="detailUploadRemove">
+            <i class="fa-regular fa-trash-can"></i> ファイルを削除する
           </button>
         </div>
       </div>
       <div class="detail-upload-modal__footer">
-        <button type="button" class="btn btn-outline" id="detailUploadModalCancel">キャンセル</button>
-        <button type="button" class="btn btn-primary" id="detailUploadModalConfirm" disabled>このファイルを使用する</button>
+        <button type="button" class="btn btn-primary btn-submit" id="detailUploadModalConfirm" disabled>
+          確認画面へ進む <i class="fa-solid fa-chevron-right"></i>
+        </button>
       </div>
     </div>
   </div>
