@@ -122,8 +122,26 @@
             <i class="fa-regular fa-trash-can"></i> ファイルを削除する
           </button>
         </div>
+
+        <!-- ================================================
+             Phase 2: プレビュー＋登録（個別リアップロード用）
+             ================================================ -->
+        <div id="detailUploadPreview" class="detail-upload-preview hidden">
+          <div id="previewTargetStore" class="preview-target-store"></div>
+          <div id="previewFileInfo" class="preview-file-info file-info"></div>
+          <div id="previewBody" class="preview-body"></div>
+          <div class="preview-footer">
+            <label class="preview-oath">
+              <input type="checkbox" id="previewOathCheck" />
+              私は入力データが正確であることを誓約し、登録不備による遅延は自社で責任を負います。
+            </label>
+            <button type="button" class="btn btn-primary btn-submit preview-submit-btn" id="previewSubmitBtn" disabled data-action="modal-reupload-submit">
+              登録する
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="detail-upload-modal__footer">
+      <div class="detail-upload-modal__footer" id="detailUploadModalFooter">
         <button type="button" class="btn btn-primary btn-submit" id="detailUploadModalConfirm" disabled>
           確認画面へ進む <i class="fa-solid fa-chevron-right"></i>
         </button>

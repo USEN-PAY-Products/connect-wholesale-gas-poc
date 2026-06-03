@@ -1026,6 +1026,53 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
 
 
 // =============================================================================
+// 請求取り下げ
+// =============================================================================
+
+/**
+ * 対象の store_invoices.invoice_status を WITHDRAWN に更新する。
+ *
+ * @param {string} storeInvoiceId  - 対象の store_invoices.id
+ * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
+ * @returns {{ status: 'success', data: Object }}
+ */
+function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
+  try {
+    const accountInfo  = getServerAccountInfo_();
+    const wholesalerId = accountInfo.wholesaler_id;
+
+    if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
+    if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(storeInvoiceId))  throw new Error('storeInvoiceId の形式が不正です: ' + storeInvoiceId);
+    if (!UUID_RE.test(parentInvoiceId)) throw new Error('parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+
+    const config    = getConfig_();
+    const projectId = config.gcpProjectId;
+    const datasetId = config.bqDatasetId;
+    const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
+
+    const sql =
+      'UPDATE ' + storeRef + ' ' +
+      "SET invoice_status = 'WITHDRAWN' " +
+      "WHERE id = '" + storeInvoiceId + "' " +
+      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
+      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
+      '  AND is_latest = TRUE';
+
+    Logger.log('[BQ] withdrawStoreInvoice SQL: ' + sql);
+    runTransactionSql_(projectId, sql);
+
+    Logger.log('[withdrawStoreInvoice] 完了: storeInvoiceId=' + storeInvoiceId);
+    return success_({ store_invoice_id: storeInvoiceId });
+  } catch (err) {
+    throw new Error('withdrawStoreInvoice failed: ' + err.message);
+  }
+}
+
+
+// =============================================================================
 // 請求一覧取得
 // =============================================================================
 
