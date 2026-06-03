@@ -3588,8 +3588,10 @@ window.addEventListener('hashchange', navigate);
       const actionsEl3 = withdrawBtn.closest('.backoffice-remark__actions');
       const accordion3 = withdrawBtn.closest('.store-accordion');
 
-      // ボタンを一時無効化
-      withdrawBtn.disabled = true;
+      // アクション領域のボタンをまとめて無効化
+      if (actionsEl3) {
+        actionsEl3.querySelectorAll('button').forEach(function (btn) { btn.disabled = true; });
+      }
       withdrawBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 処理中...';
 
       if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -3597,7 +3599,9 @@ window.addEventListener('hashchange', navigate);
           .withSuccessHandler(function (result) {
             if (result && result.status === 'error') {
               alert('取り下げに失敗しました: ' + (result.message || '不明なエラー'));
-              withdrawBtn.disabled = false;
+              if (actionsEl3) {
+                actionsEl3.querySelectorAll('button').forEach(function (btn) { btn.disabled = false; });
+              }
               withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
               return;
             }
@@ -3618,7 +3622,9 @@ window.addEventListener('hashchange', navigate);
           })
           .withFailureHandler(function (err) {
             alert('取り下げに失敗しました: ' + (err.message || err));
-            withdrawBtn.disabled = false;
+            if (actionsEl3) {
+              actionsEl3.querySelectorAll('button').forEach(function (btn) { btn.disabled = false; });
+            }
             withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
           })
           .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId);

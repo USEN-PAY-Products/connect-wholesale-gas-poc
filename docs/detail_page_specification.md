@@ -106,14 +106,16 @@ flowchart TD
     B -- Yes --> C{invoice_status\n== DISPUTED?}
     C -- Yes --> D["否認セクション\n(RETURNED + DISPUTED)"]
     C -- No --> E["差戻しセクション\n(RETURNED + 非DISPUTED)"]
-    B -- No --> F{backoffice_review_status == MCR\nAND invoice_status == DISPUTED?}
-    F -- Yes --> G["否認セクション\n(MCR + DISPUTED)"]
-    F -- No --> H{backoffice_review_status == PENDING_REVIEW\nAND invoice_status == DISPUTED?}
-    H -- Yes --> I["否認セクション\n(PENDING_REVIEW + DISPUTED)\n※再請求済みバッジ表示"]
-    H -- No --> J["確認中・承認済みセクション\n(上記以外すべて)\n※WITHDRAWN もここに含まれる"]
+    B -- No --> F{invoice_status\n== WITHDRAWN?}
+    F -- Yes --> G["否認セクション\n(WITHDRAWN)\n※取下げ済みバッジ表示"]
+    F -- No --> H{backoffice_review_status == MCR\nAND invoice_status == DISPUTED?}
+    H -- Yes --> I["否認セクション\n(MCR + DISPUTED)"]
+    H -- No --> K{backoffice_review_status == PENDING_REVIEW\nAND invoice_status == DISPUTED?}
+    K -- Yes --> L["否認セクション\n(PENDING_REVIEW + DISPUTED)\n※再請求済みバッジ表示"]
+    K -- No --> J["確認中・承認済みセクション\n(上記以外すべて)"]
 ```
 
-> **注意**: `invoice_status='WITHDRAWN'` のレコードは上記いずれの条件にも該当しないため、確認中・承認済みセクションに分類されます。ただし取り下げ操作直後はページリロードせずDOMを直接書き換えるため、否認セクション内に「取下げ済み」バッジとして表示されます。
+> **注意**: `invoice_status='WITHDRAWN'` のレコードは否認セクションに分類されます。取り下げ操作直後はページリロードせずDOMを直接書き換え、否認セクション内に「取下げ済み」バッジとして表示されます。ページリロード後も否認セクションに振り分けられます。
 
 ---
 
