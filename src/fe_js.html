@@ -2375,15 +2375,13 @@ function renderDetailSummary_(s) {
     <div class="detail-summary-title">請求基本情報</div>
     <div class="detail-summary-inner">
       <div class="detail-summary-meta">
-        <div class="detail-meta-row detail-meta-row--twin">
-          <div class="detail-meta-col">
+        <div class="detail-meta-row">
             <span class="detail-meta-label">請求月</span>
             <span class="detail-meta-value">${escapeHtml(String(billingMonth))}</span>
-          </div>
-          <div class="detail-meta-col">
+        </div>
+        <div class="detail-meta-row">
             <span class="detail-meta-label">登録日時</span>
             <span class="detail-meta-value">${escapeHtml(date)}</span>
-          </div>
         </div>
         <div class="detail-meta-row">
           <span class="detail-meta-label">手数料（${escapeHtml(feeRate)}）<span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">手数料は、卸コネクトサービスの使用料としての料金です。<br>加盟店への請求金額の総額に対して、設定された手数料率をかけることで算出されます。<br>その他、手数料に関するお問い合わせは000-0000-0000までご連絡ください。</span></span></span>
@@ -2397,7 +2395,6 @@ function renderDetailSummary_(s) {
           <span class="detail-meta-label detail-meta-label--block">USEN PAY社<br>からのコメント</span>
           <textarea class="detail-handover-textarea" readonly placeholder="差し戻しなどが発生した場合は、こちらに申し送り事項が記載される場合があります。">${escapeHtml(s.handover_matter || '')}</textarea>
         </div>
-        <span class="detail-handover-note">＊ご不明点・ご確認がある場合は、運営窓口【090-XXXX-XXXX】までご連絡ください。</span>
       </div>
 
       <div class="summary-card__divider"></div>
@@ -2877,6 +2874,8 @@ window.addEventListener('hashchange', navigate);
     _targetActionsEl      = actionsEl;
     _isBulk               = !!isBulk;
     resetModalState_();
+    // 個別リアップロード時は「確認画面へ進む」フッターを非表示
+    if (!_isBulk && modalFooter) modalFooter.classList.add('hidden');
     modal.classList.remove('hidden');
   }
 
@@ -2912,9 +2911,11 @@ window.addEventListener('hashchange', navigate);
     if (previewBody) previewBody.innerHTML = '';
     if (previewOath) previewOath.checked = false;
     if (previewSubmit) previewSubmit.disabled = true;
-    // フッター（確認画面へ進むボタン）とdescの表示を復元
-    if (modalFooter) modalFooter.classList.remove('hidden');
-    if (modalDesc) modalDesc.classList.remove('hidden');
+    // フッター（確認画面へ進むボタン）とdescの表示を復元（一括モード時のみ）
+    if (_isBulk) {
+      if (modalFooter) modalFooter.classList.remove('hidden');
+      if (modalDesc) modalDesc.classList.remove('hidden');
+    }
   }
 
   function showAnalyzing_(fileName) {
@@ -3257,6 +3258,26 @@ window.addEventListener('hashchange', navigate);
     const mallCode  = accordion ? accordion.dataset.mallCode || '' : '';
     const mappings  = getMerchantMappings();
     const customerCode = (mappings.find(function (m) { return String(m.mall_code) === String(mallCode); }) || {}).customer_code || '';
+
+    // ── 対象外加盟店チェック ──
+    if (customerCode && parsedData) {
+      var csvCodes = [];
+      parsedData.forEach(function (row) {
+        var cc = String(row.customer_code || '');
+        if (cc && csvCodes.indexOf(cc) === -1) csvCodes.push(cc);
+      });
+      var excessCodes = csvCodes.filter(function (cc) { return cc !== customerCode; });
+      if (excessCodes.length > 0) {
+        // Phase 2 を非表示に戻してエラー表示
+        previewEl.classList.add('hidden');
+        dropZoneEl.classList.remove('hidden');
+        if (_isBulk && modalFooter) modalFooter.classList.remove('hidden');
+        if (_isBulk && modalDesc) modalDesc.classList.remove('hidden');
+        showErrors_(['\u26A0 対象外の加盟店（顧客コード: ' + excessCodes.join(', ') + '）のデータがCSVに含まれています。個別修正アップロードでは対象の加盟店（顧客コード: ' + customerCode + '）のみを含めてください。']);
+        return;
+      }
+    }
+
     previewTarget.innerHTML = '<span class="preview-target-store__label">対象店舗：</span> <span class="preview-target-store__name">' + escapeHtml(storeName) + '</span>';
 
     // ── ファイル情報 ──
@@ -3294,8 +3315,10 @@ window.addEventListener('hashchange', navigate);
 
     // ── プレビュー本体を描画 ──
     var html = '';
-    // カードヘッダー（金額行）
-    html += '<div class="preview-card">';
+    // store-accordion（確認画面と同じスタイル）
+    html += '<div class="store-accordion is-open store-accordion--returned">';
+
+    // カラムヘッダー
     html += '<div class="store-list-header">' +
       '<span class="slh-col slh-col--name">加盟店名</span>' +
       '<span class="slh-col slh-col--mallcode">顧客ID</span>' +
@@ -3304,8 +3327,11 @@ window.addEventListener('hashchange', navigate);
       '<span class="slh-col slh-col--tax">消費税</span>' +
       '<span class="slh-col slh-col--tax10">税内訳（10%）</span>' +
       '<span class="slh-col slh-col--tax8">税内訳（8%）</span>' +
+      '<span class="slh-col slh-col--toggle"></span>' +
     '</div>';
-    html += '<div class="preview-card__header">' +
+
+    // ヘッダー行（確認画面の store-accordion__header と同じ構造）
+    html += '<div class="store-accordion__header">' +
       '<span class="slh-col slh-col--name store-accordion__code">' + escapeHtml(storeName) + '</span>' +
       '<span class="slh-col slh-col--mallcode">' + escapeHtml(customerCode || mallCode) + '</span>' +
       '<span class="slh-col slh-col--amount"><span class="amount-display" data-field="previewTotalAmount">' + fmt(storeTotal) + '</span>円</span>' +
@@ -3313,27 +3339,36 @@ window.addEventListener('hashchange', navigate);
       '<span class="slh-col slh-col--tax"><span class="amount-display" data-field="previewTaxAmount">' + fmt(st.tax) + '</span>円</span>' +
       '<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="previewTax10" value="' + st.tax10 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（10%）（円）" /><span class="unit-label">円</span></span>' +
       '<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="previewTax8" value="' + st.tax8 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（8%）（円）" /><span class="unit-label">円</span></span>' +
+      '<span class="slh-col slh-col--toggle"></span>' +
     '</div>';
 
+    // ボディ（詳細画面の否認セクションと同じ backoffice-remark 構造）
+    html += '<div class="store-accordion__body">';
+
+    // 否認理由 + 加盟店との合意内容（backoffice-remark スタイル）
+    html += '<div class="store-accordion__backoffice-remark">';
+    html += '<div class="backoffice-remark__disputed-left">';
+
     // 否認理由
-    html += '<div class="preview-section">';
-    html += '<div class="preview-row">';
-    html += '<span class="preview-row__label">・ 否認理由</span>';
-    html += '<span class="preview-row__value">' + escapeHtml(disputedReason) + '</span>';
+    html += '<div class="backoffice-remark__disputed-reason">';
+    html += '<span class="backoffice-remark__label">・ 否認理由</span>';
+    html += '<span class="backoffice-remark__reason-text">' + escapeHtml(disputedReason) + '</span>';
     html += '</div>';
 
     // 加盟店との合意内容
-    html += '<div class="preview-row preview-row--textarea">';
-    html += '<span class="preview-row__label">・ 【必須】加盟店<br>　との合意内容</span>';
-    html += '<textarea class="preview-handover-input" id="previewHandoverInput" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(handoverVal) + '</textarea>';
+    html += '<div class="backoffice-remark__disputed-handover">';
+    html += '<span class="backoffice-remark__label">・ 【必須】加盟店<br>　との合意内容</span>';
+    html += '<textarea class="backoffice-remark__handover-input" id="previewHandoverInput" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(handoverVal) + '</textarea>';
     html += '</div>';
 
-    // 加盟店請求書備考
-    html += '<div class="preview-row preview-row--textarea">';
-    html += '<span class="preview-row__label">・ 加盟店請求書<br>　書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></span>';
-    html += '<textarea class="preview-remarks-input" id="previewRemarksInput" placeholder="※加盟店請求書に表示される備考情報を記載ください。">' + escapeHtml(remarksVal) + '</textarea>';
+    html += '</div>'; // .backoffice-remark__disputed-left
+    html += '</div>'; // .store-accordion__backoffice-remark
+
+    // 加盟店請求書備考（詳細画面と同じ remarks スタイル）
+    html += '<div class="store-accordion__remarks">';
+    html += '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>';
+    html += '<input type="text" class="remarks-input" id="previewRemarksInput" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(remarksVal) + '" />';
     html += '</div>';
-    html += '</div>'; // .preview-section
 
     // 明細アコーディオン
     html += '<div class="detail-accordion preview-detail-accordion">';
@@ -3362,7 +3397,9 @@ window.addEventListener('hashchange', navigate);
       '</tr>';
     });
     html += '</tbody></table></div></div>'; // .detail-accordion
-    html += '</div>'; // .preview-card
+
+    html += '</div>'; // .store-accordion__body
+    html += '</div>'; // .store-accordion
 
     previewBody.innerHTML = html;
 
@@ -3514,8 +3551,34 @@ window.addEventListener('hashchange', navigate);
         return;
       }
 
-      if (!confirm('この加盟店の請求を取り下げますか？')) return;
+      // カスタムモーダルで確認
+      const withdrawModal = document.getElementById('withdrawConfirmModal');
+      const withdrawOk    = document.getElementById('withdrawConfirmOk');
+      const withdrawCancel = document.getElementById('withdrawConfirmCancel');
+      if (!withdrawModal) return;
+      withdrawModal.classList.remove('hidden');
 
+      // イベントリスナーを一度だけ登録（クリーンアップ用）
+      function onCancel() {
+        withdrawModal.classList.add('hidden');
+        cleanup();
+      }
+      function onOk() {
+        withdrawModal.classList.add('hidden');
+        cleanup();
+        executeWithdraw_(withdrawBtn, storeInvoiceId, parentInvoiceId);
+      }
+      function cleanup() {
+        withdrawOk.removeEventListener('click', onOk);
+        withdrawCancel.removeEventListener('click', onCancel);
+      }
+      withdrawOk.addEventListener('click', onOk);
+      withdrawCancel.addEventListener('click', onCancel);
+      return;
+    }
+
+    // 取り下げ実行ロジック（モーダル「OK」後に呼ばれる）
+    function executeWithdraw_(withdrawBtn, storeInvoiceId, parentInvoiceId) {
       const actionsEl3 = withdrawBtn.closest('.backoffice-remark__actions');
       const accordion3 = withdrawBtn.closest('.store-accordion');
 
@@ -3571,7 +3634,6 @@ window.addEventListener('hashchange', navigate);
           }
         }, 800);
       }
-      return;
     }
     // 変更なしで再請求 → BE: resubmitWithoutChanges 呼び出し
     const resubmitBtn = e.target.closest('[data-action="resubmit"]');
@@ -3588,7 +3650,7 @@ window.addEventListener('hashchange', navigate);
       const wholesalerHandover4 = handoverInput4 ? (handoverInput4.value || '') : '';
       // 否認（handover入力欄がある）の場合、未入力ならエラー
       if (handoverInput4 && !wholesalerHandover4.trim()) {
-        alert('\u26A0 否認された請求を「変更なしで再申請」する場合は、〈加盟店との合意事項〉の項目を記入ください。');
+        showToast('否認された請求を「変更なしで再申請」する場合は、〈加盟店との合意事項〉の項目を記入ください。', 'error', 8000);
         return;
       }
       showLoadingOverlay('再請求中...');

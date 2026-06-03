@@ -150,20 +150,24 @@ button { cursor: pointer; font-family: inherit; }
 .toast {
   position: fixed;
   top: 96px;
-  right: 32px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   padding: 14px 40px 14px 16px;
   border-radius: 6px;
   font-size: 13px;
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
   z-index: 100;
-  max-width: 480px;
+  width: calc(100% - 64px);
+  max-width: 1200px;
+  white-space: nowrap;
 }
 .toast-content {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
 }
 .toast-title {
@@ -181,9 +185,9 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .toast--error {
-  background: #fff0f0;
-  border: 1px solid #e53935;
-  color: #c62828;
+  background: #FFF0F0;
+  border: 1px solid #DF4C4C;
+  color: #DF4C4C;
 }
 
 .toast--success {
@@ -691,6 +695,11 @@ button { cursor: pointer; font-family: inherit; }
   box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.06);
   position: relative;
 }
+#withdrawConfirmModal .modal.modal--warn {
+  width: 505px;
+  min-height: 291px;
+  background: #FFF1EC;
+}
 .modal--warn .modal__close {
   position: absolute;
   top: 8px;
@@ -700,6 +709,46 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 20px;
   color: #888;
   cursor: pointer;
+}
+#withdrawConfirmModal .modal__title--warn {
+  color: #FF7846;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 140%;
+}
+#withdrawConfirmModal .modal__title--warn i {
+  color: #FF7846;
+}
+#withdrawConfirmModal .modal__message--warn {
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 120%;
+}
+#withdrawConfirmModal #withdrawConfirmOk {
+  width: 212px;
+  height: 40px;
+  background: #00A7B8;
+  border: none;
+  color: #fff;
+  border-radius: 999px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#withdrawConfirmModal #withdrawConfirmOk:hover {
+  background: #008E9B;
+}
+#withdrawConfirmModal #withdrawConfirmCancel {
+  width: 212px;
+  height: 40px;
+  border-radius: 999px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .modal.modal--warn .modal__title--warn {
   color: #DF4C4C;
@@ -3049,83 +3098,28 @@ button { cursor: pointer; font-family: inherit; }
   margin-bottom: 20px;
 }
 .preview-card {
-  border: 1px solid #E0E0E0;
-  border-radius: 8px;
-  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
   margin-bottom: 20px;
 }
-.preview-card .store-list-header {
-  border-bottom: 1px solid #E0E0E0;
-}
-.preview-card__header {
-  display: flex;
-  align-items: center;
-  padding: 12px 16px;
-  background: #fff;
-  border-bottom: 1px solid #E0E0E0;
-  gap: 8px;
-}
-.preview-card__header .slh-col {
-  font-size: 13px;
-}
-.preview-card__header .amount-input {
-  width: 80px;
-  padding: 2px 6px;
-  font-size: 13px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  text-align: right;
-}
-.preview-card__header .unit-label {
-  font-size: 13px;
-  margin-left: 2px;
-}
-.preview-section {
-  padding: 16px;
-}
-.preview-row {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 12px;
-  gap: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px dashed #E0E0E0;
-}
-.preview-row:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-.preview-row__label {
-  flex-shrink: 0;
-  width: 120px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #3C3C3C;
-  padding-top: 4px;
-}
-.preview-row__value {
-  flex: 1;
-  font-size: 13px;
-  color: #3C3C3C;
-  padding-top: 4px;
-}
-.preview-row--textarea {
-  align-items: flex-start;
-}
-.preview-handover-input,
-.preview-remarks-input {
-  flex: 1;
-  min-height: 60px;
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  resize: vertical;
-  font-family: inherit;
-}
 .preview-detail-accordion {
-  margin: 0 16px 16px;
+  margin: 0;
+}
+.detail-upload-preview .store-accordion {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #E0E0E0;
+}
+.preview-detail-accordion .detail-accordion__body {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.preview-detail-accordion .detail-table thead th {
+  position: sticky;
+  top: 0;
+  background: #EAEBED;
+  z-index: 1;
 }
 .preview-footer {
   display: flex;

@@ -149,6 +149,28 @@
     </div>
   </div>
 
+  <!-- ================================================================
+       請求取り下げ確認モーダル
+       ================================================================ -->
+  <div id="withdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal modal--warn">
+      <h2 class="modal__title modal__title--warn">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        加盟店への請求情報を取り下げます。よろしいですか？
+      </h2>
+      <div class="modal__message modal__message--warn">
+        <p>加盟店単位の請求情報を取り下げます。この操作は、戻すことができません。</p>
+        <p>取り下げ後、再度、同加盟店へ請求いたい場合は、<br>
+        ・要対応の請求一覧の「CSV一括アップロード」ボタンから追加<br>
+        を行ってください。</p>
+      </div>
+      <div class="modal__actions modal__actions--center">
+        <button type="button" class="btn btn-danger" id="withdrawConfirmOk">取り下げる</button>
+        <button type="button" class="btn btn-outline" id="withdrawConfirmCancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="site-footer">
     <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
   </footer>
