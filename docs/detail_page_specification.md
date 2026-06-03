@@ -102,12 +102,18 @@ block-beta
 
 ```mermaid
 flowchart TD
-    A[store_invoice レコード] --> B{invoice_status\n== DISPUTED?}
-    B -- Yes --> C["否認セクション\n（backoffice_review_status は問わず）"]
-    B -- No --> D{backoffice_review_status\n== RETURNED?}
-    D -- Yes --> E["差戻しセクション"]
-    D -- No --> F["確認中・承認済みセクション"]
+    A[store_invoice レコード] --> B{backoffice_review_status\n== RETURNED?}
+    B -- Yes --> C{invoice_status\n== DISPUTED?}
+    C -- Yes --> D["否認セクション\n(RETURNED + DISPUTED)"]
+    C -- No --> E["差戻しセクション\n(RETURNED + 非DISPUTED)"]
+    B -- No --> F{backoffice_review_status == MCR\nAND invoice_status == DISPUTED?}
+    F -- Yes --> G["否認セクション\n(MCR + DISPUTED)"]
+    F -- No --> H{backoffice_review_status == PENDING_REVIEW\nAND invoice_status == DISPUTED?}
+    H -- Yes --> I["否認セクション\n(PENDING_REVIEW + DISPUTED)\n※再請求済みバッジ表示"]
+    H -- No --> J["確認中・承認済みセクション\n(上記以外すべて)\n※WITHDRAWN もここに含まれる"]
 ```
+
+> **注意**: `invoice_status='WITHDRAWN'` のレコードは上記いずれの条件にも該当しないため、確認中・承認済みセクションに分類されます。ただし取り下げ操作直後はページリロードせずDOMを直接書き換えるため、否認セクション内に「取下げ済み」バッジとして表示されます。
 
 ---
 

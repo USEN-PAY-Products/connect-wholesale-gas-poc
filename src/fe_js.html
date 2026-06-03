@@ -1817,7 +1817,7 @@ btnFinalSubmit.addEventListener('click', () => {
     const confirmRemarks = collectRemarks_();
     Object.keys(confirmRemarks).forEach(function (k) { remarks[k] = confirmRemarks[k]; });
     // _resubmitRemarks もマージ
-    Object.keys(_resubmitRemarks).forEach(function (k) { if (!remarks[k]) remarks[k] = _resubmitRemarks[k]; });
+    Object.keys(_resubmitRemarks).forEach(function (k) { if (!(k in remarks)) remarks[k] = _resubmitRemarks[k]; });
 
     if (typeof google !== 'undefined' && google.script && google.script.run) {
       google.script.run
@@ -2469,25 +2469,28 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
  * @param {Array<Object>} stores
  */
 function renderDetailStoreList_(stores) {
-  // 差し戻し: RETURNED かつ DISPUTED でない
+  // 差し戻し: RETURNED かつ DISPUTED でなく WITHDRAWN でもない
   const returned  = stores.filter(function (s) {
-    return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED';
+    return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED' && s.invoice_status !== 'WITHDRAWN';
   });
-  // 否認: (MERCHANT_CONFIRMATION_REQUESTED + DISPUTED) または (RETURNED + DISPUTED) または (PENDING_REVIEW + DISPUTED)
+  // 否認: (MCR/RETURNED/PENDING_REVIEW + DISPUTED) または WITHDRAWN
   const disputed  = stores.filter(function (s) {
-    return (s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') ||
+    return s.invoice_status === 'WITHDRAWN' ||
+           (s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') ||
            (s.backoffice_review_status === 'RETURNED' && s.invoice_status === 'DISPUTED') ||
            (s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED');
   });
   // 正常: 上記以外すべて
   const normal    = stores.filter(function (s) {
-    return !(s.backoffice_review_status === 'RETURNED') &&
+    return s.invoice_status !== 'WITHDRAWN' &&
+      !(s.backoffice_review_status === 'RETURNED') &&
       !(s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') &&
       !(s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED');
   });
 
   // 要対応の mall_code 一覧をグローバル変数に保持（バリデーション用）
-  _detailActionRequiredMallCodes = returned.concat(disputed).map(function (s) { return s.mall_code; });
+  // ※ WITHDRAWN は対応済みのため要対応から除外
+  _detailActionRequiredMallCodes = returned.concat(disputed.filter(function (s) { return s.invoice_status !== 'WITHDRAWN'; })).map(function (s) { return s.mall_code; });
   // RETURNED かつ invoice_status が null の加盟店（CSVに含まれていなくても警告のみ）
   _detailReturnedOnlyMallCodes = returned.filter(function (s) {
     return !s.invoice_status || s.invoice_status === null || s.invoice_status === 'null';
@@ -2552,8 +2555,9 @@ function renderDetailStoreList_(stores) {
  */
 function buildDetailAccordion_(store, openByDefault) {
   const fmt        = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
-  const isReturned = store.backoffice_review_status === 'RETURNED' && store.invoice_status !== 'DISPUTED';
-  const isDisputed = (store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED') ||
+  const isReturned = store.backoffice_review_status === 'RETURNED' && store.invoice_status !== 'DISPUTED' && store.invoice_status !== 'WITHDRAWN';
+  const isDisputed = store.invoice_status === 'WITHDRAWN' ||
+                     (store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED') ||
                      (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED') ||
                      (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED');
 
@@ -2613,7 +2617,9 @@ function buildDetailAccordion_(store, openByDefault) {
         '</div>' +
       '</div>' +
       '<div class="backoffice-remark__actions">' +
-      (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
+      (store.invoice_status === 'WITHDRAWN'
+        ? '<span class="detail-action-badge detail-action-badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済み</span>'
+        : store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
         ? '<span class="detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
         : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
           '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
