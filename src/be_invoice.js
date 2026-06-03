@@ -1059,7 +1059,8 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       "WHERE id = '" + storeInvoiceId + "' " +
       "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
       '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
-      '  AND is_latest = TRUE';
+      '  AND is_latest = TRUE' +
+      "  AND invoice_status = 'DISPUTED'";
 
     Logger.log('[BQ] withdrawStoreInvoice SQL: ' + sql);
     runTransactionSql_(projectId, sql);

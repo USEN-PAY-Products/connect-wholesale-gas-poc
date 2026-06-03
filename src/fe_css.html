@@ -2274,26 +2274,54 @@ button { cursor: pointer; font-family: inherit; }
 /* 取り下げ済み / 再請求済みバッジ */
 .detail-action-badge {
   display: flex;
-  width: 197px;
-  height: 36px;
-  padding: 8px 16px;
+  height: 32px;
+  padding: 0 14px;
   justify-content: center;
   align-items: center;
   gap: 6px;
-  border-radius: 40px;
-  font-size: 14px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }
 .detail-action-badge--withdrawn {
-  border: 1px solid #D9D9D9;
-  background: #FFF;
-  color: #888;
+  border: 1px solid #159E85;
+  background: #CDF6EF;
+  color: #159E85;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
 }
 .detail-action-badge--resubmitted {
   border: 1px solid #159E85;
-  background: #159E85;
-  color: #FFF;
+  background: #CDF6EF;
+  color: #159E85;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* 否認セクション アクションボタン共通 */
+.detail-action-btn {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
+}
+.detail-action-btn--withdraw {
+  color: #3C3C3C;
+}
+.detail-action-btn__icon--danger {
+  color: #DF4C4C;
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+}
+.detail-action-btn__icon--primary {
+  color: #00A7B8;
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
 }
 
 /* =============================================================================
