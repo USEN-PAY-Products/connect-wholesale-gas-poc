@@ -524,6 +524,7 @@ function buildScheduleMap(items) {
         color: item.display_color_code || '#ccc',
         event_type: item.event_type,
         pos: pos,
+        endDate: new Date(item.end_at),
       });
     }
   });
@@ -532,6 +533,37 @@ function buildScheduleMap(items) {
 // =============================================================================
 // Home page: カレンダー描画
 // =============================================================================
+
+/**
+ * イベント配列からセル背景色を生成
+ * - 1件: ベタ塗り
+ * - 2件以上: 均等分割 linear-gradient
+ */
+function buildCellBackground(events) {
+  if (!events || events.length === 0) return '';
+  if (events.length === 1) return events[0].color;
+  const n = events.length;
+  const stops = [];
+  events.forEach(function(ev, i) {
+    const from = (100 * i / n).toFixed(2) + '%';
+    const to   = (100 * (i + 1) / n).toFixed(2) + '%';
+    stops.push(ev.color + ' ' + from, ev.color + ' ' + to);
+  });
+  return 'linear-gradient(to bottom, ' + stops.join(', ') + ')';
+}
+
+/**
+ * イベント配列からセルに付与する角丸クラスを決定
+ */
+function getCellPosClass(events) {
+  if (!events || events.length === 0) return '';
+  const posSet = new Set(events.map(function(e) { return e.pos; }));
+  if (posSet.has('single')) return 'cal-cell--single';
+  if (posSet.has('start') && posSet.has('end')) return 'cal-cell--single';
+  if (posSet.has('start')) return 'cal-cell--start';
+  if (posSet.has('end')) return 'cal-cell--end';
+  return 'cal-cell--middle';
+}
 
 function renderCalendar() {
   const label = document.getElementById('calMonthLabel');
@@ -587,18 +619,34 @@ function renderCalendar() {
     num.textContent = String(d);
     cell.appendChild(num);
 
-    // スケジュール帯（連続する日を色帯としてつなげる）
+    // スケジュール背景色 + イベント説明テキスト
     const events = scheduleMap[key] || [];
-    events.forEach(ev => {
-      const band = document.createElement('div');
-      band.className = 'cal-band cal-band--' + ev.pos;
-      band.style.background = ev.color;
-      band.title = ev.title || '';
-      band.setAttribute('aria-label', ev.title || '');
-      cell.appendChild(band);
-    });
-
     if (events.length > 0) {
+      cell.style.background = buildCellBackground(events);
+      const posClass = getCellPosClass(events);
+      if (posClass) cell.classList.add(posClass);
+
+      // テキスト表示条件: start/single、または週の先頭（日曜日）の場合のみ表示
+      // テキストは期間全体（週末or終了日まで）にまたがって中央表示
+      const currentDate = new Date(calYear, calMonth, d);
+      const dayOfWeek = currentDate.getDay(); // 0=日曜
+      events.forEach(function(ev) {
+        const showLabel = (ev.pos === 'start' || ev.pos === 'single' || dayOfWeek === 0);
+        if (showLabel && ev.title) {
+          // この週内でイベントが続く日数を計算（土曜 or 終了日 or 月末のいずれか早い方まで）
+          const daysUntilSat = 6 - dayOfWeek;
+          const daysUntilEnd = Math.round((ev.endDate - currentDate) / 86400000);
+          const daysUntilMonthEnd = lastDate - d;
+          const span = Math.min(daysUntilSat, daysUntilEnd, daysUntilMonthEnd) + 1;
+          const lbl = document.createElement('span');
+          lbl.className = 'cal-event-label';
+          lbl.textContent = ev.title;
+          if (span > 1) {
+            lbl.style.width = 'calc(' + span + ' * 100%)';
+          }
+          cell.appendChild(lbl);
+        }
+      });
       cell.classList.add('cal-cell--has-event');
     }
 
@@ -610,8 +658,8 @@ function renderCalendar() {
 let _pickerYear = null; // 月選択パネルで表示中の年
 
 function renderMonthPicker_() {
-  const modal = document.querySelector('.calendar-modal');
-  if (!modal) return;
+  const labelEl = document.getElementById('calMonthLabel');
+  if (!labelEl) return;
   if (_pickerYear === null) _pickerYear = calYear;
 
   let picker = document.getElementById('calMonthPicker');
@@ -619,7 +667,8 @@ function renderMonthPicker_() {
     picker = document.createElement('div');
     picker.id = 'calMonthPicker';
     picker.className = 'cal-month-picker hidden';
-    modal.insertBefore(picker, modal.querySelector('.calendar-weekdays'));
+    picker.addEventListener('click', function(e) { e.stopPropagation(); });
+    labelEl.appendChild(picker);
   }
   picker.innerHTML = '';
 
@@ -647,8 +696,8 @@ function renderMonthPicker_() {
   });
 
   // 月グリッド（4x3）
-  const grid = document.createElement('div');
-  grid.className = 'cal-month-picker__grid';
+  const monthGrid = document.createElement('div');
+  monthGrid.className = 'cal-month-picker__grid';
   const today = new Date();
   for (let m = 0; m < 12; m++) {
     const btn = document.createElement('button');
@@ -665,9 +714,9 @@ function renderMonthPicker_() {
       picker.classList.add('hidden');
       renderCalendar();
     });
-    grid.appendChild(btn);
+    monthGrid.appendChild(btn);
   }
-  picker.appendChild(grid);
+  picker.appendChild(monthGrid);
 }
 
 function toggleMonthPicker_() {
@@ -677,8 +726,43 @@ function toggleMonthPicker_() {
     picker.classList.toggle('hidden');
     if (!picker.classList.contains('hidden')) {
       renderMonthPicker_();
+      // 外側クリック・Escで閉じる
+      setTimeout(function() {
+        document.addEventListener('click', _closePickerOnOutsideClick);
+        document.addEventListener('keydown', _closePickerOnEscape);
+      }, 0);
+    } else {
+      _removePickerListeners();
     }
   }
+}
+
+/** ピッカー関連リスナーを確実に解除する */
+function _removePickerListeners() {
+  document.removeEventListener('click', _closePickerOnOutsideClick);
+  document.removeEventListener('keydown', _closePickerOnEscape);
+}
+
+function _closePickerOnOutsideClick(e) {
+  const picker = document.getElementById('calMonthPicker');
+  if (!picker) {
+    // DOMから消えている場合もリスナーを解除
+    _removePickerListeners();
+    return;
+  }
+  if (!picker.contains(e.target)) {
+    picker.classList.add('hidden');
+    _removePickerListeners();
+  }
+}
+
+function _closePickerOnEscape(e) {
+  if (e.key !== 'Escape') return;
+  const picker = document.getElementById('calMonthPicker');
+  if (picker) {
+    picker.classList.add('hidden');
+  }
+  _removePickerListeners();
 }
 
 // =============================================================================
@@ -1625,11 +1709,19 @@ document.getElementById('cancelModalClose').addEventListener('click', () => {
   closeCancelModal();
 });
 
-// モーダル: OK → データをリセットしアップロード画面へ
+// モーダル: OK → データをリセットし元の画面へ
 document.getElementById('cancelModalOk').addEventListener('click', () => {
   closeCancelModal();
+  const parentId = _resubmitParentInvoiceId;
+  const wasResubmit = _isResubmitConfirm;
   resetPage();
-  location.hash = '#upload';
+  if (wasResubmit && parentId) {
+    _isResubmitConfirm = false;
+    _detailCurrentInvoiceId = null;
+    location.hash = '#detail?invoiceId=' + parentId;
+  } else {
+    location.hash = '#upload';
+  }
 });
 
 // モーダル: オーバーレイクリックで閉じる
@@ -1801,7 +1893,54 @@ btnFinalSubmit.addEventListener('click', () => {
     return;
   }
 
-  if (typeof google !== 'undefined' && google.script && google.script.run) {
+  if (_isResubmitConfirm) {
+    // ── 再送信モード: bulkResubmitInvoiceData を呼ぶ ──────────────────────
+    const parentInvoiceId = _resubmitParentInvoiceId;
+    const handovers = _resubmitHandovers;
+    // 確認画面の備考で上書き
+    const confirmRemarks = collectRemarks_();
+    Object.keys(confirmRemarks).forEach(function (k) { remarks[k] = confirmRemarks[k]; });
+    // _resubmitRemarks もマージ
+    Object.keys(_resubmitRemarks).forEach(function (k) { if (!(k in remarks)) remarks[k] = _resubmitRemarks[k]; });
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          hideLoadingOverlay();
+          resetSubmitButton();
+          if (result && result.status === 'error') {
+            showToast('登録に失敗しました: ' + (result.message || '不明なエラー'), 'error');
+            return;
+          }
+          rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+          _isResubmitConfirm = false;
+          _detailCurrentInvoiceId = null;
+          location.hash = '#detail?invoiceId=' + parentInvoiceId;
+          showToast('再請求の登録が完了しました。', 'success');
+        })
+        .withFailureHandler(function (err) {
+          hideLoadingOverlay();
+          resetSubmitButton();
+          showToast('登録に失敗しました: ' + (err.message || err), 'error');
+        })
+        .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers);
+    } else {
+      console.warn('[bulkResubmit] google.script.run が利用できません（モック）');
+      console.log('[resubmit] parentInvoiceId:', parentInvoiceId);
+      console.log('[resubmit] summaryData:', summaryData);
+      console.log('[resubmit] remarks:', remarks);
+      console.log('[resubmit] handovers:', handovers);
+      setTimeout(function () {
+        hideLoadingOverlay();
+        resetSubmitButton();
+        rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+        _isResubmitConfirm = false;
+        _detailCurrentInvoiceId = null;
+        location.hash = '#detail?invoiceId=' + parentInvoiceId;
+        showToast('再請求の登録が完了しました。', 'success');
+      }, 1500);
+    }
+  } else if (typeof google !== 'undefined' && google.script && google.script.run) {
     google.script.run
       .withSuccessHandler(onSubmitSuccess)
       .withFailureHandler(onSubmitFailure)
@@ -1877,14 +2016,24 @@ document.getElementById('checkConfirm').addEventListener('change', function () {
  * navigate() が '#confirm' に切り替えるたびに呼ばれる。
  */
 function renderConfirmPage() {
-  // データがなければアップロード画面へ戻す
+  // データがなければ元の画面へ戻す
   if (!parsedData || parsedData.length === 0 || !rawCsvBase64 || !utf8CsvBase64) {
     if (parsedData && parsedData.length > 0 && (!rawCsvBase64 || !utf8CsvBase64)) {
-      // リロードで Base64 が消えた場合（parsedData は残っているが送信不可）
       showToast('ページがリロードされたため、CSVを再度アップロードしてください。', 'error');
     }
-    location.hash = '#upload';
+    if (_isResubmitConfirm) {
+      _isResubmitConfirm = false;
+      location.hash = '#detail?invoiceId=' + (_resubmitParentInvoiceId || '');
+    } else {
+      location.hash = '#upload';
+    }
     return;
+  }
+
+  // 再送信モード: ページタイトルを変更
+  const confirmTitle = document.querySelector('#pageConfirm .page-title');
+  if (confirmTitle) {
+    confirmTitle.textContent = _isResubmitConfirm ? '再請求内容の確認' : '請求内容の確認';
   }
 
   // チェックボックス・送信ボタンをリセット
@@ -1946,6 +2095,17 @@ function renderConfirmPage() {
   document.getElementById('summaryTax10').textContent       = fmt(tax10);
   document.getElementById('summaryExTax8').textContent      = fmt(exTax8);
   document.getElementById('summaryTax8').textContent        = fmt(tax8);
+
+  // ── 再送信モード: USEN PAY社からのコメントを表示 ─────────────────────────
+  const handoverRow  = document.getElementById('confirmHandoverRow');
+  const handoverText = document.getElementById('confirmHandoverText');
+  if (_isResubmitConfirm) {
+    const handoverMatter = sessionStorage.getItem('shiire_resubmit_handover_matter') || '';
+    if (handoverRow)  handoverRow.classList.remove('hidden');
+    if (handoverText) handoverText.value = handoverMatter;
+  } else {
+    if (handoverRow)  handoverRow.classList.add('hidden');
+  }
 
   // ── customer_code ごとにグルーピング ─────────────────────────────────────
   /** @type {Map<string, Array>} */
@@ -2182,6 +2342,13 @@ function renderConfirmPage() {
 /** 現在表示中の卸インボイスID（同じ ID の再描画をスキップするためのキャッシュ） */
 let _detailCurrentInvoiceId = null;
 let _detailActionRequiredMallCodes = [];
+/** RETURNED かつ invoice_status が null の加盟店 mall_code（警告のみでエラーにしない） */
+let _detailReturnedOnlyMallCodes = [];
+/** 再送信モードで確認画面を表示する際のコンテキスト */
+let _isResubmitConfirm = false;
+let _resubmitParentInvoiceId = null;
+let _resubmitRemarks = {};
+let _resubmitHandovers = {};
 
 /**
  * 詳細画面を初期化する。
@@ -2277,21 +2444,28 @@ function renderDetailSummary_(s) {
   if (!card || !s) return;
 
   const fmt = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
-  const date = s.wholesaler_invoice_date
-    ? String(s.wholesaler_invoice_date).replace(/-/g, '/') : '―';
+  const rawDate = s.created_at || s.wholesaler_invoice_date || '';
+  const date = rawDate ? String(rawDate).replace(/-/g, '/').replace(/T/, ' ').replace(/\.\d+$/, '') : '―';
   const feeRate = s.wholesaler_fee_rate != null
     ? Number(s.wholesaler_fee_rate).toFixed(1) + '%' : '―';
+
+  const billingMonth = s.wholesaler_invoice_date
+    ? String(s.wholesaler_invoice_date).replace(/-/g, '/').replace(/^(\d{4}\/\d{2}).*$/, '$1') : '―';
 
   card.innerHTML = `
     <div class="detail-summary-title">請求基本情報</div>
     <div class="detail-summary-inner">
       <div class="detail-summary-meta">
         <div class="detail-meta-row">
-          <span class="detail-meta-label">登録日時</span>
-          <span class="detail-meta-value">${escapeHtml(date)}</span>
+            <span class="detail-meta-label">請求月</span>
+            <span class="detail-meta-value">${escapeHtml(String(billingMonth))}</span>
         </div>
         <div class="detail-meta-row">
-          <span class="detail-meta-label">手数料（${escapeHtml(feeRate)}）<span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help"></i><span class="detail-meta-tooltip">手数料は、卸コネクトサービスの使用料としての料金です。<br>加盟店への請求金額の総額に対して、設定された手数料率をかけることで算出されます。<br>その他、手数料に関するお問い合わせは000-0000-0000までご連絡ください。</span></span></span>
+            <span class="detail-meta-label">登録日時</span>
+            <span class="detail-meta-value">${escapeHtml(date)}</span>
+        </div>
+        <div class="detail-meta-row">
+          <span class="detail-meta-label">手数料（${escapeHtml(feeRate)}）<span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">手数料は、卸コネクトサービスの使用料としての料金です。<br>加盟店への請求金額の総額に対して、設定された手数料率をかけることで算出されます。<br>その他、手数料に関するお問い合わせは000-0000-0000までご連絡ください。</span></span></span>
           <span class="detail-meta-value">${fmt(s.invoice_fee_amount)}円</span>
         </div>
         <div class="detail-meta-row">
@@ -2302,7 +2476,6 @@ function renderDetailSummary_(s) {
           <span class="detail-meta-label detail-meta-label--block">USEN PAY社<br>からのコメント</span>
           <textarea class="detail-handover-textarea" readonly placeholder="差し戻しなどが発生した場合は、こちらに申し送り事項が記載される場合があります。">${escapeHtml(s.handover_matter || '')}</textarea>
         </div>
-        <span class="detail-handover-note">＊ご不明点・ご確認がある場合は、運営窓口【090-XXXX-XXXX】までご連絡ください。</span>
       </div>
 
       <div class="summary-card__divider"></div>
@@ -2347,11 +2520,19 @@ function renderDetailSummary_(s) {
  * @returns {string}
  */
 function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
+  // 取り下げ済: WITHDRAWN
+  if (invoiceStatus === 'WITHDRAWN') {
+    return '<span class="detail-status-badge badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済</span>';
+  }
   // 否認差戻: MERCHANT_CONFIRMATION_REQUESTED + DISPUTED
   if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'DISPUTED') {
     return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認差戻</span>';
   }
-  // 差戻し: RETURNED
+  // 否認差戻: RETURNED + DISPUTED
+  if (backofficeStatus === 'RETURNED' && invoiceStatus === 'DISPUTED') {
+    return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認差戻</span>';
+  }
+  // 差戻し: RETURNED（DISPUTED でない）
   if (backofficeStatus === 'RETURNED') {
     return '<span class="detail-status-badge badge--returned"><i class="fa-solid fa-rotate-left"></i> 差戻し</span>';
   }
@@ -2372,22 +2553,32 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
  * @param {Array<Object>} stores
  */
 function renderDetailStoreList_(stores) {
-  // 差し戻し: RETURNED
+  // 差し戻し: RETURNED かつ DISPUTED でなく WITHDRAWN でもない
   const returned  = stores.filter(function (s) {
-    return s.backoffice_review_status === 'RETURNED';
+    return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED' && s.invoice_status !== 'WITHDRAWN';
   });
-  // 否認: MERCHANT_CONFIRMATION_REQUESTED + DISPUTED
+  // 否認: (MCR/RETURNED/PENDING_REVIEW + DISPUTED) または WITHDRAWN
   const disputed  = stores.filter(function (s) {
-    return s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED';
+    return s.invoice_status === 'WITHDRAWN' ||
+           (s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') ||
+           (s.backoffice_review_status === 'RETURNED' && s.invoice_status === 'DISPUTED') ||
+           (s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED');
   });
   // 正常: 上記以外すべて
   const normal    = stores.filter(function (s) {
-    return s.backoffice_review_status !== 'RETURNED' &&
-      !(s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED');
+    return s.invoice_status !== 'WITHDRAWN' &&
+      !(s.backoffice_review_status === 'RETURNED') &&
+      !(s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') &&
+      !(s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED');
   });
 
   // 要対応の mall_code 一覧をグローバル変数に保持（バリデーション用）
-  _detailActionRequiredMallCodes = returned.concat(disputed).map(function (s) { return s.mall_code; });
+  // ※ WITHDRAWN は対応済みのため要対応から除外
+  _detailActionRequiredMallCodes = returned.concat(disputed.filter(function (s) { return s.invoice_status !== 'WITHDRAWN'; })).map(function (s) { return s.mall_code; });
+  // RETURNED かつ invoice_status が null の加盟店（CSVに含まれていなくても警告のみ）
+  _detailReturnedOnlyMallCodes = returned.filter(function (s) {
+    return !s.invoice_status || s.invoice_status === null || s.invoice_status === 'null';
+  }).map(function (s) { return s.mall_code; });
 
   const colHeader =
     '<div class="store-list-header">' +
@@ -2395,7 +2586,6 @@ function renderDetailStoreList_(stores) {
       '<span class="slh-col slh-col--mallcode">顧客ID</span>' +
       '<span class="slh-col slh-col--amount">請求金額</span>' +
       '<span class="slh-col slh-col--extax">小計（税抜）</span>' +
-      '<span class="slh-col slh-col--nontax">小計（非課税）</span>' +
       '<span class="slh-col slh-col--tax">消費税</span>' +
       '<span class="slh-col slh-col--tax10">税内訳（10%）</span>' +
       '<span class="slh-col slh-col--tax8">税内訳（8%）</span>' +
@@ -2449,8 +2639,11 @@ function renderDetailStoreList_(stores) {
  */
 function buildDetailAccordion_(store, openByDefault) {
   const fmt        = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
-  const isReturned = store.backoffice_review_status === 'RETURNED';
-  const isDisputed = store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED';
+  const isReturned = store.backoffice_review_status === 'RETURNED' && store.invoice_status !== 'DISPUTED' && store.invoice_status !== 'WITHDRAWN';
+  const isDisputed = store.invoice_status === 'WITHDRAWN' ||
+                     (store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED') ||
+                     (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED') ||
+                     (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED');
 
   // mall_code → customer_code 変換（BE が remarks[customerCode] で参照するため）
   const mappings = getMerchantMappings();
@@ -2468,10 +2661,9 @@ function buildDetailAccordion_(store, openByDefault) {
   header.className = 'store-accordion__header';
   header.innerHTML =
     '<span class="slh-col slh-col--name store-accordion__code">' + escapeHtml(store.store_name || store.mall_code) + '</span>' +
-    '<span class="slh-col slh-col--mallcode">' + escapeHtml(store.mall_code   || '') + '</span>' +
+    '<span class="slh-col slh-col--mallcode">' + escapeHtml(customerCode || store.mall_code) + '</span>' +
     '<span class="slh-col slh-col--amount">'   + fmt(store.total_amount)             + '円</span>' +
     '<span class="slh-col slh-col--extax">'    + fmt(store.subtotal_amount)          + '円</span>' +
-    '<span class="slh-col slh-col--nontax">'   + fmt(store.non_taxable_amount)       + '円</span>' +
     '<span class="slh-col slh-col--tax">'      + fmt(store.tax_amount)               + '円</span>' +
     '<span class="slh-col slh-col--tax10">'    + fmt(store.standard_tax_amount)      + '円</span>' +
     '<span class="slh-col slh-col--tax8">'     + fmt(store.reduced_tax_amount)       + '円</span>' +
@@ -2493,21 +2685,6 @@ function buildDetailAccordion_(store, openByDefault) {
     body.appendChild(reason);
   }
 
-  // USEN PAY社からのコメント（差し戻しのみ表示）
-  if (isReturned) {
-    const remarkRow = document.createElement('div');
-    remarkRow.className = 'store-accordion__backoffice-remark';
-    remarkRow.innerHTML =
-      '<span class="backoffice-remark__label">USEN PAY社<br>からのコメント</span>' +
-      '<div class="backoffice-remark__text">' + escapeHtml(store.backoffice_remark || '') + '</div>' +
-      '<div class="backoffice-remark__actions">' +
-        '<button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can"></i> 請求取り下げ</button>' +
-        '<button type="button" class="btn btn-outline btn-sm" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload"></i> 修正ファイルをアップ</button>' +
-        '<button type="button" class="btn btn-outline btn-sm" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate"></i> 変更なしで再請求</button>' +
-      '</div>';
-    body.appendChild(remarkRow);
-  }
-
   // 否認理由 + 加盟店との合意内容（否認のみ表示）
   if (isDisputed) {
     const disputedRow = document.createElement('div');
@@ -2524,9 +2701,14 @@ function buildDetailAccordion_(store, openByDefault) {
         '</div>' +
       '</div>' +
       '<div class="backoffice-remark__actions">' +
-        '<button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can"></i> 請求取り下げ</button>' +
-        '<button type="button" class="btn btn-outline btn-sm" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload"></i> 修正ファイルをアップ</button>' +
-        '<button type="button" class="btn btn-outline btn-sm" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate"></i> 変更なしで再請求</button>' +
+      (store.invoice_status === 'WITHDRAWN'
+        ? '<span class="detail-action-badge detail-action-badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済み</span>'
+        : store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
+        ? '<span class="detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
+        : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 変更なしで再請求</button>'
+      ) +
       '</div>';
     body.appendChild(disputedRow);
   }
@@ -2537,7 +2719,7 @@ function buildDetailAccordion_(store, openByDefault) {
   if (isReturned || isDisputed) {
     // 要対応: 編集可能
     remarksDiv.innerHTML =
-      '<label class="remarks-label">・ 加盟店請求書備考</label>' +
+      '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
       '<input type="text" class="remarks-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   } else {
     // 確認中・承認済み: 読み取り専用
@@ -2641,28 +2823,26 @@ function renderDetailLines_(lines, container) {
 
   const rows = lines.map(function (line) {
     const date = line.transaction_date ? String(line.transaction_date).replace(/-/g, '/') : '―';
+    const taxRate = Number(line.tax_category || 0);
     return '<tr>' +
       '<td>' + escapeHtml(date) + '</td>' +
-      '<td class="dsl-tbl__item">' + escapeHtml(line.item_name || '') + '</td>' +
-      '<td class="dsl-tbl__num">' + fmt(line.quantity) + (line.quantity_unit ? ' ' + escapeHtml(line.quantity_unit) : '') + '</td>' +
-      '<td class="dsl-tbl__num">' + fmt(line.unit_price) + '</td>' +
-      '<td class="dsl-tbl__num">' + escapeHtml(String(line.tax_category || 0)) + '%</td>' +
-      '<td class="dsl-tbl__num">' + fmt(line.line_amount_excluding_tax) + '</td>' +
-      '<td class="dsl-tbl__num">' + fmt(line.line_tax_amount) + '</td>' +
-      '<td class="dsl-tbl__note">' + (line.line_note ? escapeHtml(line.line_note) : '<span class="detail-row__note-empty">―</span>') + '</td>' +
+      '<td>' + escapeHtml(line.item_name || '') + '</td>' +
+      '<td class="num-td">' + fmt(line.unit_price) + '円</td>' +
+      '<td class="num-td">' + fmt(line.quantity) + (line.quantity_unit ? ' ' + escapeHtml(line.quantity_unit) : '') + '</td>' +
+      '<td class="num-td">' + fmt(line.line_amount_excluding_tax) + '円</td>' +
+      '<td class="num-td">' + fmt(line.line_tax_amount) + '円（' + taxRate + '%）</td>' +
+      '<td>' + (line.line_note ? escapeHtml(line.line_note) : '—') + '</td>' +
     '</tr>';
   }).join('');
 
   container.innerHTML =
-    '<div class="dsl-lines-scroll">' +
-      '<table class="dsl-lines-table">' +
+      '<table class="detail-table">' +
         '<thead><tr>' +
-          '<th>取引日</th><th>品目</th><th>数量</th><th>単価</th>' +
-          '<th>税率</th><th>明細金額（税抜）</th><th>消費税</th><th>加盟店別請求書備考</th>' +
+          '<th>取引日</th><th>明細項目</th><th class="num-th">単価</th><th class="num-th">数量</th>' +
+          '<th class="num-th">明細金額（税抜）</th><th class="num-th">内 消費税</th><th>備考</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
-      '</table>' +
-    '</div>';
+      '</table>';
 }
 
 
@@ -2739,6 +2919,12 @@ function navigate() {
     // 詳細画面以外に遷移したら次回の再描画を許可するためキャッシュをクリア
     _detailCurrentInvoiceId = null;
     _detailActionRequiredMallCodes = [];
+    _detailReturnedOnlyMallCodes = [];
+  }
+
+  if (targetId !== 'pageConfirm') {
+    // 確認画面以外に遷移したら再送信フラグをリセット
+    _isResubmitConfirm = false;
   }
 
   console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
@@ -2771,7 +2957,6 @@ window.addEventListener('hashchange', navigate);
   const fileNameEl    = document.getElementById('detailUploadFileName');
   const btnRemove     = document.getElementById('detailUploadRemove');
   const btnClose      = document.getElementById('detailUploadModalClose');
-  const btnCancel     = document.getElementById('detailUploadModalCancel');
   const btnConfirm    = document.getElementById('detailUploadModalConfirm');
 
   function openModal(storeInvoiceId, actionsEl, isBulk) {
@@ -2779,12 +2964,23 @@ window.addEventListener('hashchange', navigate);
     _targetActionsEl      = actionsEl;
     _isBulk               = !!isBulk;
     resetModalState_();
+    // 個別リアップロード時は「確認画面へ進む」フッターを非表示
+    if (!_isBulk && modalFooter) modalFooter.classList.add('hidden');
     modal.classList.remove('hidden');
   }
 
   function closeModal() {
     modal.classList.add('hidden');
   }
+
+  const previewEl      = document.getElementById('detailUploadPreview');
+  const previewTarget   = document.getElementById('previewTargetStore');
+  const previewFileInfo = document.getElementById('previewFileInfo');
+  const previewBody     = document.getElementById('previewBody');
+  const previewOath     = document.getElementById('previewOathCheck');
+  const previewSubmit   = document.getElementById('previewSubmitBtn');
+  const modalFooter     = document.getElementById('detailUploadModalFooter');
+  const modalDesc       = modal && modal.querySelector('.detail-upload-modal__desc');
 
   function resetModalState_() {
     _selectedFile = null;
@@ -2798,6 +2994,18 @@ window.addEventListener('hashchange', navigate);
     fileNameEl.textContent = '';
     fileInput.value = '';
     btnConfirm.disabled = true;
+    // Phase 2 プレビューをリセット
+    if (previewEl) previewEl.classList.add('hidden');
+    if (previewTarget) previewTarget.innerHTML = '';
+    if (previewFileInfo) previewFileInfo.innerHTML = '';
+    if (previewBody) previewBody.innerHTML = '';
+    if (previewOath) previewOath.checked = false;
+    if (previewSubmit) previewSubmit.disabled = true;
+    // フッター（確認画面へ進むボタン）とdescの表示を復元（一括モード時のみ）
+    if (_isBulk) {
+      if (modalFooter) modalFooter.classList.remove('hidden');
+      if (modalDesc) modalDesc.classList.remove('hidden');
+    }
   }
 
   function showAnalyzing_(fileName) {
@@ -2826,12 +3034,55 @@ window.addEventListener('hashchange', navigate);
 
   function showSuccess_(file) {
     _selectedFile = file;
-    dropZoneEl.classList.remove('hidden');
     analyzingEl.classList.add('hidden');
     errorCard.classList.add('hidden');
+
+    // 個別リアップロード → モーダル内プレビュー表示
+    if (!_isBulk) {
+      renderModalPreview_(file);
+      return;
+    }
+
+    // 一括 → 従来通り
+    dropZoneEl.classList.remove('hidden');
     selectedArea.classList.remove('hidden');
     fileNameEl.textContent = file.name;
     btnConfirm.disabled = false;
+  }
+
+  function showSuccessWithWarnings_(file, warnings) {
+    _selectedFile = file;
+    analyzingEl.classList.add('hidden');
+
+    // 個別リアップロード → モーダル内プレビュー表示（警告はプレビュー上部に表示）
+    if (!_isBulk) {
+      renderModalPreview_(file);
+      // 警告をプレビュー上部に表示
+      alertList.innerHTML = '';
+      warnings.forEach(function (msg) {
+        const li = document.createElement('li');
+        li.className = 'alert-item alert-item--warn';
+        li.innerHTML = '<i class="fa-solid fa-triangle-exclamation alert-icon"></i>' + escapeHtml(msg);
+        alertList.appendChild(li);
+      });
+      errorCard.classList.remove('hidden');
+      return;
+    }
+
+    // 一括 → 従来通り
+    dropZoneEl.classList.remove('hidden');
+    selectedArea.classList.remove('hidden');
+    fileNameEl.textContent = file.name;
+    btnConfirm.disabled = false;
+    // 警告を表示（ボタンは有効のまま）
+    alertList.innerHTML = '';
+    warnings.forEach(function (msg) {
+      const li = document.createElement('li');
+      li.className = 'alert-item alert-item--warn';
+      li.innerHTML = '<i class="fa-solid fa-triangle-exclamation alert-icon"></i>' + escapeHtml(msg);
+      alertList.appendChild(li);
+    });
+    errorCard.classList.remove('hidden');
   }
 
   function handleFile_(file) {
@@ -2893,8 +3144,10 @@ window.addEventListener('hashchange', navigate);
           if (m.mall_code && m.customer_code) mallToCustomer[String(m.mall_code)] = String(m.customer_code);
         });
 
+        const bulkWarnings = [];
         if (_isBulk) {
           // 一括アップロード: 要対応全加盟店の網羅性チェック
+          const returnedOnlySet = new Set((_detailReturnedOnlyMallCodes || []).map(String));
           const actionRequiredCcSet = new Set();
           (_detailActionRequiredMallCodes || []).forEach(function (mallCode) {
             const cc = mallToCustomer[String(mallCode)];
@@ -2903,7 +3156,13 @@ window.addEventListener('hashchange', navigate);
               if (!csvCustomerCodes[cc]) {
                 let storeName = '';
                 mappings.forEach(function (m) { if (String(m.mall_code) === String(mallCode)) storeName = m.store_name || ''; });
-                errors.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません');
+                if (returnedOnlySet.has(String(mallCode))) {
+                  // RETURNED かつ invoice_status=null → 警告のみ
+                  bulkWarnings.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません。この加盟店の再請求は行われませんが、よろしいですか？');
+                } else {
+                  // 否認など → エラー
+                  errors.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません');
+                }
               }
             }
           });
@@ -2945,6 +3204,8 @@ window.addEventListener('hashchange', navigate);
         analyzingEl.classList.add('hidden');
         if (errors.length > 0) {
           showErrors_(errors);
+        } else if (bulkWarnings && bulkWarnings.length > 0) {
+          showSuccessWithWarnings_(file, bulkWarnings);
         } else {
           showSuccess_(file);
         }
@@ -3003,7 +3264,6 @@ window.addEventListener('hashchange', navigate);
 
   // 閉じる系
   if (btnClose)  btnClose.addEventListener('click',  closeModal);
-  if (btnCancel) btnCancel.addEventListener('click', closeModal);
   if (overlay)   overlay.addEventListener('click',   closeModal);
 
   // 「このファイルを使用する」→ ボタンエリアをファイル名+登録ボタンに切り替え
@@ -3013,7 +3273,7 @@ window.addEventListener('hashchange', navigate);
       const storeInvoiceId = _targetStoreInvoiceId;
       const file = _selectedFile;
 
-      // 一括アップロードの場合: BE 呼び出し → 画面リロード
+      // 一括アップロードの場合: 確認画面へ遷移
       if (_isBulk) {
         if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
           alert('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。');
@@ -3024,8 +3284,7 @@ window.addEventListener('hashchange', navigate);
           alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
           return;
         }
-        const summaryData_ = buildResubmitSummaryData_(parsedData, null);
-        // 全アコーディオンから備考を収集
+        // 備考を収集
         const remarks_ = {};
         document.querySelectorAll('.remarks-input[data-customer-code]').forEach(function (el) {
           const cc = el.dataset.customerCode || '';
@@ -3050,52 +3309,318 @@ window.addEventListener('hashchange', navigate);
           return;
         }
 
-        closeModal();
-        showLoadingOverlay('一括登録中...');
-        if (typeof google !== 'undefined' && google.script && google.script.run) {
-          google.script.run
-            .withSuccessHandler(function (result) {
-              hideLoadingOverlay();
-              if (result && result.status === 'error') {
-                alert('登録に失敗しました: ' + (result.message || '不明なエラー'));
-                return;
-              }
-              rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
-              _detailCurrentInvoiceId = null;
-              initDetailPage(parentInvoiceId);
-            })
-            .withFailureHandler(function (err) {
-              hideLoadingOverlay();
-              alert('登録に失敗しました: ' + (err.message || err));
-            })
-            .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData_, remarks_, parentInvoiceId, handovers_);
-        } else {
-          console.warn('[bulkResubmit] google.script.run が利用できません（モック）');
-          setTimeout(function () {
-            hideLoadingOverlay();
-            _detailCurrentInvoiceId = null;
-            initDetailPage(parentInvoiceId);
-          }, 1500);
+        // 再送信コンテキストを保存して確認画面へ遷移
+        _isResubmitConfirm = true;
+        _resubmitParentInvoiceId = parentInvoiceId;
+        _resubmitRemarks = remarks_;
+        _resubmitHandovers = handovers_;
+        // USEN PAY社からのコメントを保存
+        const handoverTextarea = document.querySelector('#detailSummaryCard .detail-handover-textarea');
+        if (handoverTextarea) {
+          sessionStorage.setItem('shiire_resubmit_handover_matter', handoverTextarea.value || '');
         }
+        closeModal();
+        location.hash = '#confirm';
         return;
       }
 
-      // 個別アコーディオンから開いた場合のみボタンエリアを切り替え
-      if (_targetActionsEl) {
-        _targetActionsEl.innerHTML =
-          '<div class="detail-reupload-file">' +
-            '<i class="fa-regular fa-file-lines"></i>' +
-            '<span class="detail-reupload-file__name">' + escapeHtml(file.name) +
-              ' <span class="detail-reupload-file__size">(' + Math.round(file.size / 1024) + 'KB)</span>' +
-            '</span>' +
-            '<button type="button" class="detail-reupload-file__remove" data-action="reupload-remove" data-id="' + escapeHtml(storeInvoiceId || '') + '" aria-label="取り消し"><i class="fa-solid fa-xmark"></i></button>' +
-          '</div>' +
-          '<button type="button" class="btn btn-primary detail-reupload-submit" data-action="reupload-submit" data-id="' + escapeHtml(storeInvoiceId || '') + '">上記ファイルを登録する</button>';
-        _targetActionsEl._pendingFile = file;
-      }
+      // 個別リアップロードはモーダル内 Phase 2 で完結するため、ここには到達しない
       closeModal();
     });
   }
+
+  // ============================================================
+  // Phase 2: モーダル内プレビュー描画（個別リアップロード用）
+  // ============================================================
+  function renderModalPreview_(file) {
+    // Phase 1 要素を非表示
+    dropZoneEl.classList.add('hidden');
+    selectedArea.classList.add('hidden');
+    if (modalFooter) modalFooter.classList.add('hidden');
+    if (modalDesc) modalDesc.classList.add('hidden');
+
+    // Phase 2 表示
+    previewEl.classList.remove('hidden');
+
+    // ── 対象店舗名 ──
+    const accordion = _targetActionsEl ? _targetActionsEl.closest('.store-accordion') : null;
+    const storeName = accordion ? (accordion.querySelector('.slh-col--name') || {}).textContent || '' : '';
+    const mallCode  = accordion ? accordion.dataset.mallCode || '' : '';
+    const mappings  = getMerchantMappings();
+    const customerCode = (mappings.find(function (m) { return String(m.mall_code) === String(mallCode); }) || {}).customer_code || '';
+
+    // ── 対象外加盟店チェック ──
+    if (customerCode && parsedData) {
+      const csvCodes = [];
+      parsedData.forEach(function (row) {
+        const cc = String(row.customer_code || '');
+        if (cc && csvCodes.indexOf(cc) === -1) csvCodes.push(cc);
+      });
+      const excessCodes = csvCodes.filter(function (cc) { return cc !== customerCode; });
+      if (excessCodes.length > 0) {
+        // Phase 2 を非表示に戻してエラー表示
+        previewEl.classList.add('hidden');
+        dropZoneEl.classList.remove('hidden');
+        if (_isBulk && modalFooter) modalFooter.classList.remove('hidden');
+        if (_isBulk && modalDesc) modalDesc.classList.remove('hidden');
+        showErrors_(['\u26A0 対象外の加盟店（顧客コード: ' + excessCodes.join(', ') + '）のデータがCSVに含まれています。個別修正アップロードでは対象の加盟店（顧客コード: ' + customerCode + '）のみを含めてください。']);
+        return;
+      }
+    }
+
+    previewTarget.innerHTML = '<span class="preview-target-store__label">対象店舗：</span> <span class="preview-target-store__name">' + escapeHtml(storeName) + '</span>';
+
+    // ── ファイル情報 ──
+    const fileSizeStr = file.size < 1024 ? file.size + 'B' : (file.size / 1024).toFixed(1) + 'KB';
+    previewFileInfo.innerHTML =
+      '<span class="file-info__label">アップロードファイル：</span>' +
+      '<span class="file-info__name">' + escapeHtml(file.name) + '（' + fileSizeStr + '）</span>' +
+      '<button type="button" class="btn btn-file-delete" id="previewFileDelete"><i class="fa-regular fa-trash-can"></i> ファイルを削除する</button>';
+    // ファイル削除ボタン → Phase 1 に戻す
+    const delBtn = document.getElementById('previewFileDelete');
+    if (delBtn) delBtn.addEventListener('click', function () { resetModalState_(); });
+
+    // ── サマリ金額を算出 ──
+    const fmt = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
+    const st = (parsedData || []).reduce(function (acc, r) {
+      const amtExTax  = Number(r['amount_ex_tax'] || 0);
+      const taxRate   = Number(r['tax_rate']       || 0);
+      const taxAmount = roundTax(amtExTax * taxRate / 100);
+      acc.amountExTax += amtExTax;
+      acc.tax         += taxAmount;
+      if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+      else                { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
+      return acc;
+    }, { amountExTax: 0, tax: 0, exTax8: 0, tax8: 0, exTax10: 0, tax10: 0 });
+    const storeTotal = st.amountExTax + st.tax;
+
+    // ── 否認理由・合意事項の初期値を取得 ──
+    const bodyEl = _targetActionsEl ? _targetActionsEl.closest('.store-accordion__body') : null;
+    const disputedReasonEl = bodyEl && bodyEl.querySelector('.backoffice-remark__reason-text');
+    const disputedReason   = disputedReasonEl ? disputedReasonEl.textContent : '';
+    const handoverEl = bodyEl && bodyEl.querySelector('.backoffice-remark__handover-input');
+    const handoverVal = handoverEl ? handoverEl.value || '' : '';
+    const remarksEl = bodyEl && bodyEl.querySelector('.remarks-input');
+    const remarksVal = remarksEl ? remarksEl.value || '' : '';
+
+    // ── プレビュー本体を描画 ──
+    let html = '';
+    // store-accordion（確認画面と同じスタイル）
+    html += '<div class="store-accordion is-open store-accordion--returned">';
+
+    // カラムヘッダー
+    html += '<div class="store-list-header">' +
+      '<span class="slh-col slh-col--name">加盟店名</span>' +
+      '<span class="slh-col slh-col--mallcode">顧客ID</span>' +
+      '<span class="slh-col slh-col--amount">請求金額</span>' +
+      '<span class="slh-col slh-col--extax">小計（税抜）</span>' +
+      '<span class="slh-col slh-col--tax">消費税</span>' +
+      '<span class="slh-col slh-col--tax10">税内訳（10%）</span>' +
+      '<span class="slh-col slh-col--tax8">税内訳（8%）</span>' +
+      '<span class="slh-col slh-col--toggle"></span>' +
+    '</div>';
+
+    // ヘッダー行（確認画面の store-accordion__header と同じ構造）
+    html += '<div class="store-accordion__header">' +
+      '<span class="slh-col slh-col--name store-accordion__code">' + escapeHtml(storeName) + '</span>' +
+      '<span class="slh-col slh-col--mallcode">' + escapeHtml(customerCode || mallCode) + '</span>' +
+      '<span class="slh-col slh-col--amount"><span class="amount-display" data-field="previewTotalAmount">' + fmt(storeTotal) + '</span>円</span>' +
+      '<span class="slh-col slh-col--extax"><span class="amount-display" data-field="previewSubtotalAmount">' + fmt(st.amountExTax) + '</span>円</span>' +
+      '<span class="slh-col slh-col--tax"><span class="amount-display" data-field="previewTaxAmount">' + fmt(st.tax) + '</span>円</span>' +
+      '<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="previewTax10" value="' + st.tax10 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（10%）（円）" /><span class="unit-label">円</span></span>' +
+      '<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="previewTax8" value="' + st.tax8 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（8%）（円）" /><span class="unit-label">円</span></span>' +
+      '<span class="slh-col slh-col--toggle"></span>' +
+    '</div>';
+
+    // ボディ（詳細画面の否認セクションと同じ backoffice-remark 構造）
+    html += '<div class="store-accordion__body">';
+
+    // 否認理由 + 加盟店との合意内容（backoffice-remark スタイル）
+    html += '<div class="store-accordion__backoffice-remark">';
+    html += '<div class="backoffice-remark__disputed-left">';
+
+    // 否認理由
+    html += '<div class="backoffice-remark__disputed-reason">';
+    html += '<span class="backoffice-remark__label">・ 否認理由</span>';
+    html += '<span class="backoffice-remark__reason-text">' + escapeHtml(disputedReason) + '</span>';
+    html += '</div>';
+
+    // 加盟店との合意内容
+    html += '<div class="backoffice-remark__disputed-handover">';
+    html += '<span class="backoffice-remark__label">・ 【必須】加盟店<br>　との合意内容</span>';
+    html += '<textarea class="backoffice-remark__handover-input" id="previewHandoverInput" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(handoverVal) + '</textarea>';
+    html += '</div>';
+
+    html += '</div>'; // .backoffice-remark__disputed-left
+    html += '</div>'; // .store-accordion__backoffice-remark
+
+    // 加盟店請求書備考（詳細画面と同じ remarks スタイル）
+    html += '<div class="store-accordion__remarks">';
+    html += '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>';
+    html += '<input type="text" class="remarks-input" id="previewRemarksInput" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(remarksVal) + '" />';
+    html += '</div>';
+
+    // 明細アコーディオン
+    html += '<div class="detail-accordion preview-detail-accordion">';
+    html += '<div class="detail-accordion__header" id="previewDetailToggle">';
+    html += '<span class="detail-accordion__label">・ 明細</span>';
+    html += '<i class="fa-solid fa-chevron-down detail-accordion__icon"></i>';
+    html += '</div>';
+    html += '<div class="detail-accordion__body">';
+    html += '<table class="detail-table">';
+    html += '<thead><tr>' +
+      '<th>取引日</th><th>明細項目</th><th class="num-th">単価</th><th class="num-th">数量</th>' +
+      '<th class="num-th">明細金額（税抜）</th><th class="num-th">内 消費税</th><th>備考</th>' +
+    '</tr></thead><tbody>';
+    (parsedData || []).forEach(function (row) {
+      const amtExTax  = Number(row['amount_ex_tax'] || 0);
+      const taxRate   = Number(row['tax_rate']       || 0);
+      const taxAmount = roundTax(amtExTax * taxRate / 100);
+      html += '<tr>' +
+        '<td>' + escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/')) + '</td>' +
+        '<td>' + escapeHtml(String(row['item_name'] || '')) + '</td>' +
+        '<td class="num-td">' + Number(row['unit_price'] || 0).toLocaleString('ja-JP') + '円</td>' +
+        '<td class="num-td">' + Number(row['quantity'] || 0).toLocaleString('ja-JP') + '</td>' +
+        '<td class="num-td">' + amtExTax.toLocaleString('ja-JP') + '円</td>' +
+        '<td class="num-td">' + taxAmount.toLocaleString('ja-JP') + '円（' + taxRate + '%）</td>' +
+        '<td>' + (escapeHtml(String(row['invoice_detail_remark'] || '')) || '—') + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div></div>'; // .detail-accordion
+
+    html += '</div>'; // .store-accordion__body
+    html += '</div>'; // .store-accordion
+
+    previewBody.innerHTML = html;
+
+    // ── 明細アコーディオン開閉 ──
+    const detailToggle = document.getElementById('previewDetailToggle');
+    if (detailToggle) {
+      detailToggle.addEventListener('click', function () {
+        detailToggle.closest('.detail-accordion').classList.toggle('is-open');
+      });
+    }
+
+    // ── 税額 input の再計算 ──
+    const tax10Input = previewBody.querySelector('[data-field="previewTax10"]');
+    const tax8Input  = previewBody.querySelector('[data-field="previewTax8"]');
+    const taxAmountSpan   = previewBody.querySelector('[data-field="previewTaxAmount"]');
+    const totalAmountSpan = previewBody.querySelector('[data-field="previewTotalAmount"]');
+    const subtotalSpan    = previewBody.querySelector('[data-field="previewSubtotalAmount"]');
+    const MAX_TAX = 99999999999;
+    function recalcPreview_() {
+      const newTax10 = Math.max(0, Math.trunc(Number(tax10Input.value) || 0));
+      const newTax8  = Math.max(0, Math.trunc(Number(tax8Input.value)  || 0));
+      tax10Input.value = newTax10;
+      tax8Input.value  = newTax8;
+      const newTax = newTax10 + newTax8;
+      const subTotal = Number(String(subtotalSpan.textContent).replace(/[^0-9.-]/g, '')) || 0;
+      const newTotal = subTotal + newTax;
+      taxAmountSpan.textContent   = newTax.toLocaleString('ja-JP');
+      totalAmountSpan.textContent = newTotal.toLocaleString('ja-JP');
+    }
+    [tax10Input, tax8Input].forEach(function (el) {
+      if (!el) return;
+      el.addEventListener('click', function (e) { e.stopPropagation(); });
+      el.addEventListener('keydown', function (e) { e.stopPropagation(); });
+      el.addEventListener('input', function () {
+        const v = Number(el.value);
+        if (!isNaN(v) && Math.abs(v) > MAX_TAX) el.value = v > 0 ? MAX_TAX : -MAX_TAX;
+        recalcPreview_();
+      });
+    });
+  }
+
+  // ── 誓約チェックボックス ↔ 登録ボタン連動 ──
+  if (previewOath) {
+    previewOath.addEventListener('change', function () {
+      if (previewSubmit) previewSubmit.disabled = !previewOath.checked;
+    });
+  }
+
+  // ── モーダル内登録ボタン ──
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-action="modal-reupload-submit"]');
+    if (!btn) return;
+    // 合意事項の必須チェック
+    const handoverInput = document.getElementById('previewHandoverInput');
+    const handoverVal = handoverInput ? (handoverInput.value || '').trim() : '';
+    if (!handoverVal) {
+      alert('\u26A0 〈加盟店との合意内容〉を記入してください。');
+      return;
+    }
+    if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
+      alert('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。');
+      return;
+    }
+    const parentInvoiceId = _detailCurrentInvoiceId;
+    if (!parentInvoiceId) {
+      alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+      return;
+    }
+    const storeInvoiceId = _targetStoreInvoiceId;
+    if (!storeInvoiceId) {
+      alert('対象の加盟店請求IDが取得できませんでした。');
+      return;
+    }
+    // summaryData を構築（税額は input の値で上書き）
+    const summaryData = buildResubmitSummaryData_(parsedData, storeInvoiceId);
+    const tax10El = previewBody && previewBody.querySelector('[data-field="previewTax10"]');
+    const tax8El  = previewBody && previewBody.querySelector('[data-field="previewTax8"]');
+    if (tax10El && tax8El && summaryData.merchantTotals && summaryData.merchantTotals.length > 0) {
+      const mt = summaryData.merchantTotals[0];
+      mt.tax10 = Math.max(0, Math.trunc(Number(tax10El.value) || 0));
+      mt.tax8  = Math.max(0, Math.trunc(Number(tax8El.value)  || 0));
+      mt.taxAmount   = mt.tax10 + mt.tax8;
+      mt.totalAmount = mt.subtotalAmount + mt.taxAmount;
+      // wholesalerTotal も更新
+      const wt = summaryData.wholesalerTotal;
+      wt.tax10 = mt.tax10; wt.tax8 = mt.tax8;
+      wt.taxAmount = mt.taxAmount;
+      wt.totalAmount = mt.totalAmount;
+      wt.subtotalAmount = mt.subtotalAmount;
+      wt.paymentAmount = wt.totalAmount;
+    }
+    // remarks を取得
+    const remarksInput = document.getElementById('previewRemarksInput');
+    const accordion = _targetActionsEl ? _targetActionsEl.closest('.store-accordion') : null;
+    const mallCode  = accordion ? accordion.dataset.mallCode || '' : '';
+    const mappings  = getMerchantMappings();
+    const cc = (mappings.find(function (m) { return String(m.mall_code) === String(mallCode); }) || {}).customer_code || '';
+    const remarks = {};
+    if (cc && remarksInput) remarks[cc] = remarksInput.value || '';
+
+    showLoadingOverlay('登録中...');
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          hideLoadingOverlay();
+          if (result && result.status === 'error') {
+            alert('登録に失敗しました: ' + (result.message || '不明なエラー'));
+            return;
+          }
+          rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+          closeModal();
+          _detailCurrentInvoiceId = null;
+          initDetailPage(parentInvoiceId);
+        })
+        .withFailureHandler(function (err) {
+          hideLoadingOverlay();
+          alert('登録に失敗しました: ' + (err.message || err));
+        })
+        .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks,
+                             parentInvoiceId, storeInvoiceId, handoverVal);
+    } else {
+      console.warn('[modal-reupload-submit] google.script.run が利用できません（モック）');
+      setTimeout(function () {
+        hideLoadingOverlay();
+        rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+        closeModal();
+        _detailCurrentInvoiceId = null;
+        initDetailPage(parentInvoiceId);
+      }, 1500);
+    }
+  });
 
   // イベント委譲: reuploadボタン押下 → モーダルを開く
   document.addEventListener('click', function (e) {
@@ -3105,30 +3630,106 @@ window.addEventListener('hashchange', navigate);
       openModal(btn.dataset.id, actionsEl);
       return;
     }
-    // ファイル取り消し → ボタン3つに戻す
-    const removeBtn = e.target.closest('[data-action="reupload-remove"]');
-    if (removeBtn) {
-      const actionsEl2 = removeBtn.closest('.backoffice-remark__actions');
-      if (actionsEl2) {
-        const id = removeBtn.dataset.id;
-        actionsEl2.innerHTML =
-          '<button type="button" class="btn btn-outline btn-sm btn-danger-outline" data-action="withdraw" data-id="' + escapeHtml(id) + '"><i class="fa-regular fa-trash-can"></i> 請求取り下げ</button>' +
-          '<button type="button" class="btn btn-outline btn-sm" data-action="reupload" data-id="' + escapeHtml(id) + '"><i class="fa-solid fa-upload"></i> 修正ファイルをアップ</button>' +
-          '<button type="button" class="btn btn-outline btn-sm" data-action="resubmit" data-id="' + escapeHtml(id) + '"><i class="fa-solid fa-rotate"></i> 変更なしで再請求</button>';
-      }
-      return;
-    }
-    // 取り下げ → 「取り下げ済み」バッジに切り替え
+
+    // 取り下げ → BE: withdrawStoreInvoice 呼び出し → ステータス更新
     const withdrawBtn = e.target.closest('[data-action="withdraw"]');
     if (withdrawBtn) {
-      const actionsEl3 = withdrawBtn.closest('.backoffice-remark__actions');
-      if (actionsEl3) {
-        actionsEl3.innerHTML =
-          '<span class="detail-action-badge detail-action-badge--withdrawn">' +
-            '<i class="fa-solid fa-check"></i> 取り下げ済み' +
-          '</span>';
+      const storeInvoiceId = withdrawBtn.dataset.id;
+      const parentInvoiceId = _detailCurrentInvoiceId;
+      if (!parentInvoiceId) {
+        alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+        return;
       }
+
+      // カスタムモーダルで確認
+      const withdrawModal = document.getElementById('withdrawConfirmModal');
+      const withdrawOk    = document.getElementById('withdrawConfirmOk');
+      const withdrawCancel = document.getElementById('withdrawConfirmCancel');
+      if (!withdrawModal) return;
+      withdrawModal.classList.remove('hidden');
+
+      // イベントリスナーを一度だけ登録（クリーンアップ用）
+      function onCancel() {
+        withdrawModal.classList.add('hidden');
+        cleanup();
+      }
+      function onOk() {
+        withdrawModal.classList.add('hidden');
+        cleanup();
+        executeWithdraw_(withdrawBtn, storeInvoiceId, parentInvoiceId);
+      }
+      function cleanup() {
+        withdrawOk.removeEventListener('click', onOk);
+        withdrawCancel.removeEventListener('click', onCancel);
+      }
+      withdrawOk.addEventListener('click', onOk);
+      withdrawCancel.addEventListener('click', onCancel);
       return;
+    }
+
+    // 取り下げ実行ロジック（モーダル「OK」後に呼ばれる）
+    function executeWithdraw_(withdrawBtn, storeInvoiceId, parentInvoiceId) {
+      const actionsEl3 = withdrawBtn.closest('.backoffice-remark__actions');
+      const accordion3 = withdrawBtn.closest('.store-accordion');
+
+      // アクション領域のボタンをまとめて無効化
+      if (actionsEl3) {
+        actionsEl3.querySelectorAll('button').forEach(function (btn) { btn.disabled = true; });
+      }
+      withdrawBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 処理中...';
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            if (result && result.status === 'error') {
+              alert('取り下げに失敗しました: ' + (result.message || '不明なエラー'));
+              if (actionsEl3) {
+                actionsEl3.querySelectorAll('button').forEach(function (btn) { btn.disabled = false; });
+              }
+              withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
+              return;
+            }
+            // ボタンエリアを取り下げ済みバッジに切り替え
+            if (actionsEl3) {
+              actionsEl3.innerHTML =
+                '<span class="detail-action-badge detail-action-badge--withdrawn">' +
+                  '<i class="fa-solid fa-check"></i> 取り下げ済み' +
+                '</span>';
+            }
+            // ステータスバッジを更新
+            if (accordion3) {
+              const statusEl = accordion3.querySelector('.slh-col--status');
+              if (statusEl) {
+                statusEl.innerHTML = '<span class="detail-status-badge badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済</span>';
+              }
+            }
+          })
+          .withFailureHandler(function (err) {
+            alert('取り下げに失敗しました: ' + (err.message || err));
+            if (actionsEl3) {
+              actionsEl3.querySelectorAll('button').forEach(function (btn) { btn.disabled = false; });
+            }
+            withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
+          })
+          .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
+      } else {
+        // モック
+        console.warn('[withdraw] google.script.run が利用できません（モック）');
+        setTimeout(function () {
+          if (actionsEl3) {
+            actionsEl3.innerHTML =
+              '<span class="detail-action-badge detail-action-badge--withdrawn">' +
+                '<i class="fa-solid fa-check"></i> 取り下げ済み' +
+              '</span>';
+          }
+          if (accordion3) {
+            const statusEl = accordion3.querySelector('.slh-col--status');
+            if (statusEl) {
+              statusEl.innerHTML = '<span class="detail-status-badge badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済</span>';
+            }
+          }
+        }, 800);
+      }
     }
     // 変更なしで再請求 → BE: resubmitWithoutChanges 呼び出し
     const resubmitBtn = e.target.closest('[data-action="resubmit"]');
@@ -3145,7 +3746,7 @@ window.addEventListener('hashchange', navigate);
       const wholesalerHandover4 = handoverInput4 ? (handoverInput4.value || '') : '';
       // 否認（handover入力欄がある）の場合、未入力ならエラー
       if (handoverInput4 && !wholesalerHandover4.trim()) {
-        alert('\u26A0 否認された請求を「変更なしで再申請」する場合は、〈加盟店との合意事項〉の項目を記入ください。');
+        showToast('否認された請求を「変更なしで再申請」する場合は、〈加盟店との合意事項〉の項目を記入ください。', 'error', 8000);
         return;
       }
       showLoadingOverlay('再請求中...');
@@ -3175,83 +3776,7 @@ window.addEventListener('hashchange', navigate);
       }
       return;
     }
-    // 「上記ファイルを登録する」ボタン押下 → resubmitInvoiceData 呼び出し
-    const reuploadSubmitBtn = e.target.closest('[data-action="reupload-submit"]');
-    if (reuploadSubmitBtn) {
-      const storeInvoiceId = reuploadSubmitBtn.dataset.id;
-      const actionsEl5     = reuploadSubmitBtn.closest('.backoffice-remark__actions');
-      const pendingFile    = actionsEl5 && actionsEl5._pendingFile;
-      if (!pendingFile) {
-        alert('ファイルが選択されていません');
-        return;
-      }
-      if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
-        alert('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。');
-        return;
-      }
-      const parentInvoiceId = _detailCurrentInvoiceId;
-      if (!parentInvoiceId) {
-        alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
-        return;
-      }
-      // 否認の場合: wholesaler_handover テキストエリアの内容を取得
-      const bodyEl        = reuploadSubmitBtn.closest('.store-accordion__body');
-      const handoverInput = bodyEl && bodyEl.querySelector('.backoffice-remark__handover-input');
-      const wholesalerHandover = handoverInput ? (handoverInput.value || '') : '';
-      // 対象加盟店の customer_code を特定し、CSV に対象外の加盟店が含まれていないかチェック
-      const accordion5    = reuploadSubmitBtn.closest('.store-accordion');
-      const mallCode5     = accordion5 && accordion5.dataset.mallCode;
-      const mappings5     = getMerchantMappings();
-      const targetCc5     = (mappings5.find(function (m) { return String(m.mall_code) === String(mallCode5); }) || {}).customer_code || '';
-      if (targetCc5 && parsedData) {
-        const csvCodes5 = [];
-        parsedData.forEach(function (row) {
-          const cc = String(row.customer_code || '');
-          if (cc && csvCodes5.indexOf(cc) === -1) csvCodes5.push(cc);
-        });
-        const excessCodes5 = csvCodes5.filter(function (cc) { return cc !== targetCc5; });
-        if (excessCodes5.length > 0) {
-          alert('\u26A0 対象外の加盟店（顧客コード: ' + excessCodes5.join(', ') + '）のデータがCSVに含まれています。\n個別修正アップロードでは対象の加盟店（顧客コード: ' + targetCc5 + '）のみを含めてください。');
-          return;
-        }
-      }
-      // summaryData / remarks を parsedData から構築
-      const summaryData_  = buildResubmitSummaryData_(parsedData, storeInvoiceId);
-      const remarks_      = buildResubmitRemarks_(bodyEl);
-      showLoadingOverlay('登録中...');
-      if (typeof google !== 'undefined' && google.script && google.script.run) {
-        google.script.run
-          .withSuccessHandler(function (result) {
-            hideLoadingOverlay();
-            if (result && result.status === 'error') {
-              alert('登録に失敗しました: ' + (result.message || '不明なエラー'));
-              return;
-            }
-            rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
-            // 詳細画面をリロードして最新データを表示
-            _detailCurrentInvoiceId = null;
-            initDetailPage(parentInvoiceId);
-          })
-          .withFailureHandler(function (err) {
-            hideLoadingOverlay();
-            alert('登録に失敗しました: ' + (err.message || err));
-          })
-          .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData_, remarks_, parentInvoiceId, storeInvoiceId, wholesalerHandover || null);
-      } else {
-        console.warn('[resubmit] google.script.run が利用できません（モック）');
-        console.log('[resubmit] parentInvoiceId:', parentInvoiceId, 'storeInvoiceId:', storeInvoiceId, 'handover:', wholesalerHandover);
-        setTimeout(function () {
-          hideLoadingOverlay();
-          if (actionsEl5) {
-            actionsEl5.innerHTML =
-              '<span class="detail-action-badge detail-action-badge--resubmitted">' +
-                '<i class="fa-solid fa-check"></i> 再請求済み' +
-              '</span>';
-          }
-        }, 1500);
-      }
-      return;
-    }
+    // 旧「上記ファイルを登録する」ハンドラは廃止（モーダル内 Phase 2 で完結）
   });
 }());
 

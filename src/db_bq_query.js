@@ -142,6 +142,7 @@ function fetchInvoiceDetailSummary_(invoiceId, wholesalerId) {
   const sql =
     'SELECT ' +
     '  id, wholesaler_invoice_date, ' +
+    '  FORMAT_TIMESTAMP(\'%Y/%m/%d %H:%M:%S\', created_at, \'Asia/Tokyo\') AS created_at, ' +
     '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
     '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
     '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
@@ -351,6 +352,7 @@ function fetchTargetStoreInvoiceAmounts_(rootInvoiceId, wholesalerId, storeInvoi
  * @throws {Error} クエリエラー時
  */
 function runQuery_(projectId, sql, params) {
+  const queryStart = Date.now();
   const request = {
     query:           sql,
     useLegacySql:    false,
@@ -400,7 +402,7 @@ function runQuery_(projectId, sql, params) {
     pageToken = nextPage.pageToken;
   }
 
-  Logger.log('[BQ] クエリ完了。取得行数: ' + allBqRows.length);
+  logInfo_('BQ', 'runQuery_ 完了: 取得行数=' + allBqRows.length + ', elapsed=' + (Date.now() - queryStart) + 'ms');
 
   // ── ④ rows を {カラム名: 値} のオブジェクト配列に変換 ────────────────────
   return allBqRows.map(function(row) {

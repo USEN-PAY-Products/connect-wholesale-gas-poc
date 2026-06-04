@@ -17,15 +17,13 @@
 
         <!-- 左：請求基本情報 -->
         <div class="detail-summary-meta">
-          <div class="detail-meta-row detail-meta-row--twin">
-            <div class="detail-meta-col">
-              <span class="detail-meta-label">請求月</span>
-              <span class="detail-meta-value" id="summaryBillingMonth">―</span>
-            </div>
-            <div class="detail-meta-col">
-              <span class="detail-meta-label">登録日時</span>
-              <span class="detail-meta-value" id="summaryRegisteredAt">―</span>
-            </div>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">請求月</span>
+            <span class="detail-meta-value" id="summaryBillingMonth">―</span>
+          </div>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">登録日時</span>
+            <span class="detail-meta-value" id="summaryRegisteredAt">―</span>
           </div>
           <div class="detail-meta-row">
             <span class="detail-meta-label">手数料（<span id="summaryFeeRate">-</span>%）<span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">手数料は、卸コネクトサービスの使用料としての料金です。<br>加盟店への請求金額の総額に対して、設定された手数料率をかけることで算出されます。<br>その他、手数料に関するお問い合わせは000-0000-0000までご連絡ください。</span></span></span>
@@ -34,6 +32,10 @@
           <div class="detail-meta-row">
             <span class="detail-meta-label">振込予定金額</span>
             <span class="detail-meta-value"><span id="summaryTransfer" class="summary-value-display">0</span>円</span>
+          </div>
+          <div class="detail-meta-row--handover hidden" id="confirmHandoverRow">
+            <span class="detail-meta-label detail-meta-label--block">USEN PAY社<br>からのコメント</span>
+            <textarea class="detail-handover-textarea" id="confirmHandoverText" readonly placeholder="差し戻しなどが発生した場合は、こちらに申し送り事項が記載される場合があります。"></textarea>
           </div>
         </div>
 

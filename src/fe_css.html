@@ -64,6 +64,20 @@ button { cursor: pointer; font-family: inherit; }
   gap: 8px;
 }
 
+.header-logo-link {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.header-logo-link:hover {
+  opacity: 0.8;
+}
+
 .header-logo {
   font-size: 32px;
   font-style: normal;
@@ -150,20 +164,24 @@ button { cursor: pointer; font-family: inherit; }
 .toast {
   position: fixed;
   top: 96px;
-  right: 32px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   padding: 14px 40px 14px 16px;
   border-radius: 6px;
   font-size: 13px;
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
   z-index: 100;
-  max-width: 480px;
+  width: calc(100% - 64px);
+  max-width: 1200px;
+  white-space: nowrap;
 }
 .toast-content {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
 }
 .toast-title {
@@ -181,9 +199,9 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .toast--error {
-  background: #fff0f0;
-  border: 1px solid #e53935;
-  color: #c62828;
+  background: #FFF0F0;
+  border: 1px solid #DF4C4C;
+  color: #DF4C4C;
 }
 
 .toast--success {
@@ -657,6 +675,22 @@ button { cursor: pointer; font-family: inherit; }
 .btn-file-delete:hover {
   background: #f5f5f5;
 }
+.detail-upload-modal .btn-file-delete {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
+  border: 1.5px solid #bbb;
+  border-radius: 999px;
+  padding: 8px 18px;
+  color: #333;
+}
+.detail-upload-modal .btn-file-delete i {
+  color: #DF4C4C;
+  width: 14px;
+  height: 16px;
+  font-size: 14px;
+}
 
 /* =====================================================
    Upload back modal (warn style)
@@ -675,6 +709,11 @@ button { cursor: pointer; font-family: inherit; }
   box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.06);
   position: relative;
 }
+#withdrawConfirmModal .modal.modal--warn {
+  width: 505px;
+  min-height: 291px;
+  background: #FFF1EC;
+}
 .modal--warn .modal__close {
   position: absolute;
   top: 8px;
@@ -684,6 +723,46 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 20px;
   color: #888;
   cursor: pointer;
+}
+#withdrawConfirmModal .modal__title--warn {
+  color: #FF7846;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 140%;
+}
+#withdrawConfirmModal .modal__title--warn i {
+  color: #FF7846;
+}
+#withdrawConfirmModal .modal__message--warn {
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 120%;
+}
+#withdrawConfirmModal #withdrawConfirmOk {
+  width: 212px;
+  height: 40px;
+  background: #00A7B8;
+  border: none;
+  color: #fff;
+  border-radius: 999px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#withdrawConfirmModal #withdrawConfirmOk:hover {
+  background: #008E9B;
+}
+#withdrawConfirmModal #withdrawConfirmCancel {
+  width: 212px;
+  height: 40px;
+  border-radius: 999px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .modal.modal--warn .modal__title--warn {
   color: #DF4C4C;
@@ -901,7 +980,7 @@ button { cursor: pointer; font-family: inherit; }
 .slh-col--tax8     { width: 105px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 .slh-col--tax10    { width: 105px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 .slh-col--toggle   { width: 24px; text-align: right; flex-shrink: 0; padding: 0; display: flex; justify-content: flex-end; }
-.slh-col--status   { width: 100px; text-align: center; flex-shrink: 0; }
+.slh-col--status   { width: 80px; height: 19px; text-align: center; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 
 /* ヘッダー行の加盟店名は中央寄せ */
 .store-list-header .slh-col--name {
@@ -1430,8 +1509,9 @@ button { cursor: pointer; font-family: inherit; }
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-  width: 560px;
-  max-height: calc(100vh - 120px);
+  width: 866px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 80px);
   overflow-y: auto;
   padding: 28px 32px 24px;
   position: relative;
@@ -1455,14 +1535,19 @@ button { cursor: pointer; font-family: inherit; }
   line-height: 1;
   padding: 4px;
 }
+.calendar-modal__close:focus-visible {
+  outline: 2px solid #00A7B8;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 .calendar-modal__close:hover { color: #333; }
 
 .calendar-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
-  margin-top: 28px;
+  gap: 0;
+  margin-top: 16px;
   margin-bottom: 16px;
 }
 
@@ -1470,15 +1555,23 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   line-height: 1.2;
+  border: 1.5px solid #D7D7D7;
+  border-radius: 0;
+  padding: 6px 16px;
+  width: 231px;
+  height: 40px;
+  box-sizing: border-box;
+  position: relative;
 }
 
 .cal-month-toggle {
   background: none;
   border: none;
   font-size: 18px;
-  color: #555;
+  color: #00A7B8;
   cursor: pointer;
   padding: 4px;
   line-height: 1;
@@ -1489,42 +1582,48 @@ button { cursor: pointer; font-family: inherit; }
 
 .cal-label__year {
   font-family: "Noto Sans JP";
-  font-size: 16px;
+  font-size: 18px;
   font-style: normal;
-  font-weight: 400;
+  font-weight: 500;
   line-height: normal;
   color: #3C3C3C;
-  text-align: center;
-  text-overflow: ellipsis;
 }
 
 .cal-label__month {
   font-family: "Noto Sans JP";
-  font-size: 16px;
+  font-size: 18px;
   font-style: normal;
-  font-weight: 400;
+  font-weight: 500;
   line-height: normal;
   color: #3C3C3C;
-  text-align: center;
-  text-overflow: ellipsis;
 }
 
 .calendar-nav {
   background: none;
-  border: 1.5px solid #ccc;
+  border: 1.5px solid #D7D7D7;
   font-size: 14px;
-  color: #333;
-  width: 28px;
-  height: 28px;
+  color: #00A7B8;
+  width: 36px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s;
 }
-.calendar-nav:hover { background: #f0f0f0; border-color: #999; }
+.calendar-nav:hover { background: #E0F7FA; }
+
+/* 左ボタン: 左側のみ半円 */
+#calPrev {
+  border-radius: 20px 0 0 20px;
+  border-right: none;
+}
+/* 右ボタン: 右側のみ半円 */
+#calNext {
+  border-radius: 0 20px 20px 0;
+  border-left: none;
+}
 
 .calendar-weekdays {
   display: grid;
@@ -1545,23 +1644,49 @@ button { cursor: pointer; font-family: inherit; }
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 64px;
-  gap: 4px;
+  grid-auto-rows: minmax(72px, auto);
+  gap: 2px 0;
 }
 
 .cal-cell {
-  padding: 4px 4px 4px;
+  padding: 4px 2px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  border-radius: 6px;
+  gap: 1px;
+  border-radius: 0;
   position: relative;
   transition: background 0.1s;
+  min-height: 72px;
 }
 
 .cal-cell--empty {
   pointer-events: none;
+}
+
+/* セル角丸（イベント期間の位置に応じた角丸） */
+.cal-cell--start  { border-radius: 8px 0 0 8px; }
+.cal-cell--end    { border-radius: 0 8px 8px 0; }
+.cal-cell--single { border-radius: 8px; }
+.cal-cell--middle { border-radius: 0; }
+
+/* イベント説明テキスト（期間全体にまたがって表示） */
+.cal-event-label {
+  position: absolute;
+  left: 0;
+  font-family: "Noto Sans JP", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: #00A7B8;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: visible;
+  z-index: 1;
+  pointer-events: none;
+  padding: 0 2px;
+  top: 24px;
+  width: 100%;
 }
 
 .cal-cell__num {
@@ -1588,54 +1713,25 @@ button { cursor: pointer; font-family: inherit; }
   border-radius: 50%;
 }
 
-/* イベントあり（position基準） */
+/* イベントあり */
 .cal-cell--has-event {
   position: relative;
-}
-
-/* スケジュール帯（連続色帯） */
-.cal-band {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 6px;
-  bottom: 8px;
-  border-radius: 0;
-  opacity: 0.85;
-}
-.cal-band + .cal-band {
-  bottom: 16px;
-}
-.cal-band + .cal-band + .cal-band {
-  bottom: 24px;
-}
-
-/* 帯の位置による角丸 */
-.cal-band--start {
-  border-radius: 3px 0 0 3px;
-  left: 4px;
-}
-.cal-band--end {
-  border-radius: 0 3px 3px 0;
-  right: 4px;
-}
-.cal-band--single {
-  border-radius: 3px;
-  left: 4px;
-  right: 4px;
-}
-.cal-band--middle {
-  border-radius: 0;
 }
 
 /* 月選択パネル */
 .cal-month-picker {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 0 0 12px 12px;
   padding: 20px 16px;
-  margin-bottom: 12px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
   border: 1px solid #eee;
+  border-top: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  z-index: 10;
 }
 
 .cal-month-picker__year-header {
@@ -1652,9 +1748,12 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .cal-picker-nav {
-  width: 36px;
-  height: 36px;
-  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  border-radius: 50% !important;
+  border: 1.5px solid #D7D7D7 !important;
+  color: #00A7B8;
 }
 
 .cal-month-picker__grid {
@@ -1694,59 +1793,7 @@ button { cursor: pointer; font-family: inherit; }
   background: #0096a5;
 }
 
-/* スケジュールバッジ（レガシー・未使用だが念のため残す） */
-.cal-badge {
-  font-size: 9px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 10px;
-  white-space: nowrap;
-  line-height: 1.5;
-  width: 100%;
-  text-align: center;
-  max-width: 52px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
-/* 請求確定: 赤系 */
-.cal-badge--billing {
-  background: linear-gradient(135deg, #ff5252, #ff9800);
-  color: #fff;
-}
-
-/* 口座振替: 青系 */
-.cal-badge--payment {
-  background: linear-gradient(135deg, #3a7bd5, #00A7B8);
-  color: #fff;
-}
-
-/* カレンダー凡例 */
-.calendar-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
-}
-.calendar-legend__item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: #555;
-}
-.cal-legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.cal-legend-dot--upload    { background: #FFB74D; }
-.cal-legend-dot--correction { background: #FFD54F; }
-.cal-legend-dot--billing   { background: linear-gradient(135deg, #ff5252, #ff9800); }
-.cal-legend-dot--payment   { background: linear-gradient(135deg, #3a7bd5, #00A7B8); }
 
 /* =====================================================
    Home: 請求履歴テーブル
@@ -2068,7 +2115,7 @@ button { cursor: pointer; font-family: inherit; }
   position: relative;
   background: #FFF;
   border-radius: 12px;
-  width: 560px;
+  width: 1121px;
   max-width: 90vw;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   display: flex;
@@ -2160,7 +2207,7 @@ button { cursor: pointer; font-family: inherit; }
 .detail-upload-modal__footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid #E8E8E8;
@@ -2209,26 +2256,54 @@ button { cursor: pointer; font-family: inherit; }
 /* 取り下げ済み / 再請求済みバッジ */
 .detail-action-badge {
   display: flex;
-  width: 197px;
-  height: 36px;
-  padding: 8px 16px;
+  height: 32px;
+  padding: 0 14px;
   justify-content: center;
   align-items: center;
   gap: 6px;
-  border-radius: 40px;
-  font-size: 14px;
+  border-radius: 6px;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }
 .detail-action-badge--withdrawn {
-  border: 1px solid #D9D9D9;
-  background: #FFF;
-  color: #888;
+  border: 1px solid #159E85;
+  background: #CDF6EF;
+  color: #159E85;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
 }
 .detail-action-badge--resubmitted {
   border: 1px solid #159E85;
-  background: #159E85;
-  color: #FFF;
+  background: #CDF6EF;
+  color: #159E85;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* 否認セクション アクションボタン共通 */
+.detail-action-btn {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
+}
+.detail-action-btn--withdraw {
+  color: #3C3C3C;
+}
+.detail-action-btn__icon--danger {
+  color: #DF4C4C;
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+}
+.detail-action-btn__icon--primary {
+  color: #00A7B8;
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
 }
 
 /* =============================================================================
@@ -2398,9 +2473,13 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: baseline;
   gap: 12px;
+  white-space: nowrap;
 }
 .detail-meta-col .detail-meta-label {
   min-width: auto;
+}
+.detail-meta-col:nth-child(2) {
+  margin-left: 24px;
 }
 
 .detail-meta-label {
@@ -2999,4 +3078,85 @@ button { cursor: pointer; font-family: inherit; }
   border-radius: 4px;
 }
 
+/* 取り下げ済 */
+.badge--withdrawn {
+  color: #159E85;
+  background: #CDF6EF;
+  border-radius: 4px;
+}
+.badge--withdrawn i {
+  color: #159E85;
+}
+
+/* ================================================================
+   モーダル内 Phase 2 プレビュー
+   ================================================================ */
+.detail-upload-preview {
+  padding: 0;
+}
+.preview-target-store {
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.preview-target-store__label {
+  font-weight: 600;
+}
+.preview-target-store__name {
+  font-weight: 400;
+}
+.preview-file-info {
+  margin-bottom: 20px;
+}
+.preview-card {
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  margin-bottom: 20px;
+}
+.preview-detail-accordion {
+  margin: 0;
+}
+.detail-upload-preview .store-accordion {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #E0E0E0;
+}
+.preview-detail-accordion .detail-accordion__body {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.preview-detail-accordion .detail-table thead th {
+  position: sticky;
+  top: 0;
+  background: #EAEBED;
+  z-index: 1;
+}
+.preview-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0 0;
+}
+.preview-oath {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #3C3C3C;
+  cursor: pointer;
+}
+.preview-oath input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+.preview-submit-btn {
+  min-width: 200px;
+  text-align: center;
+}
+.preview-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>
