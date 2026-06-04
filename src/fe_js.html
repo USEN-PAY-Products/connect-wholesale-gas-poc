@@ -3128,6 +3128,7 @@ window.addEventListener('hashchange', navigate);
       }
 
       // --- 追加バリデーション: 加盟店の網羅性チェック ---
+      const bulkWarnings = [];
       if (errors.length === 0 && rows && rows.length > 0) {
         const csvCustomerCodes = {};
         rows.forEach(function (row) { csvCustomerCodes[String(row.customer_code || '')] = true; });
@@ -3143,8 +3144,6 @@ window.addEventListener('hashchange', navigate);
         mappings.forEach(function (m) {
           if (m.mall_code && m.customer_code) mallToCustomer[String(m.mall_code)] = String(m.customer_code);
         });
-
-        const bulkWarnings = [];
         if (_isBulk) {
           // 一括アップロード: 要対応全加盟店の網羅性チェック
           const returnedOnlySet = new Set((_detailReturnedOnlyMallCodes || []).map(String));
