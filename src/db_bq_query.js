@@ -352,7 +352,7 @@ function fetchTargetStoreInvoiceAmounts_(rootInvoiceId, wholesalerId, storeInvoi
  * @throws {Error} クエリエラー時
  */
 function runQuery_(projectId, sql, params) {
-  var queryStart = Date.now();
+  const queryStart = Date.now();
   const request = {
     query:           sql,
     useLegacySql:    false,
@@ -402,7 +402,7 @@ function runQuery_(projectId, sql, params) {
     pageToken = nextPage.pageToken;
   }
 
-  logInfo('BQ', 'runQuery_ 完了: 取得行数=' + allBqRows.length + ', elapsed=' + (Date.now() - queryStart) + 'ms');
+  logInfo_('BQ', 'runQuery_ 完了: 取得行数=' + allBqRows.length + ', elapsed=' + (Date.now() - queryStart) + 'ms');
 
   // ── ④ rows を {カラム名: 値} のオブジェクト配列に変換 ────────────────────
   return allBqRows.map(function(row) {

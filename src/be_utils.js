@@ -15,7 +15,7 @@
  * @param {string} tag - ログのカテゴリタグ (例: "Invoice", "Auth", "BQ")
  * @param {string} message - ログメッセージ
  */
-function logInfo(tag, message) {
+function logInfo_(tag, message) {
   Logger.log('[INFO][' + tag + '] ' + message);
 }
 
@@ -25,8 +25,8 @@ function logInfo(tag, message) {
  * @param {string} message - ログメッセージ
  * @param {Error} [error] - エラーオブジェクト（任意）
  */
-function logError(tag, message, error) {
-  var errorDetail = error
+function logError_(tag, message, error) {
+  const errorDetail = error
     ? message + ': ' + error.message + '\n' + (error.stack || '')
     : message;
   Logger.log('[ERROR][' + tag + '] ' + errorDetail);

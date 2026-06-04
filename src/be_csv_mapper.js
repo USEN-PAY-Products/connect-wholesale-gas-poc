@@ -87,7 +87,7 @@
  */
 function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   if (!csvFormatRules || !Array.isArray(csvFormatRules.columns)) {
-    logError('CsvMapper', 'validateCsvHeaderByRules_: csv_format_rules が新形式ではありません');
+    logError_('CsvMapper', 'validateCsvHeaderByRules_: csv_format_rules が新形式ではありません');
     throw new Error(
       '[CsvMapper] csv_format_rules が新形式ではありません。' +
       'columns 配列が存在するか確認してください。'
@@ -188,14 +188,14 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   });
 
   if (errors.length > 0) {
-    logError('CsvMapper', 'validateCsvHeaderByRules_: format=dynamic, columns=' + csvHeaders.length + ', エラー' + errors.length + '件');
+    logError_('CsvMapper', 'validateCsvHeaderByRules_: format=dynamic, columns=' + csvHeaders.length + ', エラー' + errors.length + '件');
     throw new Error(
       '[CsvMapper] CSVヘッダー検証エラー（' + errors.length + '件）:\n' +
       errors.map(function(e, i) { return '  ' + (i + 1) + '. ' + e; }).join('\n')
     );
   }
 
-  logInfo('CsvMapper', 'validateCsvHeaderByRules_: format=dynamic, columns=' + csvHeaders.length + ', OK');
+  logInfo_('CsvMapper', 'validateCsvHeaderByRules_: format=dynamic, columns=' + csvHeaders.length + ', OK');
 }
 
 
