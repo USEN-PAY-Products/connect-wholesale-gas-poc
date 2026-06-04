@@ -542,11 +542,11 @@ function buildScheduleMap(items) {
 function buildCellBackground(events) {
   if (!events || events.length === 0) return '';
   if (events.length === 1) return events[0].color;
-  var n = events.length;
-  var stops = [];
+  const n = events.length;
+  const stops = [];
   events.forEach(function(ev, i) {
-    var from = (100 * i / n).toFixed(2) + '%';
-    var to   = (100 * (i + 1) / n).toFixed(2) + '%';
+    const from = (100 * i / n).toFixed(2) + '%';
+    const to   = (100 * (i + 1) / n).toFixed(2) + '%';
     stops.push(ev.color + ' ' + from, ev.color + ' ' + to);
   });
   return 'linear-gradient(to bottom, ' + stops.join(', ') + ')';
@@ -557,7 +557,7 @@ function buildCellBackground(events) {
  */
 function getCellPosClass(events) {
   if (!events || events.length === 0) return '';
-  var posSet = new Set(events.map(function(e) { return e.pos; }));
+  const posSet = new Set(events.map(function(e) { return e.pos; }));
   if (posSet.has('single')) return 'cal-cell--single';
   if (posSet.has('start') && posSet.has('end')) return 'cal-cell--single';
   if (posSet.has('start')) return 'cal-cell--start';
@@ -623,22 +623,22 @@ function renderCalendar() {
     const events = scheduleMap[key] || [];
     if (events.length > 0) {
       cell.style.background = buildCellBackground(events);
-      var posClass = getCellPosClass(events);
+      const posClass = getCellPosClass(events);
       if (posClass) cell.classList.add(posClass);
 
       // テキスト表示条件: start/single、または週の先頭（日曜日）の場合のみ表示
       // テキストは期間全体（週末or終了日まで）にまたがって中央表示
-      var currentDate = new Date(calYear, calMonth, d);
-      var dayOfWeek = currentDate.getDay(); // 0=日曜
+      const currentDate = new Date(calYear, calMonth, d);
+      const dayOfWeek = currentDate.getDay(); // 0=日曜
       events.forEach(function(ev) {
-        var showLabel = (ev.pos === 'start' || ev.pos === 'single' || dayOfWeek === 0);
+        const showLabel = (ev.pos === 'start' || ev.pos === 'single' || dayOfWeek === 0);
         if (showLabel && ev.title) {
           // この週内でイベントが続く日数を計算（土曜 or 終了日 or 月末のいずれか早い方まで）
-          var daysUntilSat = 6 - dayOfWeek;
-          var daysUntilEnd = Math.round((ev.endDate - currentDate) / 86400000);
-          var daysUntilMonthEnd = lastDate - d;
-          var span = Math.min(daysUntilSat, daysUntilEnd, daysUntilMonthEnd) + 1;
-          var lbl = document.createElement('span');
+          const daysUntilSat = 6 - dayOfWeek;
+          const daysUntilEnd = Math.round((ev.endDate - currentDate) / 86400000);
+          const daysUntilMonthEnd = lastDate - d;
+          const span = Math.min(daysUntilSat, daysUntilEnd, daysUntilMonthEnd) + 1;
+          const lbl = document.createElement('span');
           lbl.className = 'cal-event-label';
           lbl.textContent = ev.title;
           if (span > 1) {
@@ -726,22 +726,43 @@ function toggleMonthPicker_() {
     picker.classList.toggle('hidden');
     if (!picker.classList.contains('hidden')) {
       renderMonthPicker_();
-      // 外側クリックで閉じる
+      // 外側クリック・Escで閉じる
       setTimeout(function() {
         document.addEventListener('click', _closePickerOnOutsideClick);
+        document.addEventListener('keydown', _closePickerOnEscape);
       }, 0);
     } else {
-      document.removeEventListener('click', _closePickerOnOutsideClick);
+      _removePickerListeners();
     }
   }
 }
 
+/** ピッカー関連リスナーを確実に解除する */
+function _removePickerListeners() {
+  document.removeEventListener('click', _closePickerOnOutsideClick);
+  document.removeEventListener('keydown', _closePickerOnEscape);
+}
+
 function _closePickerOnOutsideClick(e) {
-  var picker = document.getElementById('calMonthPicker');
-  if (picker && !picker.contains(e.target)) {
-    picker.classList.add('hidden');
-    document.removeEventListener('click', _closePickerOnOutsideClick);
+  const picker = document.getElementById('calMonthPicker');
+  if (!picker) {
+    // DOMから消えている場合もリスナーを解除
+    _removePickerListeners();
+    return;
   }
+  if (!picker.contains(e.target)) {
+    picker.classList.add('hidden');
+    _removePickerListeners();
+  }
+}
+
+function _closePickerOnEscape(e) {
+  if (e.key !== 'Escape') return;
+  const picker = document.getElementById('calMonthPicker');
+  if (picker) {
+    picker.classList.add('hidden');
+  }
+  _removePickerListeners();
 }
 
 // =============================================================================
