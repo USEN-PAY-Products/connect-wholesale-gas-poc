@@ -524,6 +524,7 @@ function buildScheduleMap(items) {
         color: item.display_color_code || '#ccc',
         event_type: item.event_type,
         pos: pos,
+        endDate: new Date(item.end_at),
       });
     }
   });
@@ -532,6 +533,37 @@ function buildScheduleMap(items) {
 // =============================================================================
 // Home page: カレンダー描画
 // =============================================================================
+
+/**
+ * イベント配列からセル背景色を生成
+ * - 1件: ベタ塗り
+ * - 2件以上: 均等分割 linear-gradient
+ */
+function buildCellBackground(events) {
+  if (!events || events.length === 0) return '';
+  if (events.length === 1) return events[0].color;
+  var n = events.length;
+  var stops = [];
+  events.forEach(function(ev, i) {
+    var from = (100 * i / n).toFixed(2) + '%';
+    var to   = (100 * (i + 1) / n).toFixed(2) + '%';
+    stops.push(ev.color + ' ' + from, ev.color + ' ' + to);
+  });
+  return 'linear-gradient(to bottom, ' + stops.join(', ') + ')';
+}
+
+/**
+ * イベント配列からセルに付与する角丸クラスを決定
+ */
+function getCellPosClass(events) {
+  if (!events || events.length === 0) return '';
+  var posSet = new Set(events.map(function(e) { return e.pos; }));
+  if (posSet.has('single')) return 'cal-cell--single';
+  if (posSet.has('start') && posSet.has('end')) return 'cal-cell--single';
+  if (posSet.has('start')) return 'cal-cell--start';
+  if (posSet.has('end')) return 'cal-cell--end';
+  return 'cal-cell--middle';
+}
 
 function renderCalendar() {
   const label = document.getElementById('calMonthLabel');
@@ -587,18 +619,34 @@ function renderCalendar() {
     num.textContent = String(d);
     cell.appendChild(num);
 
-    // スケジュール帯（連続する日を色帯としてつなげる）
+    // スケジュール背景色 + イベント説明テキスト
     const events = scheduleMap[key] || [];
-    events.forEach(ev => {
-      const band = document.createElement('div');
-      band.className = 'cal-band cal-band--' + ev.pos;
-      band.style.background = ev.color;
-      band.title = ev.title || '';
-      band.setAttribute('aria-label', ev.title || '');
-      cell.appendChild(band);
-    });
-
     if (events.length > 0) {
+      cell.style.background = buildCellBackground(events);
+      var posClass = getCellPosClass(events);
+      if (posClass) cell.classList.add(posClass);
+
+      // テキスト表示条件: start/single、または週の先頭（日曜日）の場合のみ表示
+      // テキストは期間全体（週末or終了日まで）にまたがって中央表示
+      var currentDate = new Date(calYear, calMonth, d);
+      var dayOfWeek = currentDate.getDay(); // 0=日曜
+      events.forEach(function(ev) {
+        var showLabel = (ev.pos === 'start' || ev.pos === 'single' || dayOfWeek === 0);
+        if (showLabel && ev.title) {
+          // この週内でイベントが続く日数を計算（土曜 or 終了日 or 月末のいずれか早い方まで）
+          var daysUntilSat = 6 - dayOfWeek;
+          var daysUntilEnd = Math.round((ev.endDate - currentDate) / 86400000);
+          var daysUntilMonthEnd = lastDate - d;
+          var span = Math.min(daysUntilSat, daysUntilEnd, daysUntilMonthEnd) + 1;
+          var lbl = document.createElement('span');
+          lbl.className = 'cal-event-label';
+          lbl.textContent = ev.title;
+          if (span > 1) {
+            lbl.style.width = 'calc(' + span + ' * 100%)';
+          }
+          cell.appendChild(lbl);
+        }
+      });
       cell.classList.add('cal-cell--has-event');
     }
 
@@ -610,8 +658,8 @@ function renderCalendar() {
 let _pickerYear = null; // 月選択パネルで表示中の年
 
 function renderMonthPicker_() {
-  const modal = document.querySelector('.calendar-modal');
-  if (!modal) return;
+  const labelEl = document.getElementById('calMonthLabel');
+  if (!labelEl) return;
   if (_pickerYear === null) _pickerYear = calYear;
 
   let picker = document.getElementById('calMonthPicker');
@@ -619,7 +667,8 @@ function renderMonthPicker_() {
     picker = document.createElement('div');
     picker.id = 'calMonthPicker';
     picker.className = 'cal-month-picker hidden';
-    modal.insertBefore(picker, modal.querySelector('.calendar-weekdays'));
+    picker.addEventListener('click', function(e) { e.stopPropagation(); });
+    labelEl.appendChild(picker);
   }
   picker.innerHTML = '';
 
@@ -647,8 +696,8 @@ function renderMonthPicker_() {
   });
 
   // 月グリッド（4x3）
-  const grid = document.createElement('div');
-  grid.className = 'cal-month-picker__grid';
+  const monthGrid = document.createElement('div');
+  monthGrid.className = 'cal-month-picker__grid';
   const today = new Date();
   for (let m = 0; m < 12; m++) {
     const btn = document.createElement('button');
@@ -665,9 +714,9 @@ function renderMonthPicker_() {
       picker.classList.add('hidden');
       renderCalendar();
     });
-    grid.appendChild(btn);
+    monthGrid.appendChild(btn);
   }
-  picker.appendChild(grid);
+  picker.appendChild(monthGrid);
 }
 
 function toggleMonthPicker_() {
@@ -677,7 +726,21 @@ function toggleMonthPicker_() {
     picker.classList.toggle('hidden');
     if (!picker.classList.contains('hidden')) {
       renderMonthPicker_();
+      // 外側クリックで閉じる
+      setTimeout(function() {
+        document.addEventListener('click', _closePickerOnOutsideClick);
+      }, 0);
+    } else {
+      document.removeEventListener('click', _closePickerOnOutsideClick);
     }
+  }
+}
+
+function _closePickerOnOutsideClick(e) {
+  var picker = document.getElementById('calMonthPicker');
+  if (picker && !picker.contains(e.target)) {
+    picker.classList.add('hidden');
+    document.removeEventListener('click', _closePickerOnOutsideClick);
   }
 }
 
