@@ -87,6 +87,7 @@
  */
 function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   if (!csvFormatRules || !Array.isArray(csvFormatRules.columns)) {
+    logError_('CsvMapper', 'validateCsvHeaderByRules_: csv_format_rules が新形式ではありません');
     throw new Error(
       '[CsvMapper] csv_format_rules が新形式ではありません。' +
       'columns 配列が存在するか確認してください。'
@@ -187,16 +188,14 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   });
 
   if (errors.length > 0) {
+    logError_('CsvMapper', 'validateCsvHeaderByRules_: format=dynamic, columns=' + csvHeaders.length + ', エラー' + errors.length + '件');
     throw new Error(
       '[CsvMapper] CSVヘッダー検証エラー（' + errors.length + '件）:\n' +
       errors.map(function(e, i) { return '  ' + (i + 1) + '. ' + e; }).join('\n')
     );
   }
 
-  Logger.log(
-    '[CsvMapper] ヘッダー検証OK: ' + csvHeaders.length + '列確認 / ' +
-    'required列: ' + columns.filter(function(c) { return c.required; }).length + '件'
-  );
+  logInfo_('CsvMapper', 'validateCsvHeaderByRules_: format=dynamic, columns=' + csvHeaders.length + ', OK');
 }
 
 

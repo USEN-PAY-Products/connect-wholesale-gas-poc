@@ -7,6 +7,57 @@
 // =============================================================================
 
 // =============================================================================
+// ログ出力
+// =============================================================================
+
+/** ログメッセージの最大文字数 */
+const LOG_MAX_LENGTH_ = 1000;
+
+/**
+ * ログメッセージをサニタイズする（改行エスケープ＋長さ上限トリム）。
+ * @param {string} msg
+ * @returns {string}
+ */
+function sanitizeLogMessage_(msg) {
+  const escaped = String(msg).replace(/\r?\n/g, '\\n').replace(/\r/g, '\\r');
+  if (escaped.length <= LOG_MAX_LENGTH_) return escaped;
+  return escaped.slice(0, LOG_MAX_LENGTH_) + '...(truncated)';
+}
+
+/**
+ * INFOレベルのログを出力する。
+ * @param {string} tag - ログのカテゴリタグ (例: "Invoice", "Auth", "BQ")
+ * @param {string} message - ログメッセージ
+ */
+function logInfo_(tag, message) {
+  Logger.log('[INFO][' + tag + '] ' + sanitizeLogMessage_(message));
+}
+
+/**
+ * ERRORレベルのログを出力する。
+ * @param {string} tag - ログのカテゴリタグ
+ * @param {string} message - ログメッセージ
+ * @param {*} [error] - エラーオブジェクトまたは任意の値（文字列・オブジェクト等も可）
+ */
+function logError_(tag, message, error) {
+  let errorDetail;
+  if (error == null) {
+    errorDetail = message;
+  } else if (error instanceof Error) {
+    errorDetail = message + ': ' + error.message + '\\n' + (error.stack || '');
+  } else if (typeof error === 'string') {
+    errorDetail = message + ': ' + error;
+  } else {
+    try {
+      errorDetail = message + ': ' + JSON.stringify(error);
+    } catch (_) {
+      errorDetail = message + ': ' + String(error);
+    }
+  }
+  Logger.log('[ERROR][' + tag + '] ' + sanitizeLogMessage_(errorDetail));
+}
+
+// =============================================================================
 // レスポンス整形
 // =============================================================================
 

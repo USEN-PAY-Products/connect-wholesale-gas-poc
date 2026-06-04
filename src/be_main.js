@@ -12,7 +12,7 @@
 function doGet(e) {
   return HtmlService.createTemplateFromFile('fe_index')
     .evaluate()
-    .setTitle('Shiire System')
+    .setTitle('仕入れコネクト Portal Site')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 

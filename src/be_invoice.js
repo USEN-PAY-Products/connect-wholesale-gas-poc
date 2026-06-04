@@ -68,17 +68,20 @@ function validateCsvHeader_(csvText, expected) {
   const headerLine   = firstNewline === -1 ? csvText : csvText.slice(0, firstNewline);
   const cols         = parseCsvLine_(headerLine.replace(/^\uFEFF/, '').replace(/\r$/, ''));
   if (cols.length !== expected.length) {
+    logError_('Invoice', 'validateCsvHeader_: format=default, columns=' + cols.length + ' (期待値: ' + expected.length + ')');
     throw new Error(
       'CSVヘッダーの列数が不正です（' + cols.length + '列 / 期待値: ' + expected.length + '列）'
     );
   }
   expected.forEach((name, idx) => {
     if (cols[idx] !== name) {
+      logError_('Invoice', 'validateCsvHeader_: ' + (idx + 1) + '列目不正 期待値="' + name + '" 実際="' + cols[idx] + '"');
       throw new Error(
         'CSVヘッダー ' + (idx + 1) + '列目が不正: 期待値="' + name + '" 実際="' + cols[idx] + '"'
       );
     }
   });
+  logInfo_('Invoice', 'validateCsvHeader_: format=default, columns=' + cols.length + ', OK');
 }
 
 /**
@@ -477,6 +480,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
 function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover) {
   try {
     const accountInfo = getServerAccountInfo_();
+    logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
     const mappings    = accountInfo.merchant_mappings || [];
 
     if (!rawCsvBase64)  throw new Error('rawCsvBase64 が空です');
@@ -554,12 +558,13 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     try {
       dropStagingTable_(projectId, datasetId, stagingId);
     } catch (dropErr) {
-      Logger.log('[BQ] ⚠️ staging DROP 失敗: ' + dropErr.message);
+      logError_('Invoice', 'resubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
     }
 
-    Logger.log('[resubmitInvoiceData] 完了: parentInvoiceId=' + parentInvoiceId);
+    logInfo_('Invoice', 'resubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
   } catch (err) {
+    logError_('Invoice', 'resubmitInvoiceData', err);
     throw new Error('resubmitInvoiceData failed: ' + err.message);
   }
 }
@@ -729,6 +734,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
 function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers) {
   try {
     const accountInfo = getServerAccountInfo_();
+    logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
     const mappings    = accountInfo.merchant_mappings || [];
 
     if (!rawCsvBase64)     throw new Error('rawCsvBase64 が空です');
@@ -806,12 +812,13 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     try {
       dropStagingTable_(projectId, datasetId, stagingId);
     } catch (dropErr) {
-      Logger.log('[BQ] ⚠️ staging DROP 失敗: ' + dropErr.message);
+      logError_('Invoice', 'bulkResubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
     }
 
-    Logger.log('[bulkResubmitInvoiceData] 完了: parentInvoiceId=' + parentInvoiceId);
+    logInfo_('Invoice', 'bulkResubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
   } catch (err) {
+    logError_('Invoice', 'bulkResubmitInvoiceData', err);
     throw new Error('bulkResubmitInvoiceData failed: ' + err.message);
   }
 }
@@ -849,9 +856,11 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  * @throws {Error} Drive 操作または BQ 書き込み失敗時
  */
 function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
+  const totalStart = Date.now();
   try {
     // ── サーバー側から卸情報を取得（改ざん不可）──────────────────────────
     const accountInfo = getServerAccountInfo_();
+    logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', merchantTotals_count=' + (summaryData && summaryData.merchantTotals ? summaryData.merchantTotals.length : 0));
     const mappings    = accountInfo.merchant_mappings || [];
 
     // ── 入力バリデーション ────────────────────────────────────────────────
@@ -906,6 +915,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     const now       = new Date();
 
     // ── ① Drive 保存（rawCsvBase64: 元ファイルのバイト列をそのまま保存）──────
+    const driveStart = Date.now();
     const rawBytes    = Utilities.base64Decode(rawCsvBase64);
     const rootFolder  = DriveApp.getFolderById(config.driveFolderId);
     const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
@@ -915,14 +925,16 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
     const csvFile     = monthFolder.createFile(saveBlob);
     const csvUrl      = csvFile.getUrl();
-    Logger.log('[Drive] 保存完了: ' + csvUrl);
+    logInfo_('Invoice', 'sendInvoiceData Drive保存完了: ' + (Date.now() - driveStart) + 'ms, url=' + csvUrl);
 
     // ── ③ 生CSV を BQ Load Job で staging テーブルへ投入（utf8Bytes を使用）──
-    Logger.log('[BQ] Load Job 投入: stagingId=' + stagingId);
+    const loadJobStart = Date.now();
+    logInfo_('Invoice', 'sendInvoiceData Load Job 投入: stagingId=' + stagingId);
     const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema, location);
 
     // ── ⑤ Load Job 完了待ち（ポーリング）────────────────────────
     waitForLoadJob_(projectId, jobId, location);
+    logInfo_('Invoice', 'sendInvoiceData Load Job完了: ' + (Date.now() - loadJobStart) + 'ms');
 
     // ── ⑤ BEGIN TRANSACTION で子・孫・親を一括 INSERT ───────────────────
     // csv_format_rules の形式により SQL 組み立て関数を切り替える。
@@ -941,21 +953,26 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
         accountInfo, mallCodeMap, csvUrl, projectId, datasetId
       );
     }
-    Logger.log('[BQ] トランザクション SQL 実行: invoiceUuid=' + invoiceUuid);
+    const txStart = Date.now();
+    logInfo_('Invoice', 'sendInvoiceData トランザクション SQL 実行: invoiceUuid=' + invoiceUuid);
     Logger.log('[BQ] SQL全文:\n' + sql);
     runTransactionSql_(projectId, sql);
+    logInfo_('Invoice', 'sendInvoiceData トランザクション完了: ' + (Date.now() - txStart) + 'ms');
 
     // ── ⑥ staging テーブルを DROP（TRANSACTION 外）─────────────────────
     // DROP 失敗はフロントにエラーを返さない（DB への登録は完了しているため）
+    const dropStart = Date.now();
     try {
       dropStagingTable_(projectId, datasetId, stagingId);
+      logInfo_('Invoice', 'sendInvoiceData staging DROP完了: ' + (Date.now() - dropStart) + 'ms');
     } catch (dropErr) {
-      Logger.log('[BQ] ⚠️ staging DROP 失敗（手動削除が必要）: ' + dropErr.message);
+      logError_('Invoice', 'sendInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
     }
 
-    Logger.log('[sendInvoiceData] 完了: invoiceUuid=' + invoiceUuid);
+    logInfo_('Invoice', 'sendInvoiceData 完了: invoiceUuid=' + invoiceUuid + ', total=' + (Date.now() - totalStart) + 'ms');
     return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
   } catch (err) {
+    logError_('Invoice', 'sendInvoiceData', err);
     throw new Error('sendInvoiceData failed: ' + err.message);
   }
 }
@@ -978,6 +995,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
 function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover) {
   try {
     const accountInfo  = getServerAccountInfo_();
+    logInfo_('Invoice', 'resubmitWithoutChanges 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
     if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
@@ -1017,9 +1035,10 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     Logger.log('[BQ] resubmitWithoutChanges SQL: ' + sql);
     runTransactionSql_(projectId, sql);
 
-    Logger.log('[resubmitWithoutChanges] 完了: storeInvoiceId=' + storeInvoiceId);
+    logInfo_('Invoice', 'resubmitWithoutChanges 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
+    logError_('Invoice', 'resubmitWithoutChanges', err);
     throw new Error('resubmitWithoutChanges failed: ' + err.message);
   }
 }
@@ -1039,6 +1058,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
 function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
   try {
     const accountInfo  = getServerAccountInfo_();
+    logInfo_('Invoice', 'withdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
     if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
@@ -1065,9 +1085,10 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     Logger.log('[BQ] withdrawStoreInvoice SQL: ' + sql);
     runTransactionSql_(projectId, sql);
 
-    Logger.log('[withdrawStoreInvoice] 完了: storeInvoiceId=' + storeInvoiceId);
+    logInfo_('Invoice', 'withdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
+    logError_('Invoice', 'withdrawStoreInvoice', err);
     throw new Error('withdrawStoreInvoice failed: ' + err.message);
   }
 }
@@ -1087,9 +1108,13 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
 function fetchInvoices() {
   try {
     const accountInfo  = getServerAccountInfo_();
+    logInfo_('Invoice', 'fetchInvoices 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
     const wholesalerId = accountInfo.wholesaler_id;
-    return success_(fetchInvoicesByWholesaler_(wholesalerId));
+    const result = fetchInvoicesByWholesaler_(wholesalerId);
+    logInfo_('Invoice', 'fetchInvoices 完了: 取得件数=' + (result ? result.length : 0));
+    return success_(result);
   } catch (err) {
+    logError_('Invoice', 'fetchInvoices', err);
     throw new Error('fetchInvoices failed: ' + err.message);
   }
 }
@@ -1111,12 +1136,18 @@ function fetchInvoiceDetail(invoiceId) {
   try {
     if (!invoiceId) throw new Error('invoiceId が指定されていません');
     const accountInfo  = getServerAccountInfo_(); // ログインユーザーの権限検証
+    logInfo_('Invoice', 'fetchInvoiceDetail 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', invoiceId=' + invoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
     const summary = fetchInvoiceDetailSummary_(invoiceId, wholesalerId);
-    if (!summary) return success_(null); // 自分の請求書でない or 存在しない
+    if (!summary) {
+      logInfo_('Invoice', 'fetchInvoiceDetail: 該当なし invoiceId=' + invoiceId);
+      return success_(null);
+    }
     const stores = fetchStoreInvoicesByParent_(invoiceId, wholesalerId);
+    logInfo_('Invoice', 'fetchInvoiceDetail 完了: stores_count=' + (stores ? stores.length : 0));
     return success_({ summary: summary, stores: stores });
   } catch (err) {
+    logError_('Invoice', 'fetchInvoiceDetail', err);
     throw new Error('fetchInvoiceDetail failed: ' + err.message);
   }
 }
@@ -1132,9 +1163,13 @@ function getInvoiceLinesByStore(storeInvoiceId) {
   try {
     if (!storeInvoiceId) throw new Error('storeInvoiceId が指定されていません');
     const accountInfo  = getServerAccountInfo_(); // ログインユーザーの権限検証
+    logInfo_('Invoice', 'getInvoiceLinesByStore 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
-    return success_(fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId));
+    const result = fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId);
+    logInfo_('Invoice', 'getInvoiceLinesByStore 完了: 取得件数=' + (result ? result.length : 0));
+    return success_(result);
   } catch (err) {
+    logError_('Invoice', 'getInvoiceLinesByStore', err);
     throw new Error('getInvoiceLinesByStore failed: ' + err.message);
   }
 }
@@ -1151,10 +1186,13 @@ function getInvoiceLinesByStore(storeInvoiceId) {
 function fetchScheduleData() {
   try {
     const accountInfo  = getServerAccountInfo_();
+    logInfo_('Invoice', 'fetchScheduleData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
     const wholesalerId = accountInfo.wholesaler_id;
     const rows = fetchBusinessCalendar_(wholesalerId);
+    logInfo_('Invoice', 'fetchScheduleData 完了: 取得件数=' + (rows ? rows.length : 0));
     return success_(rows || []);
   } catch (err) {
+    logError_('Invoice', 'fetchScheduleData', err);
     throw new Error('fetchScheduleData failed: ' + err.message);
   }
 }
