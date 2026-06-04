@@ -41,7 +41,7 @@ function logInfo_(tag, message) {
  */
 function logError_(tag, message, error) {
   let errorDetail;
-  if (!error) {
+  if (error == null) {
     errorDetail = message;
   } else if (error instanceof Error) {
     errorDetail = message + ': ' + error.message + '\\n' + (error.stack || '');

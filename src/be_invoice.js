@@ -558,7 +558,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     try {
       dropStagingTable_(projectId, datasetId, stagingId);
     } catch (dropErr) {
-      Logger.log('[BQ] ⚠️ staging DROP 失敗: ' + dropErr.message);
+      logError_('Invoice', 'resubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
     }
 
     logInfo_('Invoice', 'resubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
@@ -812,7 +812,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     try {
       dropStagingTable_(projectId, datasetId, stagingId);
     } catch (dropErr) {
-      Logger.log('[BQ] ⚠️ staging DROP 失敗: ' + dropErr.message);
+      logError_('Invoice', 'bulkResubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
     }
 
     logInfo_('Invoice', 'bulkResubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
