@@ -3740,6 +3740,12 @@ window.addEventListener('hashchange', navigate);
             withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
           })
           .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
+      } else {
+        alert('サーバーとの接続が確立できません。ページを再読み込みしてください。');
+        if (actionsEl3) {
+          actionsEl3.querySelectorAll('button').forEach(function (btn) { btn.disabled = false; });
+        }
+        withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
       }
     }
 
@@ -3804,6 +3810,10 @@ window.addEventListener('hashchange', navigate);
             undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
           })
           .undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
+      } else {
+        alert('サーバーとの接続が確立できません。ページを再読み込みしてください。');
+        undoWithdrawBtn.disabled = false;
+        undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
       }
     }
 
