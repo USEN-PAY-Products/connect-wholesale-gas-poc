@@ -2371,7 +2371,7 @@ function initDetailPage(invoiceId) {
   showLoadingOverlay('請求詳細を取得中...');
 
   // ペンディングトースト: 取り下げ / 取り消し成功後のリロード時に使用
-  var pendingToastMsg = _detailPendingToastMsg || null;
+  const pendingToastMsg = _detailPendingToastMsg || null;
   _detailPendingToastMsg = null;
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
