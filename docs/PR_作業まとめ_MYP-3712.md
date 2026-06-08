@@ -17,7 +17,8 @@
 |----------|---------|---------|
 | `src/fe_page_detail.html` | 変更 | 「取下げ済みの請求一覧」セクション HTML 追加、取下げ取り消し確認モーダル追加、既存取下げ確認モーダルの文言修正・aria属性追加 |
 | `src/fe_js.html` | 変更 | WITHDRAWN フィルタ分離、取下げ済みアコーディオン描画、取下げ取り消しイベントハンドラ追加、モック削除・防御的 else 追加 |
-| `src/fe_css.html` | 変更 | 取下げ取り消しボタンスタイル、合意内容読取専用スタイル、モーダルスタイル（オレンジテーマ）追加 |
+| `src/fe_page_error.html` | 変更 | 「ログインページに戻る」リンク（`error-page__footer`）を削除（本プロジェクトではログインページを用意しないため） |
+| `src/fe_css.html` | 変更 | 取下げ取り消しボタンスタイル、合意内容読取専用スタイル、モーダルスタイル（オレンジテーマ）追加。エラー画面のログインリンク関連スタイル削除 |
 | `src/be_invoice.js` | 変更 | `undoWithdrawStoreInvoice` 関数追加、`withdrawStoreInvoice` を `runDmlWithRowCheck_` に変更、影響行数 0 を `error_()` で返却 |
 | `src/db_bq_connection.js` | 変更 | `runDmlWithRowCheck_` ユーティリティ関数追加 |
 | `.github/workflows/deploy.yml` | 変更 | Google 審査対応のため自動デプロイを一時停止（コメントアウト） |
@@ -58,7 +59,9 @@ DISPUTED → [請求取り下げ] → WITHDRAWN → [取下げをやめる] → 
 
 ## 変更詳細
 
-### 1. HTML（`fe_page_detail.html`）
+### 1. HTML
+
+#### `fe_page_detail.html`
 
 #### 新セクション追加
 
@@ -80,6 +83,11 @@ DISPUTED → [請求取り下げ] → WITHDRAWN → [取下げをやめる] → 
 
 - 「この操作は、戻すことができません。」を削除（取り消し機能の追加に伴い不正確となるため）
 - 取下げ後の案内を「取下げ済みの請求一覧から再度請求を行ってください。」に変更
+
+#### `fe_page_error.html`
+
+- 「ログインページに戻る」リンク（`error-page__footer` ブロック）を削除
+- 本プロジェクトではログインページを用意しないため、遷移先が存在しない不要な UI を除去
 
 ### 2. JavaScript（`fe_js.html`）
 
@@ -149,6 +157,7 @@ border-color: #FFB499;
 
 - `.detail-action-badge--withdrawn` → 削除（JS から参照がなくなったため）
 - 重複していた `.detail-action-badge--resubmitted` を整理
+- `.error-page__footer` / `.error-page__back-link` / `.error-page__back-link:hover` → 削除（エラー画面のログインリンク廃止に伴い不要）
 
 ### 4. バックエンド（`be_invoice.js`）
 
@@ -225,7 +234,7 @@ function runDmlWithRowCheck_(projectId, sql) {
 
 ## 影響範囲
 
-- **機能影響**: 詳細画面のみ。WITHDRAWN の表示位置が否認セクション → 独立セクションに移動。新規「取下げをやめる」機能を追加。
+- **機能影響**: 詳細画面のみ。WITHDRAWN の表示位置が否認セクション → 独立セクションに移動。新規「取下げをやめる」機能を追加。エラー画面から「ログインページに戻る」リンクを削除（本プロジェクトではログインページを用意しないため）。
 - **データ影響**: `store_invoices.invoice_status` の更新のみ。テーブル構造の変更なし。
 - **既存機能への影響**: 否認セクションのフィルタから WITHDRAWN を除外したため、否認セクションには DISPUTED ステータスのみが表示される。バリデーション（`_detailActionRequiredMallCodes`）も WITHDRAWN 除外済み。
 - **デプロイ**: GitHub Actions の自動デプロイを一時停止中（Google 審査対応）。手動 `npm run push:dev` でデプロイ。
