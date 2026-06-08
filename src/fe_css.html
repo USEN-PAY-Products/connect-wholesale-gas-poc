@@ -711,8 +711,13 @@ button { cursor: pointer; font-family: inherit; }
 }
 #withdrawConfirmModal .modal.modal--warn {
   width: 505px;
-  min-height: 291px;
   background: #FFF1EC;
+  border-color: #FFB499;
+}
+#undoWithdrawConfirmModal .modal.modal--warn {
+  width: 505px;
+  background: #FFF1EC;
+  border-color: #FFB499;
 }
 .modal--warn .modal__close {
   position: absolute;
@@ -724,23 +729,27 @@ button { cursor: pointer; font-family: inherit; }
   color: #888;
   cursor: pointer;
 }
-#withdrawConfirmModal .modal__title--warn {
+#withdrawConfirmModal .modal__title--warn,
+#undoWithdrawConfirmModal .modal__title--warn {
   color: #FF7846;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
   line-height: 140%;
 }
-#withdrawConfirmModal .modal__title--warn i {
+#withdrawConfirmModal .modal__title--warn i,
+#undoWithdrawConfirmModal .modal__title--warn i {
   color: #FF7846;
 }
-#withdrawConfirmModal .modal__message--warn {
+#withdrawConfirmModal .modal__message--warn,
+#undoWithdrawConfirmModal .modal__message--warn {
   font-size: 16px;
   font-style: normal;
   font-weight: 400;
   line-height: 120%;
 }
-#withdrawConfirmModal #withdrawConfirmOk {
+#withdrawConfirmModal #withdrawConfirmOk,
+#undoWithdrawConfirmModal #undoWithdrawConfirmOk {
   width: 212px;
   height: 40px;
   background: #00A7B8;
@@ -752,10 +761,12 @@ button { cursor: pointer; font-family: inherit; }
   align-items: center;
   justify-content: center;
 }
-#withdrawConfirmModal #withdrawConfirmOk:hover {
+#withdrawConfirmModal #withdrawConfirmOk:hover,
+#undoWithdrawConfirmModal #undoWithdrawConfirmOk:hover {
   background: #008E9B;
 }
-#withdrawConfirmModal #withdrawConfirmCancel {
+#withdrawConfirmModal #withdrawConfirmCancel,
+#undoWithdrawConfirmModal #undoWithdrawConfirmCancel {
   width: 212px;
   height: 40px;
   border-radius: 999px;

@@ -3759,10 +3759,33 @@ window.addEventListener('hashchange', navigate);
         return;
       }
 
-      if (!confirm('取下げを取り消しますか？\n対象の請求は「要対応の請求一覧」に戻ります。')) {
-        return;
-      }
+      // カスタムモーダルで確認
+      const undoModal  = document.getElementById('undoWithdrawConfirmModal');
+      const undoOk     = document.getElementById('undoWithdrawConfirmOk');
+      const undoCancel = document.getElementById('undoWithdrawConfirmCancel');
+      if (!undoModal) return;
+      undoModal.classList.remove('hidden');
 
+      function onUndoCancel() {
+        undoModal.classList.add('hidden');
+        undoCleanup();
+      }
+      function onUndoOk() {
+        undoModal.classList.add('hidden');
+        undoCleanup();
+        executeUndoWithdraw_(undoWithdrawBtn, storeInvoiceId, parentInvoiceId);
+      }
+      function undoCleanup() {
+        undoOk.removeEventListener('click', onUndoOk);
+        undoCancel.removeEventListener('click', onUndoCancel);
+      }
+      undoOk.addEventListener('click', onUndoOk);
+      undoCancel.addEventListener('click', onUndoCancel);
+      return;
+    }
+
+    // 取下げ取り消し実行ロジック（モーダル「OK」後に呼ばれる）
+    function executeUndoWithdraw_(undoWithdrawBtn, storeInvoiceId, parentInvoiceId) {
       // ボタンを無効化 + スピナー表示
       undoWithdrawBtn.disabled = true;
       undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 処理中...';
@@ -3796,7 +3819,6 @@ window.addEventListener('hashchange', navigate);
           undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
         }, 800);
       }
-      return;
     }
 
     // 変更なしで再請求 → BE: resubmitWithoutChanges 呼び出し
