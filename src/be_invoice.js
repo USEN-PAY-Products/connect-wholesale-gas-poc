@@ -1158,7 +1158,16 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     ].join('\n');
 
     Logger.log('[BQ] withdrawStoreInvoice SQL:\n' + sql);
-    runTransactionSql_(projectId, sql);
+    try {
+      runTransactionSql_(projectId, sql);
+    } catch (txErr) {
+      // @@row_count = 0 による RAISE（並行更新）は業務エラーとして error_() を返す
+      if (String(txErr.message || '').indexOf('対象レコードが更新できませんでした') !== -1) {
+        logInfo_('Invoice', 'withdrawStoreInvoice: 並行更新により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
+        return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+      }
+      throw txErr;
+    }
 
     logInfo_('Invoice', 'withdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
@@ -1288,7 +1297,16 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     ].join('\n');
 
     Logger.log('[BQ] undoWithdrawStoreInvoice SQL:\n' + sql);
-    runTransactionSql_(projectId, sql);
+    try {
+      runTransactionSql_(projectId, sql);
+    } catch (txErr) {
+      // @@row_count = 0 による RAISE（並行更新）は業務エラーとして error_() を返す
+      if (String(txErr.message || '').indexOf('対象レコードが更新できませんでした') !== -1) {
+        logInfo_('Invoice', 'undoWithdrawStoreInvoice: 並行更新により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
+        return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+      }
+      throw txErr;
+    }
 
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
