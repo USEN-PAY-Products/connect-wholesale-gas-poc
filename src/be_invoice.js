@@ -1093,6 +1093,50 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
   }
 }
 
+/**
+ * 取下げを取り消す（invoice_status を WITHDRAWN → DISPUTED に戻す）。
+ * @param {string} storeInvoiceId  - 対象 store_invoices.id
+ * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
+ * @returns {{ status: 'success', data: Object }}
+ */
+function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
+  try {
+    const accountInfo  = getServerAccountInfo_();
+    logInfo_('Invoice', 'undoWithdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
+    const wholesalerId = accountInfo.wholesaler_id;
+
+    if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
+    if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');
+
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(storeInvoiceId))  throw new Error('storeInvoiceId の形式が不正です: ' + storeInvoiceId);
+    if (!UUID_RE.test(parentInvoiceId)) throw new Error('parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+
+    const config    = getConfig_();
+    const projectId = config.gcpProjectId;
+    const datasetId = config.bqDatasetId;
+    const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
+
+    const sql =
+      'UPDATE ' + storeRef + ' ' +
+      "SET invoice_status = 'DISPUTED' " +
+      "WHERE id = '" + storeInvoiceId + "' " +
+      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
+      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
+      '  AND is_latest = TRUE' +
+      "  AND invoice_status = 'WITHDRAWN'";
+
+    Logger.log('[BQ] undoWithdrawStoreInvoice SQL: ' + sql);
+    runTransactionSql_(projectId, sql);
+
+    logInfo_('Invoice', 'undoWithdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
+    return success_({ store_invoice_id: storeInvoiceId });
+  } catch (err) {
+    logError_('Invoice', 'undoWithdrawStoreInvoice', err);
+    throw new Error('undoWithdrawStoreInvoice failed: ' + err.message);
+  }
+}
+
 
 // =============================================================================
 // 請求一覧取得

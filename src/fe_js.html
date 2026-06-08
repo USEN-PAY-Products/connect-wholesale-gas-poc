@@ -2344,6 +2344,8 @@ let _detailCurrentInvoiceId = null;
 let _detailActionRequiredMallCodes = [];
 /** RETURNED かつ invoice_status が null の加盟店 mall_code（警告のみでエラーにしない） */
 let _detailReturnedOnlyMallCodes = [];
+/** リロード完了後に表示するトーストメッセージ（取り下げ / 取り消し成功時） */
+let _detailPendingToastMsg = null;
 /** 再送信モードで確認画面を表示する際のコンテキスト */
 let _isResubmitConfirm = false;
 let _resubmitParentInvoiceId = null;
@@ -2368,6 +2370,10 @@ function initDetailPage(invoiceId) {
 
   showLoadingOverlay('請求詳細を取得中...');
 
+  // ペンディングトースト: 取り下げ / 取り消し成功後のリロード時に使用
+  var pendingToastMsg = _detailPendingToastMsg || null;
+  _detailPendingToastMsg = null;
+
   if (typeof google !== 'undefined' && google.script && google.script.run) {
     google.script.run
       .withSuccessHandler(function (result) {
@@ -2377,6 +2383,7 @@ function initDetailPage(invoiceId) {
           return;
         }
         renderDetailPage_(result.data);
+        if (pendingToastMsg) showToast(pendingToastMsg, 'success');
       })
       .withFailureHandler(function (err) {
         hideLoadingOverlay();
@@ -2399,11 +2406,11 @@ function resetDetailPage_() {
     summaryCard.innerHTML =
       '<div class="detail-loading-placeholder"><i class="fa-solid fa-spinner fa-spin"></i> 読み込み中...</div>';
   }
-  ['detailActionRequiredSection', 'detailNormalSection', 'detailReturnedSubsection', 'detailDisputedSubsection'].forEach(function (id) {
+  ['detailActionRequiredSection', 'detailNormalSection', 'detailWithdrawnSection', 'detailReturnedSubsection', 'detailDisputedSubsection'].forEach(function (id) {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   });
-  ['detailReturnedList', 'detailDisputedList', 'detailNormalList'].forEach(function (id) {
+  ['detailReturnedList', 'detailDisputedList', 'detailNormalList', 'detailWithdrawnList'].forEach(function (id) {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '';
   });
@@ -2557,12 +2564,15 @@ function renderDetailStoreList_(stores) {
   const returned  = stores.filter(function (s) {
     return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED' && s.invoice_status !== 'WITHDRAWN';
   });
-  // 否認: (MCR/RETURNED/PENDING_REVIEW + DISPUTED) または WITHDRAWN
+  // 否認: (MCR/RETURNED/PENDING_REVIEW + DISPUTED) ※WITHDRAWN は除外
   const disputed  = stores.filter(function (s) {
-    return s.invoice_status === 'WITHDRAWN' ||
-           (s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') ||
+    return (s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') ||
            (s.backoffice_review_status === 'RETURNED' && s.invoice_status === 'DISPUTED') ||
            (s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED');
+  });
+  // 取下げ済: WITHDRAWN
+  const withdrawn = stores.filter(function (s) {
+    return s.invoice_status === 'WITHDRAWN';
   });
   // 正常: 上記以外すべて
   const normal    = stores.filter(function (s) {
@@ -2573,8 +2583,8 @@ function renderDetailStoreList_(stores) {
   });
 
   // 要対応の mall_code 一覧をグローバル変数に保持（バリデーション用）
-  // ※ WITHDRAWN は対応済みのため要対応から除外
-  _detailActionRequiredMallCodes = returned.concat(disputed.filter(function (s) { return s.invoice_status !== 'WITHDRAWN'; })).map(function (s) { return s.mall_code; });
+  // ※ WITHDRAWN は分離済みのため disputed にはもう含まれない
+  _detailActionRequiredMallCodes = returned.concat(disputed).map(function (s) { return s.mall_code; });
   // RETURNED かつ invoice_status が null の加盟店（CSVに含まれていなくても警告のみ）
   _detailReturnedOnlyMallCodes = returned.filter(function (s) {
     return !s.invoice_status || s.invoice_status === null || s.invoice_status === 'null';
@@ -2629,6 +2639,17 @@ function renderDetailStoreList_(stores) {
       normal.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, false)); });
     }
   }
+
+  // 取下げ済みセクション
+  if (withdrawn.length > 0) {
+    const section = document.getElementById('detailWithdrawnSection');
+    const list    = document.getElementById('detailWithdrawnList');
+    if (section) section.classList.remove('hidden');
+    if (list) {
+      list.innerHTML = colHeader;
+      withdrawn.forEach(function (store) { list.appendChild(buildDetailAccordion_(store, false)); });
+    }
+  }
 }
 
 /**
@@ -2639,11 +2660,12 @@ function renderDetailStoreList_(stores) {
  */
 function buildDetailAccordion_(store, openByDefault) {
   const fmt        = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
+  const isWithdrawn = store.invoice_status === 'WITHDRAWN';
   const isReturned = store.backoffice_review_status === 'RETURNED' && store.invoice_status !== 'DISPUTED' && store.invoice_status !== 'WITHDRAWN';
-  const isDisputed = store.invoice_status === 'WITHDRAWN' ||
-                     (store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED') ||
+  const isDisputed = !isWithdrawn &&
+                     ((store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED') ||
                      (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED') ||
-                     (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED');
+                     (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED'));
 
   // mall_code → customer_code 変換（BE が remarks[customerCode] で参照するため）
   const mappings = getMerchantMappings();
@@ -2701,9 +2723,7 @@ function buildDetailAccordion_(store, openByDefault) {
         '</div>' +
       '</div>' +
       '<div class="backoffice-remark__actions">' +
-      (store.invoice_status === 'WITHDRAWN'
-        ? '<span class="detail-action-badge detail-action-badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済み</span>'
-        : store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
+      (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
         ? '<span class="detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
         : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
           '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
@@ -2711,6 +2731,25 @@ function buildDetailAccordion_(store, openByDefault) {
       ) +
       '</div>';
     body.appendChild(disputedRow);
+  }
+
+  // 取下げ済み: 合意内容（読取専用）+ 取下げをやめるボタン
+  if (isWithdrawn) {
+    const withdrawnRow = document.createElement('div');
+    withdrawnRow.className = 'store-accordion__backoffice-remark';
+    withdrawnRow.innerHTML =
+      '<div class="backoffice-remark__disputed-left">' +
+        '<div class="backoffice-remark__disputed-handover">' +
+          '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
+          '<div class="backoffice-remark__handover-readonly">' + escapeHtml(store.wholesaler_handover || '') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="backoffice-remark__actions">' +
+        '<button type="button" class="btn btn-outline detail-action-btn detail-action-btn--undo-withdraw" data-action="undo-withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '">' +
+          '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる' +
+        '</button>' +
+      '</div>';
+    body.appendChild(withdrawnRow);
   }
 
   // 備考エリア（常時表示）
@@ -2722,10 +2761,10 @@ function buildDetailAccordion_(store, openByDefault) {
       '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
       '<input type="text" class="remarks-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   } else {
-    // 確認中・承認済み: 読み取り専用
+    // 確認中・承認済み・取下げ済み: 読み取り専用
     remarksDiv.innerHTML =
-      '<label class="remarks-label">・ 加盟店請求書備考</label>' +
-      '<input type="text" class="remarks-input remarks-input--readonly" readonly placeholder="備考なし" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
+      '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
+      '<input type="text" class="remarks-input remarks-input--readonly" readonly placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   }
   body.appendChild(remarksDiv);
 
@@ -3688,20 +3727,10 @@ window.addEventListener('hashchange', navigate);
               withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
               return;
             }
-            // ボタンエリアを取り下げ済みバッジに切り替え
-            if (actionsEl3) {
-              actionsEl3.innerHTML =
-                '<span class="detail-action-badge detail-action-badge--withdrawn">' +
-                  '<i class="fa-solid fa-check"></i> 取り下げ済み' +
-                '</span>';
-            }
-            // ステータスバッジを更新
-            if (accordion3) {
-              const statusEl = accordion3.querySelector('.slh-col--status');
-              if (statusEl) {
-                statusEl.innerHTML = '<span class="detail-status-badge badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済</span>';
-              }
-            }
+            // 成功 → 取下げ済みセクションに移動させるためページをリロード
+            _detailPendingToastMsg = '請求を取り下げました。';
+            _detailCurrentInvoiceId = null;
+            initDetailPage(parentInvoiceId);
           })
           .withFailureHandler(function (err) {
             alert('取り下げに失敗しました: ' + (err.message || err));
@@ -3715,21 +3744,61 @@ window.addEventListener('hashchange', navigate);
         // モック
         console.warn('[withdraw] google.script.run が利用できません（モック）');
         setTimeout(function () {
-          if (actionsEl3) {
-            actionsEl3.innerHTML =
-              '<span class="detail-action-badge detail-action-badge--withdrawn">' +
-                '<i class="fa-solid fa-check"></i> 取り下げ済み' +
-              '</span>';
-          }
-          if (accordion3) {
-            const statusEl = accordion3.querySelector('.slh-col--status');
-            if (statusEl) {
-              statusEl.innerHTML = '<span class="detail-status-badge badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済</span>';
-            }
-          }
+          showToast('請求を取り下げました（モック）。', 'success');
         }, 800);
       }
     }
+
+    // 取下げをやめる → BE: undoWithdrawStoreInvoice 呼び出し → ステータスを否認差戻に戻す
+    const undoWithdrawBtn = e.target.closest('[data-action="undo-withdraw"]');
+    if (undoWithdrawBtn) {
+      const storeInvoiceId = undoWithdrawBtn.dataset.id;
+      const parentInvoiceId = _detailCurrentInvoiceId;
+      if (!parentInvoiceId) {
+        alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+        return;
+      }
+
+      if (!confirm('取下げを取り消しますか？\n対象の請求は「要対応の請求一覧」に戻ります。')) {
+        return;
+      }
+
+      // ボタンを無効化 + スピナー表示
+      undoWithdrawBtn.disabled = true;
+      undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 処理中...';
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            if (result && result.status === 'error') {
+              alert('取下げの取り消しに失敗しました: ' + (result.message || '不明なエラー'));
+              undoWithdrawBtn.disabled = false;
+              undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
+              return;
+            }
+            // 成功 → 画面をリロードして最新状態を反映
+            _detailPendingToastMsg = '取下げを取り消しました。';
+            _detailCurrentInvoiceId = null;
+            initDetailPage(parentInvoiceId);
+          })
+          .withFailureHandler(function (err) {
+            alert('取下げの取り消しに失敗しました: ' + (err.message || err));
+            undoWithdrawBtn.disabled = false;
+            undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
+          })
+          .undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
+      } else {
+        // モック
+        console.warn('[undo-withdraw] google.script.run が利用できません（モック）');
+        setTimeout(function () {
+          showToast('取下げを取り消しました（モック）。', 'success');
+          undoWithdrawBtn.disabled = false;
+          undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
+        }, 800);
+      }
+      return;
+    }
+
     // 変更なしで再請求 → BE: resubmitWithoutChanges 呼び出し
     const resubmitBtn = e.target.closest('[data-action="resubmit"]');
     if (resubmitBtn) {
