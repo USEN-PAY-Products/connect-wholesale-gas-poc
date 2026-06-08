@@ -1088,7 +1088,6 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     const datasetId = config.bqDatasetId;
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
     const wiRef     = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
-    const esc       = function (s) { return String(s == null ? '' : s).replace(/'/g, "''"); };
 
     const sql = [
       'BEGIN TRANSACTION;',
@@ -1227,7 +1226,6 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     const datasetId = config.bqDatasetId;
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
     const wiRef     = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
-    const esc       = function (s) { return String(s == null ? '' : s).replace(/'/g, "''"); };
 
     const sql = [
       'BEGIN TRANSACTION;',

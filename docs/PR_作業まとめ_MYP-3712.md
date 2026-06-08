@@ -30,7 +30,6 @@
 | `src/be_invoice.js` | 変更 | `withdrawStoreInvoice` / `undoWithdrawStoreInvoice` をトランザクション + 金額再計算に全面書き換え、OBJECTION_PERIOD チェック追加、再送信関数の `wholesaler_invoice_date` 引き継ぎ |
 | `src/be_csv_mapper.js` | 変更 | マッピング再送信関数（個別・一括）の `wholesaler_invoice_date` 引き継ぎ |
 | `src/db_bq_query.js` | 変更 | `fetchStoreInvoiceForWithdraw_` / `fetchObjectionPeriodEndDate_` 新規追加、`fetchLatestWholesalerInvoice_` に `wholesaler_invoice_date` 追加、`fetchInvoiceDetailSummary_` に `objection_end_at`（business_calendar JOIN）追加 |
-| `src/db_bq_connection.js` | 変更 | `runDmlWithRowCheck_` ユーティリティ関数追加 |
 | `.github/workflows/deploy.yml` | 変更 | Google 審査対応のため自動デプロイを一時停止（コメントアウト） |
 
 ---
@@ -262,26 +261,7 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
 `throw` を使わず `error_()` を返す理由:  
 `catch` で `"undoWithdrawStoreInvoice failed: ..."` が付与されると、フロントのアラート文言が技術的になりユーザー向けメッセージが損なわれるため。
 
-### 5. DB ユーティリティ（`db_bq_connection.js`）
-
-#### `runDmlWithRowCheck_` 新規追加
-
-```javascript
-function runDmlWithRowCheck_(projectId, sql) {
-  // BigQuery.Jobs.query() で DML 実行
-  // ポーリングで完了待ち（最大30回 × 2秒）
-  // response.numDmlAffectedRows を返却
-}
-```
-
-| 項目 | 値 |
-|------|---|
-| タイムアウト | 10,000 ms（初回） |
-| ポーリング間隔 | 2,000 ms |
-| 最大ポーリング | 30 回 |
-| 戻り値 | `number`（影響行数） |
-
-### 6. DB クエリ（`db_bq_query.js`）
+### 5. DB クエリ（`db_bq_query.js`）
 
 #### `fetchStoreInvoiceForWithdraw_` 新規追加
 
@@ -340,7 +320,7 @@ WHERE ...
 | ルール | 対応 |
 |--------|------|
 | `var` 禁止 → `const` / `let` 使用 | ✅ 全箇所 `const` / `let` を使用 |
-| 内部関数は末尾 `_` | ✅ `executeWithdraw_` / `executeUndoWithdraw_` / `runDmlWithRowCheck_` / `fetchStoreInvoiceForWithdraw_` / `fetchObjectionPeriodEndDate_` |
+| 内部関数は末尾 `_` | ✅ `executeWithdraw_` / `executeUndoWithdraw_` / `fetchStoreInvoiceForWithdraw_` / `fetchObjectionPeriodEndDate_` |
 | `function` キーワードで定義 | ✅ アロー関数未使用（BE） |
 | モック分岐を本番コードに残さない | ✅ 削除し、防御的 `else` に置換 |
 | BQ ↔ GAS 往復の最小化 | ✅ INSERT-SELECT でトランザクション内完結 |

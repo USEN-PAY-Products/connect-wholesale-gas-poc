@@ -2777,7 +2777,7 @@ function buildDetailAccordion_(store, openByDefault) {
     // 確認中・承認済み・取下げ済み: 読み取り専用
     remarksDiv.innerHTML =
       '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
-      '<input type="text" class="remarks-input remarks-input--readonly" readonly placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
+      '<input type="text" class="remarks-input remarks-input--readonly" readonly placeholder="備考なし" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   }
   body.appendChild(remarksDiv);
 
