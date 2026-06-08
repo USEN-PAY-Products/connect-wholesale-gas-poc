@@ -2344,6 +2344,8 @@ let _detailCurrentInvoiceId = null;
 let _detailActionRequiredMallCodes = [];
 /** RETURNED かつ invoice_status が null の加盟店 mall_code（警告のみでエラーにしない） */
 let _detailReturnedOnlyMallCodes = [];
+/** 異議申立期間の終了日（OBJECTION_PERIOD の end_at）。期間終了後は「取下げをやめる」を無効化する */
+let _objectionEndAt = null;
 /** リロード完了後に表示するトーストメッセージ（取り下げ / 取り消し成功時） */
 let _detailPendingToastMsg = null;
 /** 再送信モードで確認画面を表示する際のコンテキスト */
@@ -2438,6 +2440,7 @@ function renderDetailError_(message) {
  * @param {{ summary: Object, stores: Array<Object> }} data
  */
 function renderDetailPage_(data) {
+  _objectionEndAt = (data.summary && data.summary.objection_end_at) || null;
   renderDetailSummary_(data.summary);
   renderDetailStoreList_(data.stores || []);
 }
@@ -2735,6 +2738,10 @@ function buildDetailAccordion_(store, openByDefault) {
 
   // 取下げ済み: 合意内容（読取専用）+ 取下げをやめるボタン
   if (isWithdrawn) {
+    // OBJECTION_PERIOD チェック: end_at < today なら disabled
+    const today = new Date(); today.setHours(0,0,0,0);
+    const periodExpired = _objectionEndAt && new Date(_objectionEndAt) < today;
+
     const withdrawnRow = document.createElement('div');
     withdrawnRow.className = 'store-accordion__backoffice-remark';
     withdrawnRow.innerHTML =
@@ -2745,9 +2752,15 @@ function buildDetailAccordion_(store, openByDefault) {
         '</div>' +
       '</div>' +
       '<div class="backoffice-remark__actions">' +
-        '<button type="button" class="btn btn-outline detail-action-btn detail-action-btn--undo-withdraw" data-action="undo-withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '">' +
-          '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる' +
-        '</button>' +
+        (periodExpired
+          ? '<button type="button" class="btn btn-outline detail-action-btn detail-action-btn--undo-withdraw" disabled>' +
+              '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる' +
+            '</button>' +
+            '<p class="detail-action-btn__period-expired-msg">異議申立期間が終了しています</p>'
+          : '<button type="button" class="btn btn-outline detail-action-btn detail-action-btn--undo-withdraw" data-action="undo-withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '">' +
+              '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる' +
+            '</button>'
+        ) +
       '</div>';
     body.appendChild(withdrawnRow);
   }
@@ -2959,6 +2972,7 @@ function navigate() {
     _detailCurrentInvoiceId = null;
     _detailActionRequiredMallCodes = [];
     _detailReturnedOnlyMallCodes = [];
+    _objectionEndAt = null;
   }
 
   if (targetId !== 'pageConfirm') {

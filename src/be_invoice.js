@@ -450,7 +450,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
     '   wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
     'VALUES',
-    "  ('" + newWiUuid + "', '" + esc(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
+    "  ('" + newWiUuid + "', '" + esc(wsUserId) + "', " + wsId + ", '" + latestWi.wholesaler_invoice_date + "',",
     '   ' + newAmounts.totalAmount + ', ' + newAmounts.subtotalAmount + ', ' + newAmounts.taxAmount + ',',
     '   ' + newAmounts.exTax10 + ', ' + newAmounts.tax10 + ',',
     '   ' + newAmounts.exTax8 + ', ' + newAmounts.tax8 + ',',
@@ -706,7 +706,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
     '   wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
     'VALUES',
-    "  ('" + newWiUuid + "', '" + esc(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
+    "  ('" + newWiUuid + "', '" + esc(wsUserId) + "', " + wsId + ", '" + latestWi.wholesaler_invoice_date + "',",
     '   ' + newAmounts.totalAmount + ', ' + newAmounts.subtotalAmount + ', ' + newAmounts.taxAmount + ',',
     '   ' + newAmounts.exTax10 + ', ' + newAmounts.tax10 + ',',
     '   ' + newAmounts.exTax8 + ', ' + newAmounts.tax8 + ',',
@@ -1049,11 +1049,12 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
 // =============================================================================
 
 /**
- * 対象の store_invoices.invoice_status を WITHDRAWN に更新する。
+ * 対象の store_invoices.invoice_status を WITHDRAWN に更新し、
+ * wholesaler_invoices の金額を再計算した新版を INSERT する。
  *
  * @param {string} storeInvoiceId  - 対象の store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
- * @returns {{ status: 'success', data: Object }}
+ * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
 function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
   try {
@@ -1068,26 +1069,90 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     if (!UUID_RE.test(storeInvoiceId))  throw new Error('storeInvoiceId の形式が不正です: ' + storeInvoiceId);
     if (!UUID_RE.test(parentInvoiceId)) throw new Error('parentInvoiceId の形式が不正です: ' + parentInvoiceId);
 
+    // ── 事前バリデーション ──────────────────────────────────────────────────
+    const storeRow = fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, 'DISPUTED');
+    if (!storeRow) {
+      logInfo_('Invoice', 'withdrawStoreInvoice: 対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
+      return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+    }
+
+    const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, wholesalerId);
+    if (!latestWi) {
+      logInfo_('Invoice', 'withdrawStoreInvoice: 最新 WI が見つかりませんでした parentInvoiceId=' + parentInvoiceId);
+      return error_('請求情報が見つかりませんでした。ページを再読み込みしてください。');
+    }
+
+    // ── トランザクション SQL 組み立て ───────────────────────────────────────
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
     const datasetId = config.bqDatasetId;
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
+    const wiRef     = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
+    const esc       = function (s) { return String(s == null ? '' : s).replace(/'/g, "''"); };
 
-    const sql =
-      'UPDATE ' + storeRef + ' ' +
-      "SET invoice_status = 'WITHDRAWN' " +
-      "WHERE id = '" + storeInvoiceId + "' " +
-      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
-      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
-      '  AND is_latest = TRUE' +
-      "  AND invoice_status = 'DISPUTED'";
+    const sql = [
+      'BEGIN TRANSACTION;',
+      '',
+      '-- 1. store_invoices のステータスを WITHDRAWN に変更',
+      'UPDATE ' + storeRef,
+      "SET invoice_status = 'WITHDRAWN'",
+      "WHERE id = '" + storeInvoiceId + "'",
+      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "'",
+      '  AND wholesaler_id = ' + Number(wholesalerId),
+      '  AND is_latest = TRUE',
+      "  AND invoice_status = 'DISPUTED';",
+      '',
+      '-- 2. wholesaler_invoices の新版を INSERT（金額 = 最新WI − 取下げstore）',
+      'INSERT INTO ' + wiRef,
+      '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+      '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+      '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+      '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+      '   wholesaler_non_taxable_amount,',
+      '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+      '   handover_matter, wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+      'SELECT',
+      '  GENERATE_UUID(),',
+      '  wi.wholesaler_user_id,',
+      '  wi.wholesaler_id,',
+      '  wi.wholesaler_invoice_date,',
+      '  wi.wholesaler_total_amount           - si.total_amount,',
+      '  wi.wholesaler_subtotal_amount        - si.subtotal_amount,',
+      '  wi.wholesaler_tax_amount             - si.tax_amount,',
+      '  wi.wholesaler_standard_tax_target_amount - si.standard_tax_target_amount,',
+      '  wi.wholesaler_standard_tax_amount    - si.standard_tax_amount,',
+      '  wi.wholesaler_reduced_tax_target_amount  - si.reduced_tax_target_amount,',
+      '  wi.wholesaler_reduced_tax_amount     - si.reduced_tax_amount,',
+      '  wi.wholesaler_non_taxable_amount     - si.non_taxable_amount,',
+      '  wi.wholesaler_fee_rate,',
+      '  CAST(FLOOR(',
+      '    (wi.wholesaler_total_amount - si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '  ) AS INT64),',
+      '  (wi.wholesaler_total_amount - si.total_amount)',
+      '    - CAST(FLOOR(',
+      '        (wi.wholesaler_total_amount - si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '      ) AS INT64),',
+      '  wi.handover_matter,',
+      "  '" + parentInvoiceId + "',",
+      '  wi.wholesaler_invoice_csv_url,',
+      '  CURRENT_TIMESTAMP()',
+      'FROM (',
+      '  SELECT *',
+      '  FROM ' + wiRef,
+      "  WHERE (id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      '    AND wholesaler_id = ' + Number(wholesalerId),
+      '  ORDER BY created_at DESC',
+      '  LIMIT 1',
+      ') AS wi',
+      'CROSS JOIN ' + storeRef + ' AS si',
+      "WHERE si.id = '" + storeInvoiceId + "'",
+      '  AND si.is_latest = TRUE;',
+      '',
+      'COMMIT;',
+    ].join('\n');
 
-    Logger.log('[BQ] withdrawStoreInvoice SQL: ' + sql);
-    const affected = runDmlWithRowCheck_(projectId, sql);
-    if (affected === 0) {
-      logInfo_('Invoice', 'withdrawStoreInvoice: 更新対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
-      return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
-    }
+    Logger.log('[BQ] withdrawStoreInvoice SQL:\n' + sql);
+    runTransactionSql_(projectId, sql);
 
     logInfo_('Invoice', 'withdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
@@ -1099,9 +1164,11 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
 
 /**
  * 取下げを取り消す（invoice_status を WITHDRAWN → DISPUTED に戻す）。
+ * wholesaler_invoices の金額を再計算した新版を INSERT する（戻す store 分を加算）。
+ *
  * @param {string} storeInvoiceId  - 対象 store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
- * @returns {{ status: 'success', data: Object }}
+ * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
 function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
   try {
@@ -1116,26 +1183,100 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     if (!UUID_RE.test(storeInvoiceId))  throw new Error('storeInvoiceId の形式が不正です: ' + storeInvoiceId);
     if (!UUID_RE.test(parentInvoiceId)) throw new Error('parentInvoiceId の形式が不正です: ' + parentInvoiceId);
 
+    // ── 事前バリデーション ──────────────────────────────────────────────────
+    const storeRow = fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, 'WITHDRAWN');
+    if (!storeRow) {
+      logInfo_('Invoice', 'undoWithdrawStoreInvoice: 対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
+      return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+    }
+
+    const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, wholesalerId);
+    if (!latestWi) {
+      logInfo_('Invoice', 'undoWithdrawStoreInvoice: 最新 WI が見つかりませんでした parentInvoiceId=' + parentInvoiceId);
+      return error_('請求情報が見つかりませんでした。ページを再読み込みしてください。');
+    }
+
+    // ── OBJECTION_PERIOD チェック ──────────────────────────────────────────
+    const periodRow = fetchObjectionPeriodEndDate_(wholesalerId, latestWi.wholesaler_invoice_date);
+    if (periodRow && periodRow.end_at) {
+      const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      if (String(periodRow.end_at) < today) {
+        logInfo_('Invoice', 'undoWithdrawStoreInvoice: 異議申立期間終了 end_at=' + periodRow.end_at + ', today=' + today);
+        return error_('異議申立期間が終了しているため、取下げの取り消しはできません。');
+      }
+    }
+
+    // ── トランザクション SQL 組み立て ───────────────────────────────────────
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
     const datasetId = config.bqDatasetId;
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
+    const wiRef     = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
+    const esc       = function (s) { return String(s == null ? '' : s).replace(/'/g, "''"); };
 
-    const sql =
-      'UPDATE ' + storeRef + ' ' +
-      "SET invoice_status = 'DISPUTED' " +
-      "WHERE id = '" + storeInvoiceId + "' " +
-      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
-      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
-      '  AND is_latest = TRUE' +
-      "  AND invoice_status = 'WITHDRAWN'";
+    const sql = [
+      'BEGIN TRANSACTION;',
+      '',
+      '-- 1. store_invoices のステータスを DISPUTED に戻す',
+      'UPDATE ' + storeRef,
+      "SET invoice_status = 'DISPUTED'",
+      "WHERE id = '" + storeInvoiceId + "'",
+      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "'",
+      '  AND wholesaler_id = ' + Number(wholesalerId),
+      '  AND is_latest = TRUE',
+      "  AND invoice_status = 'WITHDRAWN';",
+      '',
+      '-- 2. wholesaler_invoices の新版を INSERT（金額 = 最新WI + 戻すstore）',
+      'INSERT INTO ' + wiRef,
+      '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+      '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+      '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+      '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+      '   wholesaler_non_taxable_amount,',
+      '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+      '   handover_matter, wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+      'SELECT',
+      '  GENERATE_UUID(),',
+      '  wi.wholesaler_user_id,',
+      '  wi.wholesaler_id,',
+      '  wi.wholesaler_invoice_date,',
+      '  wi.wholesaler_total_amount           + si.total_amount,',
+      '  wi.wholesaler_subtotal_amount        + si.subtotal_amount,',
+      '  wi.wholesaler_tax_amount             + si.tax_amount,',
+      '  wi.wholesaler_standard_tax_target_amount + si.standard_tax_target_amount,',
+      '  wi.wholesaler_standard_tax_amount    + si.standard_tax_amount,',
+      '  wi.wholesaler_reduced_tax_target_amount  + si.reduced_tax_target_amount,',
+      '  wi.wholesaler_reduced_tax_amount     + si.reduced_tax_amount,',
+      '  wi.wholesaler_non_taxable_amount     + si.non_taxable_amount,',
+      '  wi.wholesaler_fee_rate,',
+      '  CAST(FLOOR(',
+      '    (wi.wholesaler_total_amount + si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '  ) AS INT64),',
+      '  (wi.wholesaler_total_amount + si.total_amount)',
+      '    - CAST(FLOOR(',
+      '        (wi.wholesaler_total_amount + si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '      ) AS INT64),',
+      '  wi.handover_matter,',
+      "  '" + parentInvoiceId + "',",
+      '  wi.wholesaler_invoice_csv_url,',
+      '  CURRENT_TIMESTAMP()',
+      'FROM (',
+      '  SELECT *',
+      '  FROM ' + wiRef,
+      "  WHERE (id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      '    AND wholesaler_id = ' + Number(wholesalerId),
+      '  ORDER BY created_at DESC',
+      '  LIMIT 1',
+      ') AS wi',
+      'CROSS JOIN ' + storeRef + ' AS si',
+      "WHERE si.id = '" + storeInvoiceId + "'",
+      '  AND si.is_latest = TRUE;',
+      '',
+      'COMMIT;',
+    ].join('\n');
 
-    Logger.log('[BQ] undoWithdrawStoreInvoice SQL: ' + sql);
-    const affected = runDmlWithRowCheck_(projectId, sql);
-    if (affected === 0) {
-      logInfo_('Invoice', 'undoWithdrawStoreInvoice: 更新対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
-      return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
-    }
+    Logger.log('[BQ] undoWithdrawStoreInvoice SQL:\n' + sql);
+    runTransactionSql_(projectId, sql);
 
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
