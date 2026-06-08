@@ -39,6 +39,7 @@ jobs:
       - name: GASへコードを送信 (エディタの更新)
         run: npx clasp push --force
 
-      - name: ウェブアプリとしてデプロイ (APIの更新)
-        # 既存のデプロイメントIDを指定して上書き更新するためURLは変わらない
-        run: npx clasp deploy -i ${{ secrets.DEPLOYMENT_ID }} -d "Auto deployed via GitHub Actions"
+      # NOTE: Google審査対応のため一時的にデプロイを停止中。審査完了後にコメントアウトを解除すること。
+      # - name: ウェブアプリとしてデプロイ (APIの更新)
+      #   # 既存のデプロイメントIDを指定して上書き更新するためURLは変わらない
+      #   run: npx clasp deploy -i ${{ secrets.DEPLOYMENT_ID }} -d "Auto deployed via GitHub Actions"

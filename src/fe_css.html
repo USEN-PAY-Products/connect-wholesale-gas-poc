@@ -487,26 +487,6 @@ button { cursor: pointer; font-family: inherit; }
   text-decoration: underline;
 }
 
-.error-page__footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 12px 20px 16px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.error-page__back-link {
-  color: #1565c0;
-  font-size: 14px;
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.error-page__back-link:hover {
-  text-decoration: underline;
-}
-
 /* 成功状態 */
 .drop-zone.is-success {
   border-color: #2e7d32;
@@ -711,8 +691,13 @@ button { cursor: pointer; font-family: inherit; }
 }
 #withdrawConfirmModal .modal.modal--warn {
   width: 505px;
-  min-height: 291px;
   background: #FFF1EC;
+  border-color: #FFB499;
+}
+#undoWithdrawConfirmModal .modal.modal--warn {
+  width: 505px;
+  background: #FFF1EC;
+  border-color: #FFB499;
 }
 .modal--warn .modal__close {
   position: absolute;
@@ -724,23 +709,27 @@ button { cursor: pointer; font-family: inherit; }
   color: #888;
   cursor: pointer;
 }
-#withdrawConfirmModal .modal__title--warn {
+#withdrawConfirmModal .modal__title--warn,
+#undoWithdrawConfirmModal .modal__title--warn {
   color: #FF7846;
   font-size: 16px;
   font-style: normal;
   font-weight: 700;
   line-height: 140%;
 }
-#withdrawConfirmModal .modal__title--warn i {
+#withdrawConfirmModal .modal__title--warn i,
+#undoWithdrawConfirmModal .modal__title--warn i {
   color: #FF7846;
 }
-#withdrawConfirmModal .modal__message--warn {
+#withdrawConfirmModal .modal__message--warn,
+#undoWithdrawConfirmModal .modal__message--warn {
   font-size: 16px;
   font-style: normal;
   font-weight: 400;
   line-height: 120%;
 }
-#withdrawConfirmModal #withdrawConfirmOk {
+#withdrawConfirmModal #withdrawConfirmOk,
+#undoWithdrawConfirmModal #undoWithdrawConfirmOk {
   width: 212px;
   height: 40px;
   background: #00A7B8;
@@ -752,10 +741,12 @@ button { cursor: pointer; font-family: inherit; }
   align-items: center;
   justify-content: center;
 }
-#withdrawConfirmModal #withdrawConfirmOk:hover {
+#withdrawConfirmModal #withdrawConfirmOk:hover,
+#undoWithdrawConfirmModal #undoWithdrawConfirmOk:hover {
   background: #008E9B;
 }
-#withdrawConfirmModal #withdrawConfirmCancel {
+#withdrawConfirmModal #withdrawConfirmCancel,
+#undoWithdrawConfirmModal #undoWithdrawConfirmCancel {
   width: 212px;
   height: 40px;
   border-radius: 999px;
@@ -2266,14 +2257,6 @@ button { cursor: pointer; font-family: inherit; }
   font-weight: 500;
   white-space: nowrap;
 }
-.detail-action-badge--withdrawn {
-  border: 1px solid #159E85;
-  background: #CDF6EF;
-  color: #159E85;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
-}
 .detail-action-badge--resubmitted {
   border: 1px solid #159E85;
   background: #CDF6EF;
@@ -2281,6 +2264,21 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 14px;
   font-style: normal;
   font-weight: 400;
+}
+
+/* 取下げ済み: 合意内容の読取専用表示 */
+.backoffice-remark__handover-readonly {
+  flex: 1;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #D9D9D9;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #333;
+  background: #FFF;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* 否認セクション アクションボタン共通 */
@@ -2293,6 +2291,16 @@ button { cursor: pointer; font-family: inherit; }
 .detail-action-btn--withdraw {
   color: #3C3C3C;
 }
+.detail-action-btn--undo-withdraw {
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
+  height: auto;
+  padding: 8px 16px;
+  border-radius: 40px;
+  gap: 6px;
+}
 .detail-action-btn__icon--danger {
   color: #DF4C4C;
   font-size: 14px;
@@ -2304,6 +2312,12 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 14px;
   width: 14px;
   height: 14px;
+}
+.detail-action-btn__period-expired-msg {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #DF4C4C;
+  line-height: 1.4;
 }
 
 /* =============================================================================

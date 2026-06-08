@@ -141,17 +141,22 @@ function fetchInvoiceDetailSummary_(invoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
-    '  id, wholesaler_invoice_date, ' +
-    '  FORMAT_TIMESTAMP(\'%Y/%m/%d %H:%M:%S\', created_at, \'Asia/Tokyo\') AS created_at, ' +
-    '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
-    '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
-    '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
-    '  wholesaler_non_taxable_amount, ' +
-    '  wholesaler_fee_rate, invoice_fee_amount, payment_amount, handover_matter ' +
-    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` ' +
-    'WHERE (id = @invoice_id OR wholesaler_invoice_id = @invoice_id) ' +
-    '  AND wholesaler_id = @wholesaler_id ' +
-    'ORDER BY created_at DESC ' +
+    '  wi.id, wi.wholesaler_invoice_date, ' +
+    '  FORMAT_TIMESTAMP(\'%Y/%m/%d %H:%M:%S\', wi.created_at, \'Asia/Tokyo\') AS created_at, ' +
+    '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +
+    '  wi.wholesaler_standard_tax_target_amount, wi.wholesaler_standard_tax_amount, ' +
+    '  wi.wholesaler_reduced_tax_target_amount, wi.wholesaler_reduced_tax_amount, ' +
+    '  wi.wholesaler_non_taxable_amount, ' +
+    '  wi.wholesaler_fee_rate, wi.invoice_fee_amount, wi.payment_amount, wi.handover_matter, ' +
+    '  bc.end_at AS objection_end_at ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices` AS wi ' +
+    'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.business_calendar` AS bc ' +
+    '  ON bc.wholesaler_id = wi.wholesaler_id ' +
+    "  AND bc.event_type = 'OBJECTION_PERIOD' " +
+    '  AND bc.year_month = DATE_TRUNC(wi.wholesaler_invoice_date, MONTH) ' +
+    'WHERE (wi.id = @invoice_id OR wi.wholesaler_invoice_id = @invoice_id) ' +
+    '  AND wi.wholesaler_id = @wholesaler_id ' +
+    'ORDER BY wi.created_at DESC ' +
     'LIMIT 1';
 
   const params = [
@@ -259,7 +264,8 @@ function fetchLatestWholesalerInvoice_(rootInvoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
     'SELECT ' +
-    '  id, wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
+    '  id, wholesaler_invoice_date, ' +
+    '  wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount, ' +
     '  wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount, ' +
     '  wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount, ' +
     '  wholesaler_non_taxable_amount, ' +
@@ -273,6 +279,66 @@ function fetchLatestWholesalerInvoice_(rootInvoiceId, wholesalerId) {
   const params = [
     { name: 'invoice_id',    parameterType: { type: 'STRING' }, parameterValue: { value: String(rootInvoiceId) } },
     { name: 'wholesaler_id', parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
+  ];
+
+  const rows = runQuery_(config.gcpProjectId, sql, params);
+  return rows && rows.length > 0 ? rows[0] : null;
+}
+
+/**
+ * 異議申立期間（OBJECTION_PERIOD）の end_at を取得する。
+ * wholesaler_invoice_date から対象月を特定し、business_calendar から期間を取得する。
+ *
+ * @param {number} wholesalerId          - 卸業者ID
+ * @param {string} wholesalerInvoiceDate - 請求日（DATE 文字列 例: '2026-05-22'）
+ * @returns {Object|null} { end_at } を持つオブジェクト。見つからなければ null
+ */
+function fetchObjectionPeriodEndDate_(wholesalerId, wholesalerInvoiceDate) {
+  const config = getConfig_();
+  const sql =
+    'SELECT end_at ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.business_calendar` ' +
+    'WHERE wholesaler_id = @wholesaler_id ' +
+    "  AND event_type = 'OBJECTION_PERIOD' " +
+    '  AND year_month = DATE_TRUNC(@wholesaler_invoice_date, MONTH) ' +
+    'LIMIT 1';
+
+  const params = [
+    { name: 'wholesaler_id',          parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
+    { name: 'wholesaler_invoice_date', parameterType: { type: 'DATE'  }, parameterValue: { value: String(wholesalerInvoiceDate) } },
+  ];
+
+  const rows = runQuery_(config.gcpProjectId, sql, params);
+  return rows && rows.length > 0 ? rows[0] : null;
+}
+
+/**
+ * 取下げ / 取下げ取り消し時の事前バリデーション用。
+ * 指定した store_invoices が存在し、期待するステータスであることを確認する。
+ *
+ * @param {string} storeInvoiceId  - 対象の store_invoices.id
+ * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
+ * @param {number} wholesalerId    - 卸業者ID
+ * @param {string} expectedStatus  - 期待する invoice_status（'DISPUTED' or 'WITHDRAWN'）
+ * @returns {Object|null} 該当行のオブジェクト。見つからなければ null
+ */
+function fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, expectedStatus) {
+  const config = getConfig_();
+  const sql =
+    'SELECT id, invoice_status ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` ' +
+    'WHERE id = @store_invoice_id ' +
+    '  AND wholesaler_invoice_id = @invoice_id ' +
+    '  AND wholesaler_id = @wholesaler_id ' +
+    '  AND is_latest = TRUE ' +
+    '  AND invoice_status = @expected_status ' +
+    'LIMIT 1';
+
+  const params = [
+    { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },
+    { name: 'invoice_id',       parameterType: { type: 'STRING' }, parameterValue: { value: String(parentInvoiceId) } },
+    { name: 'wholesaler_id',    parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
+    { name: 'expected_status',  parameterType: { type: 'STRING' }, parameterValue: { value: String(expectedStatus) } },
   ];
 
   const rows = runQuery_(config.gcpProjectId, sql, params);
