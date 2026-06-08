@@ -3740,12 +3740,6 @@ window.addEventListener('hashchange', navigate);
             withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
           })
           .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
-      } else {
-        // モック
-        console.warn('[withdraw] google.script.run が利用できません（モック）');
-        setTimeout(function () {
-          showToast('請求を取り下げました（モック）。', 'success');
-        }, 800);
       }
     }
 
@@ -3810,14 +3804,6 @@ window.addEventListener('hashchange', navigate);
             undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
           })
           .undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
-      } else {
-        // モック
-        console.warn('[undo-withdraw] google.script.run が利用できません（モック）');
-        setTimeout(function () {
-          showToast('取下げを取り消しました（モック）。', 'success');
-          undoWithdrawBtn.disabled = false;
-          undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
-        }, 800);
       }
     }
 

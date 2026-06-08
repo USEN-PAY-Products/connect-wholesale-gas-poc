@@ -1083,7 +1083,11 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       "  AND invoice_status = 'DISPUTED'";
 
     Logger.log('[BQ] withdrawStoreInvoice SQL: ' + sql);
-    runTransactionSql_(projectId, sql);
+    const affected = runDmlWithRowCheck_(projectId, sql);
+    if (affected === 0) {
+      logInfo_('Invoice', 'withdrawStoreInvoice: 更新対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
+      throw new Error('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+    }
 
     logInfo_('Invoice', 'withdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
@@ -1127,7 +1131,11 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       "  AND invoice_status = 'WITHDRAWN'";
 
     Logger.log('[BQ] undoWithdrawStoreInvoice SQL: ' + sql);
-    runTransactionSql_(projectId, sql);
+    const affected = runDmlWithRowCheck_(projectId, sql);
+    if (affected === 0) {
+      logInfo_('Invoice', 'undoWithdrawStoreInvoice: 更新対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
+      throw new Error('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+    }
 
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });

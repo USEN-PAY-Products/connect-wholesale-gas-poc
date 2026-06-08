@@ -157,6 +157,49 @@ function runTransactionSql_(projectId, sql) {
 }
 
 /**
+ * 単一 DML（UPDATE / DELETE）を実行し、影響行数を返す。
+ * 影響行数が 0 の場合に呼び出し元でエラーハンドリングできるようにする。
+ *
+ * @param {string} projectId - GCP プロジェクトID
+ * @param {string} sql       - 実行する DML
+ * @returns {number} 影響行数（numDmlAffectedRows）
+ * @throws {Error} クエリ失敗時
+ */
+function runDmlWithRowCheck_(projectId, sql) {
+  Logger.log('[BQ] DML 実行開始');
+  const request = {
+    query:        sql,
+    useLegacySql: false,
+    timeoutMs:    10000,
+  };
+
+  let response = BigQuery.Jobs.query(request, projectId);
+  if (response.errors && response.errors.length > 0) {
+    throw new Error('[BQ] DML エラー: ' + JSON.stringify(response.errors));
+  }
+
+  const jobId = response.jobReference && response.jobReference.jobId;
+  if (!jobId) throw new Error('[BQ] jobId が取得できませんでした（DML）');
+
+  const MAX_POLL = 30;
+  for (let poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
+    Utilities.sleep(2000);
+    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+    if (response.errors && response.errors.length > 0) {
+      throw new Error('[BQ] DML エラー（ポーリング中）: ' + JSON.stringify(response.errors));
+    }
+  }
+
+  if (!response.jobComplete) {
+    throw new Error('[BQ] DML がタイムアウトしました（jobId: ' + jobId + '）');
+  }
+
+  const affected = Number(response.numDmlAffectedRows || 0);
+  Logger.log('[BQ] DML 完了: jobId=' + jobId + ', affectedRows=' + affected);
+  return affected;
+}
+
+/**
  * 使い捨て staging テーブルを DROP する。
  * トランザクション外で実行すること（BQ の DDL は TRANSACTION 内に含められない）。
  * DROP 失敗は致命的ではない（DB への全登録は成功済み）。

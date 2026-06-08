@@ -168,13 +168,13 @@
   <!-- ================================================================
        請求取り下げ確認モーダル
        ================================================================ -->
-  <div id="withdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+  <div id="withdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="withdrawConfirmTitle" aria-describedby="withdrawConfirmDesc">
     <div class="modal modal--warn">
-      <h2 class="modal__title modal__title--warn">
+      <h2 class="modal__title modal__title--warn" id="withdrawConfirmTitle">
         <i class="fa-solid fa-triangle-exclamation"></i>
         加盟店への請求情報を取り下げます。よろしいですか？
       </h2>
-      <div class="modal__message modal__message--warn">
+      <div class="modal__message modal__message--warn" id="withdrawConfirmDesc">
         <p>加盟店単位の請求情報を取り下げます。</p>
         <p>取り下げ後、再度、同加盟店へ請求いたい場合は、<br>
         取下げ済みの請求一覧から再度請求を行ってください。</p>
@@ -189,13 +189,13 @@
   <!-- ================================================================
        取下げ取り消し確認モーダル
        ================================================================ -->
-  <div id="undoWithdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+  <div id="undoWithdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="undoWithdrawConfirmTitle" aria-describedby="undoWithdrawConfirmDesc">
     <div class="modal modal--warn">
-      <h2 class="modal__title modal__title--warn">
+      <h2 class="modal__title modal__title--warn" id="undoWithdrawConfirmTitle">
         <i class="fa-solid fa-triangle-exclamation"></i>
         請求の取り下げを取り消します。よろしいですか？
       </h2>
-      <div class="modal__message modal__message--warn">
+      <div class="modal__message modal__message--warn" id="undoWithdrawConfirmDesc">
         <p>取り下げを取り消すと、対象の請求は「要対応の請求一覧」に戻ります。</p>
       </div>
       <div class="modal__actions modal__actions--center">
