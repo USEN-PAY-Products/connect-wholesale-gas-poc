@@ -360,7 +360,9 @@ function loadScheduleData_() {
   if (_scheduleLoaded) return;
   const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
   if (!wholesalerId) return;
-  const cacheKey = 'shiire_schedule_cache_' + wholesalerId;
+  const now = new Date();
+  const currentYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const cacheKey = 'shiire_schedule_cache_' + wholesalerId + '_' + currentYM;
 
   // ① sessionStorage キャッシュから当月分を即座に復元
   try {
@@ -386,11 +388,9 @@ function loadScheduleData_() {
       const data = result && result.data ? result.data : [];
       // sessionStorage には当月分のみキャッシュ（初期表示高速化目的）
       try {
-        const now = new Date();
-        const curYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-        const monthStart = curYM + '-01';
+        const monthStart = currentYM + '-01';
         const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        const monthEnd = curYM + '-' + String(lastDay).padStart(2, '0');
+        const monthEnd = currentYM + '-' + String(lastDay).padStart(2, '0');
         const currentMonthOnly = data.filter(function(item) {
           const s = String(item.start_at).slice(0, 10);
           const e = String(item.end_at).slice(0, 10);
