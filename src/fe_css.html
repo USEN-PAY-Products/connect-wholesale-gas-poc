@@ -1661,25 +1661,6 @@ button { cursor: pointer; font-family: inherit; }
 .cal-cell--single { border-radius: 8px; }
 .cal-cell--middle { border-radius: 0; }
 
-/* イベント説明テキスト（期間全体にまたがって表示） */
-.cal-event-label {
-  position: absolute;
-  left: 0;
-  font-family: "Noto Sans JP", sans-serif;
-  font-size: 9px;
-  font-weight: 700;
-  color: #00A7B8;
-  line-height: 1.2;
-  text-align: center;
-  white-space: nowrap;
-  overflow: visible;
-  z-index: 1;
-  pointer-events: none;
-  padding: 0 2px;
-  top: 24px;
-  width: 100%;
-}
-
 .cal-cell__num {
   font-size: 13px;
   font-weight: 400;
@@ -1707,6 +1688,37 @@ button { cursor: pointer; font-family: inherit; }
 /* イベントあり */
 .cal-cell--has-event {
   position: relative;
+}
+
+/* 凡例 */
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin-top: 20px;
+  padding: 0 4px;
+}
+
+.cal-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cal-legend__swatch {
+  display: inline-block;
+  width: 36px;
+  height: 12px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.cal-legend__label {
+  font-family: "Noto Sans JP", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+  white-space: nowrap;
 }
 
 /* 月選択パネル */

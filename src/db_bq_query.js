@@ -521,7 +521,6 @@ function fetchBusinessCalendar_(wholesalerId) {
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.business_calendar` ' +
     'WHERE wholesaler_id = @wholesaler_id ' +
     '  AND is_visible_to_wholesaler = TRUE ' +
-    '  AND event_type IN (\'WHOLESALER_INVOICE_STORAGE\', \'WHOLESALER_INVOICE_FIXATION\', \'DEPOSIT\', \'OBJECTION_PERIOD\') ' +
     'ORDER BY start_at ASC';
 
   const params = [
