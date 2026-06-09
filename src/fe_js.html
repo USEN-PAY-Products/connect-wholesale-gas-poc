@@ -358,16 +358,18 @@ let _scheduleLoaded = false;
  */
 function loadScheduleData_() {
   if (_scheduleLoaded) return;
-  if (!sessionStorage.getItem('shiire_wholesaler_id')) return;
+  const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
+  if (!wholesalerId) return;
+  const cacheKey = 'shiire_schedule_cache_' + wholesalerId;
 
   // ① sessionStorage キャッシュから当月分を即座に復元
   try {
-    var cached = sessionStorage.getItem('shiire_schedule_cache');
+    const cached = sessionStorage.getItem(cacheKey);
     if (cached) {
-      var parsed = JSON.parse(cached);
+      const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length > 0) {
         buildScheduleMap(parsed);
-        var overlay = document.getElementById('calendarModalOverlay');
+        const overlay = document.getElementById('calendarModalOverlay');
         if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
       }
     }
@@ -381,25 +383,25 @@ function loadScheduleData_() {
 
   google.script.run
     .withSuccessHandler(function(result) {
-      var data = result && result.data ? result.data : [];
+      const data = result && result.data ? result.data : [];
       // sessionStorage には当月分のみキャッシュ（初期表示高速化目的）
       try {
-        var now = new Date();
-        var curYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-        var monthStart = curYM + '-01';
-        var lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        var monthEnd = curYM + '-' + String(lastDay).padStart(2, '0');
-        var currentMonthOnly = data.filter(function(item) {
-          var s = String(item.start_at).slice(0, 10);
-          var e = String(item.end_at).slice(0, 10);
+        const now = new Date();
+        const curYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+        const monthStart = curYM + '-01';
+        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const monthEnd = curYM + '-' + String(lastDay).padStart(2, '0');
+        const currentMonthOnly = data.filter(function(item) {
+          const s = String(item.start_at).slice(0, 10);
+          const e = String(item.end_at).slice(0, 10);
           return !(e < monthStart || s > monthEnd);
         });
-        sessionStorage.setItem('shiire_schedule_cache', JSON.stringify(currentMonthOnly));
+        sessionStorage.setItem(cacheKey, JSON.stringify(currentMonthOnly));
       } catch (e) {
         console.warn('[calendar] sessionStorage へのキャッシュ保存失敗:', e);
       }
       buildScheduleMap(data);
-      var overlay = document.getElementById('calendarModalOverlay');
+      const overlay = document.getElementById('calendarModalOverlay');
       if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
     })
     .withFailureHandler(function(err) {
@@ -694,11 +696,11 @@ function renderCalendarLegend_() {
   const items = [];
   _rawScheduleItems.forEach(function(item) {
     // イベント期間が表示中の月と重なるか判定（文字列比較）
-    var evStart = String(item.start_at).slice(0, 10);
-    var evEnd   = String(item.end_at).slice(0, 10);
+    const evStart = String(item.start_at).slice(0, 10);
+    const evEnd   = String(item.end_at).slice(0, 10);
     if (evEnd < monthStartStr || evStart > monthEndStr) return; // 月外 → スキップ
 
-    var key = (item.display_color_code || '#ccc') + '|' + (item.event_description || '');
+    const key = (item.display_color_code || '#ccc') + '|' + (item.event_description || '');
     if (!seen.has(key)) {
       seen.add(key);
       items.push({
