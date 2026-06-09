@@ -220,6 +220,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (result && result.data) {
           saveAccountInfo(result.data);
           enableUploadUi_();
+          // スケジュールデータをプリフェッチ（カレンダーを開く前にデータを準備）
+          loadScheduleData_();
         } else {
           console.error('[account] getAccountInfo のレスポンスが不正です:', result);
           showErrorPage_('system');
@@ -349,18 +351,56 @@ let scheduleMap = {};
 let _scheduleLoaded = false;
 
 /**
- * スケジュールデータを取得する（未取得の場合のみ）。
- * カレンダーモーダルを開く際やinitHomePage()から呼ばれる。
+ * スケジュールデータを取得する。
+ * 1. sessionStorage に当月キャッシュがあれば即座に scheduleMap を構築（瞬時表示）
+ * 2. BQ からも非同期で取得し、全月データで上書き
+ *    ※ キャッシュは当月分のみ保持（初期表示高速化目的）
  */
 function loadScheduleData_() {
   if (_scheduleLoaded) return;
-  if (!sessionStorage.getItem('shiire_wholesaler_id')) return;
+  const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
+  if (!wholesalerId) return;
+  const now = new Date();
+  const currentYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const cacheKey = 'shiire_schedule_cache_' + wholesalerId + '_' + currentYM;
+
+  // ① sessionStorage キャッシュから当月分を即座に復元
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        buildScheduleMap(parsed);
+        const overlay = document.getElementById('calendarModalOverlay');
+        if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
+      }
+    }
+  } catch (e) {
+    console.warn('[calendar] sessionStorage キャッシュ復元失敗:', e);
+  }
+
+  // ② BQ から最新データを非同期取得
   if (typeof google === 'undefined' || !google.script || !google.script.run) return;
   _scheduleLoaded = true;
 
   google.script.run
     .withSuccessHandler(function(result) {
-      buildScheduleMap(result && result.data ? result.data : []);
+      const data = result && result.data ? result.data : [];
+      // sessionStorage には当月分のみキャッシュ（初期表示高速化目的）
+      try {
+        const monthStart = currentYM + '-01';
+        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const monthEnd = currentYM + '-' + String(lastDay).padStart(2, '0');
+        const currentMonthOnly = data.filter(function(item) {
+          const s = String(item.start_at).slice(0, 10);
+          const e = String(item.end_at).slice(0, 10);
+          return !(e < monthStart || s > monthEnd);
+        });
+        sessionStorage.setItem(cacheKey, JSON.stringify(currentMonthOnly));
+      } catch (e) {
+        console.warn('[calendar] sessionStorage へのキャッシュ保存失敗:', e);
+      }
+      buildScheduleMap(data);
       const overlay = document.getElementById('calendarModalOverlay');
       if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
     })
@@ -619,39 +659,73 @@ function renderCalendar() {
     num.textContent = String(d);
     cell.appendChild(num);
 
-    // スケジュール背景色 + イベント説明テキスト
+    // スケジュール背景色
     const events = scheduleMap[key] || [];
     if (events.length > 0) {
       cell.style.background = buildCellBackground(events);
       const posClass = getCellPosClass(events);
       if (posClass) cell.classList.add(posClass);
-
-      // テキスト表示条件: start/single、または週の先頭（日曜日）の場合のみ表示
-      // テキストは期間全体（週末or終了日まで）にまたがって中央表示
-      const currentDate = new Date(calYear, calMonth, d);
-      const dayOfWeek = currentDate.getDay(); // 0=日曜
-      events.forEach(function(ev) {
-        const showLabel = (ev.pos === 'start' || ev.pos === 'single' || dayOfWeek === 0);
-        if (showLabel && ev.title) {
-          // この週内でイベントが続く日数を計算（土曜 or 終了日 or 月末のいずれか早い方まで）
-          const daysUntilSat = 6 - dayOfWeek;
-          const daysUntilEnd = Math.round((ev.endDate - currentDate) / 86400000);
-          const daysUntilMonthEnd = lastDate - d;
-          const span = Math.min(daysUntilSat, daysUntilEnd, daysUntilMonthEnd) + 1;
-          const lbl = document.createElement('span');
-          lbl.className = 'cal-event-label';
-          lbl.textContent = ev.title;
-          if (span > 1) {
-            lbl.style.width = 'calc(' + span + ' * 100%)';
-          }
-          cell.appendChild(lbl);
-        }
-      });
       cell.classList.add('cal-cell--has-event');
     }
 
     grid.appendChild(cell);
   }
+
+  // 凡例を描画
+  renderCalendarLegend_();
+}
+
+/**
+ * カレンダー下の凡例を描画する。
+ * _rawScheduleItems のうち表示中の月に期間が重なるイベントだけを
+ * 重複排除して色 + description の一覧で表示。
+ */
+function renderCalendarLegend_() {
+  const legendEl = document.getElementById('calLegend');
+  if (!legendEl) return;
+  legendEl.innerHTML = '';
+
+  // 表示中の月の範囲（YYYY-MM-DD 文字列で比較 ─ タイムゾーンずれ回避）
+  const mm = String(calMonth + 1).padStart(2, '0');
+  const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
+  const monthStartStr = calYear + '-' + mm + '-01';
+  const monthEndStr   = calYear + '-' + mm + '-' + String(lastDay).padStart(2, '0');
+
+  // 色 + description でユニークな凡例項目を抽出（表示中の月に重なるもののみ）
+  const seen = new Set();
+  const items = [];
+  _rawScheduleItems.forEach(function(item) {
+    // イベント期間が表示中の月と重なるか判定（文字列比較）
+    const evStart = String(item.start_at).slice(0, 10);
+    const evEnd   = String(item.end_at).slice(0, 10);
+    if (evEnd < monthStartStr || evStart > monthEndStr) return; // 月外 → スキップ
+
+    const key = (item.display_color_code || '#ccc') + '|' + (item.event_description || '');
+    if (!seen.has(key)) {
+      seen.add(key);
+      items.push({
+        color: item.display_color_code || '#ccc',
+        description: item.event_description || ''
+      });
+    }
+  });
+
+  items.forEach(function(item) {
+    const row = document.createElement('div');
+    row.className = 'cal-legend__item';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'cal-legend__swatch';
+    swatch.style.background = item.color;
+
+    const label = document.createElement('span');
+    label.className = 'cal-legend__label';
+    label.textContent = item.description;
+
+    row.appendChild(swatch);
+    row.appendChild(label);
+    legendEl.appendChild(row);
+  });
 }
 
 // 月選択パネル
