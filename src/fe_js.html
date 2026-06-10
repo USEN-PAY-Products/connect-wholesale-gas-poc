@@ -14,20 +14,25 @@ function roundTax(value) {
 }
 
 /**
- * JST (Asia/Tokyo) 基準で現在日時の年月日を返すユーティリティ。
+ * JST (Asia/Tokyo) 基準で現在日時の年月日・時分を返すユーティリティ。
  * ユーザー端末のタイムゾーンに依存せず、BE 側と同じ Asia/Tokyo 基準で判定する。
- * @returns {{ year: number, month: number, date: number, ym: string, ymd: string }}
+ * UTC epoch に +9h の固定オフセットを加算し、ロケール依存の文字列パースを回避する。
+ * @returns {{ year: number, month: number, date: number, hours: number, minutes: number, ym: string, ymd: string }}
  */
 function jstNow_() {
-  var s = new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' });
-  var d = new Date(s);
-  var year  = d.getFullYear();
-  var month = d.getMonth() + 1;
-  var date  = d.getDate();
+  const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const d = new Date(Date.now() + JST_OFFSET_MS);
+  const year    = d.getUTCFullYear();
+  const month   = d.getUTCMonth() + 1;
+  const date    = d.getUTCDate();
+  const hours   = d.getUTCHours();
+  const minutes = d.getUTCMinutes();
   return {
-    year: year,
-    month: month,
-    date: date,
+    year:    year,
+    month:   month,
+    date:    date,
+    hours:   hours,
+    minutes: minutes,
     ym:  year + '-' + String(month).padStart(2, '0'),
     ymd: year + '-' + String(month).padStart(2, '0') + '-' + String(date).padStart(2, '0')
   };
@@ -1174,8 +1179,17 @@ function checkUploadDeadline_() {
   const message = document.getElementById('uploadDeadlineMessage');
   if (!banner || !message) return;
 
-  // 一旦リセット
+  // 一旦リセット（前回の期限切れ判定で無効化した入力UIも復元）
   banner.classList.add('hidden');
+  const dropZone   = document.getElementById('dropZone');
+  const btnSelect  = document.getElementById('btnSelectFile');
+  const fileInput  = document.getElementById('fileInput');
+  const btnConfirm = document.getElementById('btnToConfirm');
+  if (dropZone)   { dropZone.style.pointerEvents = ''; dropZone.style.opacity = ''; }
+  if (btnSelect)  btnSelect.disabled  = false;
+  if (fileInput)   fileInput.disabled  = false;
+  // btnToConfirm はファイル未選択状態なら disabled のままにする（初期状態 = disabled）
+  // ファイル選択後の有効化は handleFile 側で行われるため、ここでは触らない
 
   const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
   if (!wholesalerId) return;
@@ -1199,14 +1213,10 @@ function checkUploadDeadline_() {
       // 期限切れ: アップロードフォームを無効化
       message.textContent = '請求書受付期間（' + endAt + ' まで）を過ぎているため、アップロードできません。';
       banner.classList.remove('hidden');
-      const dropZone = document.getElementById('dropZone');
-      if (dropZone) { dropZone.style.pointerEvents = 'none'; dropZone.style.opacity = '0.5'; }
-      const btnSelect = document.getElementById('btnSelectFile');
-      if (btnSelect) btnSelect.disabled = true;
-      const fileInput = document.getElementById('fileInput');
-      if (fileInput) fileInput.disabled = true;
-      const btnToConfirm = document.getElementById('btnToConfirm');
-      if (btnToConfirm) btnToConfirm.disabled = true;
+      if (dropZone)   { dropZone.style.pointerEvents = 'none'; dropZone.style.opacity = '0.5'; }
+      if (btnSelect)  btnSelect.disabled  = true;
+      if (fileInput)   fileInput.disabled  = true;
+      if (btnConfirm) btnConfirm.disabled = true;
     }
   } catch (e) {
     console.warn('[upload] 期限チェック失敗:', e);
@@ -2219,8 +2229,7 @@ function renderConfirmPage() {
 
   // 登録日時（JST 基準の現在日時）
   const jstReg = jstNow_();
-  const nowForTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }));
-  const registeredAt = `${jstReg.year}/${String(jstReg.month).padStart(2,'0')}/${String(jstReg.date).padStart(2,'0')} ${String(nowForTime.getHours()).padStart(2,'0')}:${String(nowForTime.getMinutes()).padStart(2,'0')}`;
+  const registeredAt = `${jstReg.year}/${String(jstReg.month).padStart(2,'0')}/${String(jstReg.date).padStart(2,'0')} ${String(jstReg.hours).padStart(2,'0')}:${String(jstReg.minutes).padStart(2,'0')}`;
   const registeredAtEl = document.getElementById('summaryRegisteredAt');
   if (registeredAtEl) registeredAtEl.textContent = registeredAt;
 
