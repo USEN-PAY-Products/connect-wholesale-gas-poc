@@ -428,6 +428,11 @@ function loadScheduleData_() {
       buildScheduleMap(data);
       const overlay = document.getElementById('calendarModalOverlay');
       if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
+      // アップロードページ表示中ならキャッシュ更新後に期限チェックを再実行
+      const uploadPage = document.getElementById('pageUpload');
+      if (uploadPage && !uploadPage.classList.contains('hidden')) {
+        checkUploadDeadline_();
+      }
     })
     .withFailureHandler(function(err) {
       console.error('[calendar] fetchScheduleData failed:', err);

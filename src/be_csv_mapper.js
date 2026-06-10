@@ -211,16 +211,20 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
  *   system_column が staging 名の場合、以下の DDL 列名に変換する:
  *   - tax_rate              → tax_category
  *   - amount_ex_tax         → line_amount_excluding_tax
+ *   - tax_amount            → line_tax_amount
  *   - invoice_detail_remark → line_note
  *   その他は 1:1 対応（transaction_date, item_name, quantity, quantity_unit, unit_price 等）
  *
  * 【計算項目 line_tax_amount のインジェクション】
- *   CSV に存在しないため、amount_ex_tax と tax_rate の index を逆引きして計算式を生成。
- *   端数処理: FLOOR（切り捨て）
+ *   CSV に tax_amount がマッピングされている場合はその値をそのまま使用する。
+ *   CSV に tax_amount が存在しない場合は、amount_ex_tax と tax_rate の index を逆引きして計算式を生成。
+ *   端数処理: taxRoundingMethod に応じて FLOOR（切り捨て）/ CEIL（切り上げ）/ ROUND（四捨五入）
  *
  * 【store_invoice_id の取得】
  *   wholesaler_merchants と store_invoices を JOIN して取得する。
  *   customer_code (system_column) が JOIN キーとして必須。INSERT カラムには含めない。
+ *   options.storeInvoiceIds が指定された場合は UUID ベースの IN 句で JOIN し、
+ *   未指定の場合は wholesaler_invoice_id + mall_code で JOIN する。
  *
  * @param {Object} csvFormatRules - 新形式の csv_format_rules（columns 配列を持つ）
  * @param {string} stagingRef     - Staging テーブルの完全修飾参照（バッククォート付き）
@@ -231,6 +235,9 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
  * @param {string} storeRef       - store_invoices テーブルの完全修飾参照
  * @param {Object} [options]      - オプション
  * @param {boolean} [options.isLatestOnly=false] - true の場合 si.is_latest = TRUE を JOIN 条件に追加（再送信用）
+ * @param {string[]} [options.storeInvoiceIds]   - 指定時は UUID ベースの IN 句で store_invoices と JOIN する。
+ *                                                  クォート付き/なしどちらでも可（内部で正規化 + escSql_ される）
+ * @param {string} [taxRoundingMethod='floor']   - 端数処理方法。'floor'（切り捨て）/ 'ceil'（切り上げ）/ 'round'（四捨五入）
  * @returns {{ insertColumns: string[], selectSql: string, validateCases: Array }}
  *   - insertColumns: INSERT 句に使用するカラム名配列
  *   - selectSql:     SELECT ... FROM staging JOIN ... の SQL 文字列（末尾の `;` を含む）
