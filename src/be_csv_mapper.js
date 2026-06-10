@@ -237,7 +237,7 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
  *   - validateCases: バリデーション条件配列
  * @throws {Error} amount_ex_tax, tax_rate, customer_code が columns に定義されていない場合
  */
-function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, wsId, merchantsRef, storeRef, options) {
+function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, wsId, merchantsRef, storeRef, options, taxRoundingMethod) {
   const opts = options || {};
   const columns = csvFormatRules.columns;
 
@@ -286,6 +286,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   const SYSTEM_COL_TO_DDL = {
     'tax_rate':              'tax_category',
     'amount_ex_tax':         'line_amount_excluding_tax',
+    'tax_amount':            'line_tax_amount',
     'invoice_detail_remark': 'line_note',
   };
 
@@ -378,6 +379,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     'unit_price',             // invoice_lines.unit_price
     'amount_ex_tax',          // invoice_lines.line_amount_excluding_tax
     'tax_rate',               // invoice_lines.tax_category
+    'tax_amount',             // invoice_lines.line_tax_amount（CSVに存在する場合のパススルー用）
     'invoice_detail_remark',  // invoice_lines.line_note
   ]);
 
@@ -535,46 +537,77 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     );
   });
 
-  // ── line_tax_amount を計算式でインジェクション ────────────────────────────
-  // CSV に存在しない計算項目のため、amount_ex_tax と tax_rate の index から動的に生成する。
-  // 計算に使う2列（amount_ex_tax / tax_rate）は required フラグに関わらず非数値が混在すると
-  // COALESCE で 0 に補完され、誤った税額 0 の明細が INSERT されてしまう。
-  // required:true の場合は columns.forEach の validateCases で既にカバーされているが、
-  // required フラグの設定ミスや将来の変更でカバー漏れが生じないよう、
-  // ここで amountCol / taxRateCol を改めて明示的にバリデーションする。
-  // 重複 WHEN は CASE WHEN の先行条件が先にマッチして中断されるため実害はない。
-  [
-    { col: amountCol,  fieldRef: amountFieldRef  },
-    { col: taxRateCol, fieldRef: taxRateFieldRef },
-  ].forEach(function(entry) {
-    const col      = entry.col;
-    const fieldRef = entry.fieldRef;
-    validateCases.push({
-      countifExpr:
-        'COUNTIF(\n' +
-        '      SAFE_CAST(NULLIF(' + fieldRef + ", '') AS INT64) IS NULL\n" +
-        '      AND ' + fieldRef + ' IS NOT NULL\n' +
-        "      AND " + fieldRef + " != '')",
-      message:
-        '\u5217\u300c' + escSql_(col.csv_header) +
-        '\u300d(index:' + col.index + ') \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002' +
-        '\u3053\u306e\u5217\u306f line_tax_amount \u306e\u8a08\u7b97\u306b\u4f7f\u7528\u3059\u308b\u305f\u3081\u6570\u5024\u304c\u5fc5\u9808\u3067\u3059\u3002\u534a\u89d2\u6570\u5b57\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+  // ── line_tax_amount の処理 ────────────────────────────────────────────────
+  // CSV に tax_amount（system_column='tax_amount'）がマッピングされている場合は
+  // columns.forEach ループで既に SAFE_CAST(... AS NUMERIC) AS line_tax_amount として
+  // INSERT カラムと SELECT 式に追加済みのため、計算式の追加は不要。
+  //
+  // CSV に tax_amount が存在しない場合は、amount_ex_tax と tax_rate から動的に計算する。
+  // 端数処理は tax_rounding_method（卸ごとの設定）に従い FLOOR/CEIL/ROUND を切り替える。
+  const taxAmountCol = columns.find(function(c) { return c.system_column === 'tax_amount'; });
+
+  if (!taxAmountCol) {
+    // tax_amount が CSV に存在しない → BE で計算
+    // 計算に使う2列（amount_ex_tax / tax_rate）の非数値バリデーション
+    [
+      { col: amountCol,  fieldRef: amountFieldRef  },
+      { col: taxRateCol, fieldRef: taxRateFieldRef },
+    ].forEach(function(entry) {
+      const col      = entry.col;
+      const fieldRef = entry.fieldRef;
+      validateCases.push({
+        countifExpr:
+          'COUNTIF(\n' +
+          '      SAFE_CAST(NULLIF(' + fieldRef + ", '') AS NUMERIC) IS NULL\n" +
+          '      AND ' + fieldRef + ' IS NOT NULL\n' +
+          "      AND " + fieldRef + " != '')",
+        message:
+          '\u5217\u300c' + escSql_(col.csv_header) +
+          '\u300d(index:' + col.index + ') \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002' +
+          '\u3053\u306e\u5217\u306f line_tax_amount \u306e\u8a08\u7b97\u306b\u4f7f\u7528\u3059\u308b\u305f\u3081\u6570\u5024\u304c\u5fc5\u9808\u3067\u3059\u3002\u6570\u5024\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      });
     });
-  });
 
-  const safeAmount  = 'COALESCE(SAFE_CAST(NULLIF(' + amountFieldRef  + ", '') AS INT64), 0)";
-  const safeRate    = 'COALESCE(SAFE_CAST(NULLIF(' + taxRateFieldRef + ", '') AS INT64), 0)";
-  const lineTaxExpr = 'CAST(FLOOR(' + safeAmount + ' * ' + safeRate + ' / 100) AS INT64)';
+    const safeAmount  = 'COALESCE(SAFE_CAST(NULLIF(' + amountFieldRef  + ", '') AS NUMERIC), 0)";
+    const safeRate    = 'COALESCE(SAFE_CAST(NULLIF(' + taxRateFieldRef + ", '') AS INT64), 0)";
 
-  insertColumns.push('line_tax_amount');
-  selectParts.push(
-    '  ' + lineTaxExpr + ' AS line_tax_amount,' +
-    '  -- 消費税額: FLOOR(金額(index:' + amountCol.index +
-    ') × 税率(index:' + taxRateCol.index + ') / 100) 端数切り捨て（非数値は前段 RAISE で排除済み）'
-  );
+    // tax_rounding_method に応じて端数処理を切り替え
+    var roundingFn;
+    switch (taxRoundingMethod) {
+      case 'ceil':  roundingFn = 'CEIL';  break;
+      case 'round': roundingFn = 'ROUND'; break;
+      default:      roundingFn = 'FLOOR'; break;
+    }
+    const lineTaxExpr = roundingFn + '(' + safeAmount + ' * ' + safeRate + ' / 100)';
+
+    insertColumns.push('line_tax_amount');
+    selectParts.push(
+      '  ' + lineTaxExpr + ' AS line_tax_amount,' +
+      '  -- 消費税額: ' + roundingFn + '(金額(index:' + amountCol.index +
+      ') × 税率(index:' + taxRateCol.index + ') / 100)'
+    );
+  }
+  // tax_amount が CSV にある場合は columns.forEach で追加済み → ここでは何もしない
 
   insertColumns.push('created_at');
   selectParts.push('  CURRENT_TIMESTAMP()                                                 AS created_at');
+
+  let storeJoinLines;
+  if (opts.storeInvoiceIds && opts.storeInvoiceIds.length > 0) {
+    // UUID ベース JOIN: 新規 INSERT した store_invoices のみに紐づけ（非対象 staging 行の混入防止）
+    storeJoinLines = [
+      'JOIN ' + storeRef + ' si',
+      '  ON si.id IN (' + opts.storeInvoiceIds.join(', ') + ')',
+      '  AND si.mall_code = wm.mall_code;',
+    ];
+  } else {
+    storeJoinLines = [
+      'JOIN ' + storeRef + ' si',
+      '  ON si.mall_code = wm.mall_code',
+      "  AND si.wholesaler_invoice_id = '" + escSql_(invoiceUuid) + "'",
+      opts.isLatestOnly ? '  AND si.is_latest = TRUE;' : ';',
+    ];
+  }
 
   const selectSql = [
     'SELECT',
@@ -584,11 +617,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     '  ON wm.customer_code = ' + custCodeFieldRef,
     '  AND wm.wholesaler_id = ' + wsId,
     '  AND wm.deleted_at IS NULL',
-    'JOIN ' + storeRef + ' si',
-    '  ON si.mall_code = wm.mall_code',
-    "  AND si.wholesaler_invoice_id = '" + escSql_(invoiceUuid) + "'",
-    opts.isLatestOnly ? '  AND si.is_latest = TRUE;' : ';',
-  ].join('\n');
+  ].concat(storeJoinLines).join('\n');
 
   Logger.log(
     '[CsvMapper] SELECT SQL 生成完了: ' + insertColumns.length + 'カラム' +
@@ -694,7 +723,7 @@ function buildMappedTransactionSql_(params) {
   ['totalAmount','subtotalAmount','taxAmount','exTax8','tax8','exTax10','tax10','feeAmount','paymentAmount']
     .forEach(function(f) {
       const v = Number(wt[f] || 0);
-      if (!Number.isFinite(v) || v < 0 || !Number.isInteger(v)) {
+      if (!Number.isFinite(v) || v < 0) {
         throw new Error('[CsvMapper] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
       }
     });
@@ -704,7 +733,7 @@ function buildMappedTransactionSql_(params) {
     ['totalAmount','subtotalAmount','taxAmount','exTax8','tax8','exTax10','tax10']
       .forEach(function(f) {
         const v = Number(m[f] || 0);
-        if (!Number.isFinite(v) || v < 0 || !Number.isInteger(v)) {
+        if (!Number.isFinite(v) || v < 0) {
           throw new Error(
             '[CsvMapper] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]
           );
@@ -730,7 +759,9 @@ function buildMappedTransactionSql_(params) {
     invoiceUuid,
     wsId,
     merchantsRef,
-    storeRef
+    storeRef,
+    null,
+    accountInfo.tax_rounding_method || 'floor'
   );
 
   // ── 子テーブル (store_invoices) の VALUES を加盟店数分だけ展開 ─────────────
@@ -745,13 +776,13 @@ function buildMappedTransactionSql_(params) {
       "'" + escSql_(invoiceUuid)               + "', " +  // wholesaler_invoice_id
            wsId                                + ', '  +  // wholesaler_id
       "'" + mallCode                           + "', " +  // mall_code
-           Number(m.totalAmount    || 0)       + ', '  +  // total_amount
-           Number(m.subtotalAmount || 0)       + ', '  +  // subtotal_amount
-           Number(m.taxAmount      || 0)       + ', '  +  // tax_amount
-           Number(m.exTax10        || 0)       + ', '  +  // standard_tax_target_amount
-           Number(m.tax10          || 0)       + ', '  +  // standard_tax_amount
-           Number(m.exTax8         || 0)       + ', '  +  // reduced_tax_target_amount
-           Number(m.tax8           || 0)       + ', '  +  // reduced_tax_amount
+           Math.round(Number(m.totalAmount    || 0))       + ', '  +  // total_amount
+           Math.round(Number(m.subtotalAmount || 0))       + ', '  +  // subtotal_amount
+           Math.round(Number(m.taxAmount      || 0))       + ', '  +  // tax_amount
+           Math.round(Number(m.exTax10        || 0))       + ', '  +  // standard_tax_target_amount
+           Math.round(Number(m.tax10          || 0))       + ', '  +  // standard_tax_amount
+           Math.round(Number(m.exTax8         || 0))       + ', '  +  // reduced_tax_target_amount
+           Math.round(Number(m.tax8           || 0))       + ', '  +  // reduced_tax_amount
       '0, '                                             +  // non_taxable_amount
            remarkSql                           + ', '  +  // wholesaler_remark
       "'PENDING_REVIEW', TRUE, '"                        +  // backoffice_review_status, is_latest
@@ -853,17 +884,17 @@ function buildMappedTransactionSql_(params) {
     "  '" + escSql_(invoiceUuid)   + "',",
     "  '" + escSql_(wsUserId)      + "', " + wsId + ",",
     "  CURRENT_DATE('Asia/Tokyo'),",
-    '  ' + Number(wt.totalAmount   || 0) + ', ' +
-          Number(wt.subtotalAmount || 0) + ', ' +
-          Number(wt.taxAmount      || 0) + ',',
-    '  ' + Number(wt.exTax10       || 0) + ', ' +
-          Number(wt.tax10          || 0) + ',',
-    '  ' + Number(wt.exTax8        || 0) + ', ' +
-          Number(wt.tax8           || 0) + ',',
+    '  ' + Math.round(Number(wt.totalAmount   || 0)) + ', ' +
+          Math.round(Number(wt.subtotalAmount || 0)) + ', ' +
+          Math.round(Number(wt.taxAmount      || 0)) + ',',
+    '  ' + Math.round(Number(wt.exTax10       || 0)) + ', ' +
+          Math.round(Number(wt.tax10          || 0)) + ',',
+    '  ' + Math.round(Number(wt.exTax8        || 0)) + ', ' +
+          Math.round(Number(wt.tax8           || 0)) + ',',
     '  0,',
     '  ' + feeRate                        + ', ' +
-          Number(wt.feeAmount      || 0) + ', ' +
-          Number(wt.paymentAmount  || 0) + ',',
+          Math.round(Number(wt.feeAmount      || 0)) + ', ' +
+          Math.round(Number(wt.paymentAmount  || 0)) + ',',
     '  NULL,',
     "  '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP()",
     ');',
@@ -931,16 +962,18 @@ function buildMappedResubmitTransactionSql_(params) {
   const handoverSql = wholesalerHandover ? "'" + escSql_(wholesalerHandover) + "'" : 'NULL';
 
   // store_invoices VALUES
+  const childUuids = [];
   const childRows = summaryData.merchantTotals.map(function(m) {
     const childUuid = Utilities.getUuid();
+    childUuids.push("'" + childUuid + "'");
     const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     return (
       "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
-      Number(m.totalAmount || 0) + ', ' + Number(m.subtotalAmount || 0) + ', ' + Number(m.taxAmount || 0) + ', ' +
-      Number(m.exTax10 || 0) + ', ' + Number(m.tax10 || 0) + ', ' +
-      Number(m.exTax8 || 0) + ', ' + Number(m.tax8 || 0) + ', 0, ' +
+      Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
+      Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
+      Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
       remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
@@ -955,7 +988,7 @@ function buildMappedResubmitTransactionSql_(params) {
   };
   const newAmounts = {};
   amountFields.forEach(function(f) {
-    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+    newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
   const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
@@ -964,7 +997,8 @@ function buildMappedResubmitTransactionSql_(params) {
   // invoice_lines の動的 SELECT
   const { insertColumns, selectSql, validateCases } = buildInvoiceLinesSelectSql_(
     csvFormatRules, stagingRef, parentInvoiceId, wsId, merchantsRef, storeRef,
-    { isLatestOnly: true }
+    { isLatestOnly: true, storeInvoiceIds: childUuids },
+    accountInfo.tax_rounding_method || 'floor'
   );
 
   // バリデーションブロック
@@ -1091,8 +1125,10 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   const newWiUuid = Utilities.getUuid();
 
   // store_invoices VALUES
+  const childUuids = [];
   const childRows = summaryData.merchantTotals.map(function(m) {
     const childUuid = Utilities.getUuid();
+    childUuids.push("'" + childUuid + "'");
     const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
@@ -1100,9 +1136,9 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     const handoverSql = handover ? "'" + escSql_(handover) + "'" : 'NULL';
     return (
       "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
-      Number(m.totalAmount || 0) + ', ' + Number(m.subtotalAmount || 0) + ', ' + Number(m.taxAmount || 0) + ', ' +
-      Number(m.exTax10 || 0) + ', ' + Number(m.tax10 || 0) + ', ' +
-      Number(m.exTax8 || 0) + ', ' + Number(m.tax8 || 0) + ', 0, ' +
+      Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
+      Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
+      Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
       remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
@@ -1117,7 +1153,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   };
   const newAmounts = {};
   amountFields.forEach(function(f) {
-    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+    newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
   const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
@@ -1126,7 +1162,8 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   // invoice_lines の動的 SELECT
   const { insertColumns, selectSql, validateCases } = buildInvoiceLinesSelectSql_(
     csvFormatRules, stagingRef, parentInvoiceId, wsId, merchantsRef, storeRef,
-    { isLatestOnly: true }
+    { isLatestOnly: true, storeInvoiceIds: childUuids },
+    accountInfo.tax_rounding_method || 'floor'
   );
 
   // バリデーションブロック

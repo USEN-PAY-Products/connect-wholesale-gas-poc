@@ -24,10 +24,10 @@ const STAGING_SCHEMA_ = {
     { name: 'transaction_date',      type: 'DATE'    },
     { name: 'item_name',             type: 'STRING'  },
     { name: 'quantity',              type: 'NUMERIC' },
-    { name: 'unit_price',            type: 'INTEGER' },
+    { name: 'unit_price',            type: 'NUMERIC' },
     { name: 'tax_rate',              type: 'INTEGER' },
-    { name: 'amount_ex_tax',         type: 'INTEGER' },
-    { name: 'tax_amount',            type: 'INTEGER' },
+    { name: 'amount_ex_tax',         type: 'NUMERIC' },
+    { name: 'tax_amount',            type: 'NUMERIC' },
     { name: 'invoice_detail_remark', type: 'STRING'  },
   ],
 };
