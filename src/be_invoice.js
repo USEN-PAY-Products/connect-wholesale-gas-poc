@@ -216,7 +216,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     '   ' + Math.round(Number(wt.exTax10 || 0)) + ', ' + Math.round(Number(wt.tax10 || 0)) + ',',
     '   ' + Math.round(Number(wt.exTax8  || 0)) + ', ' + Math.round(Number(wt.tax8  || 0)) + ',',
     '   0,',
-    '   ' + feeRate + ', ' + Number(wt.feeAmount) + ', ' + Number(wt.paymentAmount) + ',',
+    '   ' + feeRate + ', ' + Math.round(Number(wt.feeAmount)) + ', ' + Math.round(Number(wt.paymentAmount)) + ',',
     "   NULL, '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
     '',
     'COMMIT;',
@@ -365,6 +365,12 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
+  const roundFee_ = (function() {
+    const m = accountInfo.tax_rounding_method || 'floor';
+    if (m === 'ceil')  return Math.ceil;
+    if (m === 'round') return Math.round;
+    return Math.floor;
+  })();
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -416,7 +422,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
-  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newFeeAmount = roundFee_(newAmounts.totalAmount * feeRate / 100);
   const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
 
   const lines = [
@@ -641,6 +647,12 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
+  const roundFee_ = (function() {
+    const m = accountInfo.tax_rounding_method || 'floor';
+    if (m === 'ceil')  return Math.ceil;
+    if (m === 'round') return Math.round;
+    return Math.floor;
+  })();
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -689,7 +701,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
-  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newFeeAmount = roundFee_(newAmounts.totalAmount * feeRate / 100);
   const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
 
   const lines = [

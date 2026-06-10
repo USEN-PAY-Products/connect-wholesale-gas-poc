@@ -2193,7 +2193,7 @@ function renderConfirmPage() {
   const totalTax         = totals.tax;
   const totalAmountInTax = totalAmountExTax + totalTax;
   const { exTax10, tax10, exTax8, tax8 } = totals;
-  const feeAmount  = Math.floor(totalAmountInTax * feeRate / 100);
+  const feeAmount  = roundTax(totalAmountInTax * feeRate / 100);
   const payAmount  = totalAmountInTax - feeAmount;
 
   const fmt = n => n.toLocaleString('ja-JP');
@@ -2262,7 +2262,7 @@ function renderConfirmPage() {
     const totalTax   = totalTax8 + totalTax10;
     const totalInTax = totalExTax + totalTax;
     const fRate      = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
-    const fee        = Math.floor(totalInTax * fRate / 100);
+    const fee        = roundTax(totalInTax * fRate / 100);
     const pay        = totalInTax - fee;
     const fmt = n => n.toLocaleString('ja-JP');
     document.getElementById('summaryAmountInTax').textContent = fmt(totalInTax);

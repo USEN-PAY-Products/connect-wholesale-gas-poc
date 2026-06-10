@@ -572,7 +572,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     const safeRate    = 'COALESCE(SAFE_CAST(NULLIF(' + taxRateFieldRef + ", '') AS INT64), 0)";
 
     // tax_rounding_method に応じて端数処理を切り替え
-    var roundingFn;
+    let roundingFn;
     switch (taxRoundingMethod) {
       case 'ceil':  roundingFn = 'CEIL';  break;
       case 'round': roundingFn = 'ROUND'; break;
@@ -944,6 +944,12 @@ function buildMappedResubmitTransactionSql_(params) {
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
+  const roundFee_ = (function() {
+    const m = accountInfo.tax_rounding_method || 'floor';
+    if (m === 'ceil')  return Math.ceil;
+    if (m === 'round') return Math.round;
+    return Math.floor;
+  })();
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -991,7 +997,7 @@ function buildMappedResubmitTransactionSql_(params) {
     newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
-  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newFeeAmount = roundFee_(newAmounts.totalAmount * feeRate / 100);
   const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
 
   // invoice_lines の動的 SELECT
@@ -1109,6 +1115,12 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
+  const roundFee_ = (function() {
+    const m = accountInfo.tax_rounding_method || 'floor';
+    if (m === 'ceil')  return Math.ceil;
+    if (m === 'round') return Math.round;
+    return Math.floor;
+  })();
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1156,7 +1168,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
-  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newFeeAmount = roundFee_(newAmounts.totalAmount * feeRate / 100);
   const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
 
   // invoice_lines の動的 SELECT
