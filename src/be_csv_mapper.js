@@ -1052,6 +1052,8 @@ function buildMappedResubmitTransactionSql_(params) {
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE id = '" + escSql_(storeInvoiceId) + "'",
+    '  AND wholesaler_id = ' + wsId,
+    "  AND wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
     '  AND is_latest = TRUE;',
     '',
     '-- 新しい store_invoices を INSERT',

@@ -468,17 +468,19 @@ function fetchActionRequiredMallCodes_(rootInvoiceId, wholesalerId) {
  * @param {number} wholesalerId   - 卸ID
  * @returns {string|null} mall_code または null
  */
-function fetchStoreInvoiceMallCode_(storeInvoiceId, wholesalerId) {
+function fetchStoreInvoiceMallCode_(storeInvoiceId, wholesalerId, parentInvoiceId) {
   const config = getConfig_();
   const sql =
     'SELECT si.mall_code ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'WHERE si.id = @store_invoice_id ' +
     '  AND si.wholesaler_id = @wholesaler_id ' +
+    '  AND si.wholesaler_invoice_id = @parent_invoice_id ' +
     'LIMIT 1';
   const params = [
     { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },
     { name: 'wholesaler_id',    parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
+    { name: 'parent_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(parentInvoiceId) } },
   ];
   const rows = runQuery_(config.gcpProjectId, sql, params);
   return (rows && rows.length > 0) ? String(rows[0].mall_code) : null;

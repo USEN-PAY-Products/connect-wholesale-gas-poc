@@ -2944,9 +2944,10 @@ function buildDetailAccordion_(store, openByDefault) {
 
   // 取下げ済み: 合意内容（読取専用）+ 取下げをやめるボタン
   if (isWithdrawn) {
-    // OBJECTION_PERIOD チェック: end_at < today なら disabled
-    const today = new Date(); today.setHours(0,0,0,0);
-    const periodExpired = _objectionEndAt && new Date(_objectionEndAt) < today;
+    // OBJECTION_PERIOD チェック: end_at < today なら disabled（JST基準で判定）
+    const todayYmd = jstNow_().ymd;
+    const endAtYmd = String(_objectionEndAt).slice(0, 10);
+    const periodExpired = _objectionEndAt && todayYmd > endAtYmd;
 
     const withdrawnRow = document.createElement('div');
     withdrawnRow.className = 'store-accordion__backoffice-remark';

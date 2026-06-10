@@ -432,6 +432,8 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE id = '" + storeInvoiceId + "'",
+    '  AND wholesaler_id = ' + wsId,
+    "  AND wholesaler_invoice_id = '" + parentInvoiceId + "'",
     '  AND is_latest = TRUE;',
     '',
     '-- 新しい store_invoices を INSERT',
@@ -532,7 +534,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     }
 
     // ── BE防御: 対象 storeInvoiceId の mall_code 以外を除外 ──
-    const targetMallCode = fetchStoreInvoiceMallCode_(storeInvoiceId, accountInfo.wholesaler_id);
+    const targetMallCode = fetchStoreInvoiceMallCode_(storeInvoiceId, accountInfo.wholesaler_id, parentInvoiceId);
     if (targetMallCode) {
       const customerToMall = {};
       (mappings || []).forEach(function (m) {
