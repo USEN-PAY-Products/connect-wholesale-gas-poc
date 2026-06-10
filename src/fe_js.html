@@ -1193,8 +1193,8 @@ function checkUploadDeadline_() {
   if (dropZone)   { dropZone.style.pointerEvents = ''; dropZone.style.opacity = ''; }
   if (btnSelect)  btnSelect.disabled  = false;
   if (fileInput)   fileInput.disabled  = false;
-  // btnToConfirm はファイル未選択状態なら disabled のままにする（初期状態 = disabled）
-  // ファイル選択後の有効化は handleFile 側で行われるため、ここでは触らない
+  // btnToConfirm: ファイルが正常に読み込まれていれば有効化、それ以外は disabled のまま
+  if (btnConfirm) btnConfirm.disabled = !(parsedData && rawCsvBase64 && utf8CsvBase64);
 
   const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
   if (!wholesalerId) return;
