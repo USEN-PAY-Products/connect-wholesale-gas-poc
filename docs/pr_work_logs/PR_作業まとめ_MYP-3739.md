@@ -7,6 +7,217 @@ FE（期限チェック・表示補正・TZ統一）と BE（防御フィルタ�
 
 ---
 
+## 全体フロー図
+
+### 新規アップロード（sendInvoiceData）
+
+```mermaid
+sequenceDiagram
+    actor User as 卸ユーザー
+    participant FE as FE (fe_js.html)
+    participant BE as BE (be_invoice.js)
+    participant BQ as BigQuery
+
+    Note over FE: ページ表示時
+    FE->>BQ: loadScheduleData_() → fetchScheduleData()
+    BQ-->>FE: business_calendar データ
+    FE->>FE: sessionStorage にキャッシュ保存
+    FE->>FE: checkUploadDeadline_()
+    alt 受付期間内
+        FE->>FE: UIそのまま（アップロード可能）
+    else 受付期間外
+        FE->>FE: バナー表示 + UI無効化
+        Note over FE: dropZone / fileInput / btnToConfirm disabled
+    end
+
+    User->>FE: CSVファイル選択
+    FE->>FE: validateCsv() — decimal対応済み
+    FE->>FE: tax_amount フォールバック判定
+    FE->>FE: roundTax() で fee 計算
+    FE->>FE: renderConfirmPage() — jstNow_() で登録日時
+
+    User->>FE: 送信ボタン押下
+    FE->>BE: google.script.run.sendInvoiceData()
+    BE->>BQ: fetchWholesalerInvoiceStorageEndDate_()
+    BQ-->>BE: end_at
+    alt 受付期間外
+        BE-->>FE: Error: 受付期間外
+    end
+    BE->>BQ: hasCurrentMonthInvoice_()
+    alt 当月重複あり
+        BE-->>FE: Error: 当月重複
+    end
+    BE->>BQ: Load Job → Transaction SQL 実行
+    BQ-->>BE: 完了
+    BE-->>FE: success
+```
+
+### 個別再送信（resubmitInvoiceData）
+
+```mermaid
+sequenceDiagram
+    actor User as 卸ユーザー
+    participant FE as FE (fe_js.html)
+    participant BE as BE (be_invoice.js)
+    participant BQ as BigQuery
+
+    Note over FE: 詳細ページ表示時
+    FE->>FE: checkReuploadDeadline_()
+    alt 異議申立期間外
+        FE->>FE: reupload/resubmit/withdraw ボタン disabled
+        FE->>FE: 赤文字メッセージ表示
+    end
+
+    User->>FE: モーダルでCSV選択
+    FE->>FE: 対象加盟店以外をサイレント除外 (filter)
+    FE->>FE: tax_amount フォールバック + roundTax() で表示
+
+    User->>FE: 送信ボタン押下
+    FE->>BE: google.script.run.resubmitInvoiceData()
+
+    Note over BE: BE防御チェック開始
+    BE->>BQ: fetchInvoiceDetailSummary_()
+    BQ-->>BE: objection_end_at
+    alt 異議申立期間外
+        BE-->>FE: Error: 期限切れ
+    end
+    BE->>BQ: fetchStoreInvoiceMallCode_()
+    BQ-->>BE: 対象 mall_code
+    BE->>BE: merchantTotals を対象 mall_code でフィルタ
+    BE->>BE: recalcWholesalerTotal_()
+
+    BE->>BQ: Staging Load → buildResubmitTransactionSql_()
+    Note over BE: roundFee_() で fee 計算<br/>UUID ベース JOIN<br/>storeInvoiceIds 正規化
+    BQ-->>BE: 完了
+    BE-->>FE: success
+```
+
+### 一括再送信（bulkResubmitInvoiceData）
+
+```mermaid
+sequenceDiagram
+    actor User as 卸ユーザー
+    participant FE as FE (fe_js.html)
+    participant BE as BE (be_invoice.js)
+    participant BQ as BigQuery
+
+    User->>FE: CSV一括アップロード
+    FE->>FE: 要対応でない加盟店をサイレント除外 (filter)
+    alt フィルタ後0件
+        FE->>FE: エラー表示: 要対応の加盟店データなし
+    end
+
+    User->>FE: 送信ボタン押下
+    FE->>BE: google.script.run.bulkResubmitInvoiceData()
+
+    Note over BE: BE防御チェック開始
+    BE->>BQ: fetchInvoiceDetailSummary_()
+    BQ-->>BE: objection_end_at
+    alt 異議申立期間外
+        BE-->>FE: Error: 期限切れ
+    end
+    BE->>BQ: fetchActionRequiredMallCodes_()
+    BQ-->>BE: 要対応 mall_code[]
+    BE->>BE: merchantTotals を要対応 mall_code でフィルタ
+    BE->>BE: recalcWholesalerTotal_()
+
+    BE->>BQ: Staging Load → buildBulkResubmitTransactionSql_()
+    Note over BE: roundFee_() で fee 計算<br/>UUID ベース JOIN<br/>storeInvoiceIds 正規化
+    BQ-->>BE: 完了
+    BE-->>FE: success
+```
+
+---
+
+## 判定フロー図
+
+### tax_amount 決定フロー（FE + BE 共通ロジック）
+
+```mermaid
+flowchart TD
+    A[CSV行を処理] --> B{csv_format_rules に<br/>tax_amount マッピングあり?}
+    B -- あり --> C{r.tax_amount の値}
+    C -- "undefined / 空文字" --> D[roundTax で計算<br/>amount_ex_tax × tax_rate / 100]
+    C -- "値あり" --> E[CSV の値をそのまま使用<br/>Number で変換]
+    B -- なし --> D
+    D --> F[tax_rounding_method で丸め]
+    F -- floor --> G[Math.floor]
+    F -- ceil --> H[Math.ceil]
+    F -- round --> I[Math.round]
+    G --> J[taxAmount 確定]
+    H --> J
+    I --> J
+    E --> J
+```
+
+### 期限チェックフロー（CSVアップロードページ）
+
+```mermaid
+flowchart TD
+    A[ページ表示 / hash遷移] --> B[navigate → checkUploadDeadline_]
+    B --> C[前回の無効化をリセット<br/>dropZone/fileInput/btnSelect 有効化]
+    C --> D{sessionStorage に<br/>カレンダーキャッシュあり?}
+    D -- なし --> E[何もしない<br/>BQ応答後に再実行される]
+    D -- あり --> F{WHOLESALER_INVOICE_STORAGE<br/>イベントあり?}
+    F -- なし --> G[制限なし]
+    F -- あり --> H{jstNow_.ymd > end_at ?}
+    H -- 期間内 --> G
+    H -- 期限切れ --> I[バナー表示<br/>UI無効化]
+
+    J[loadScheduleData_ BQ成功] --> K{#pageUpload 表示中?}
+    K -- はい --> B
+    K -- いいえ --> L[スキップ]
+```
+
+### 非対象加盟店フィルタフロー
+
+```mermaid
+flowchart TD
+    subgraph FE["FE (fe_js.html)"]
+        A[CSVパース完了] --> B{送信種別}
+        B -- 一括再送信 --> C[要対応 customer_code Set 作成]
+        C --> D["rows.filter(cc ∈ actionRequiredSet)"]
+        B -- 個別再送信 --> E[対象 customer_code 特定]
+        E --> F["parsedData.filter(cc === targetCode)"]
+        D --> G{フィルタ後 0件?}
+        F --> G
+        G -- はい --> H[エラー表示]
+        G -- いいえ --> I[フィルタ済みデータで続行]
+    end
+
+    subgraph BE["BE (be_invoice.js)"]
+        I --> J[BE受信]
+        J --> K{送信種別}
+        K -- 一括 --> L["fetchActionRequiredMallCodes_()"]
+        L --> M[merchantTotals を mall_code でフィルタ]
+        K -- 個別 --> N["fetchStoreInvoiceMallCode_()"]
+        N --> O[merchantTotals を mall_code でフィルタ]
+        M --> P["recalcWholesalerTotal_()"]
+        O --> P
+        P --> Q[SQL生成・実行]
+    end
+```
+
+### UUID ベース JOIN と storeInvoiceIds 正規化
+
+```mermaid
+flowchart LR
+    subgraph 呼び出し側
+        A[Utilities.getUuid] --> B["childUuids.push(uuid)"]
+        B --> C["raw UUID 配列<br/>['abc-123', 'def-456']"]
+    end
+
+    subgraph "buildInvoiceLinesSelectSql_()"
+        C --> D["クォート剥がし<br/>replace(/^['\"]|['\"]$/g, '')"]
+        D --> E["escSql_(raw)"]
+        E --> F["再クォート<br/>'escaped_uuid'"]
+        F --> G["IN ('abc-123', 'def-456')"]
+        G --> H["JOIN store_invoices si<br/>ON si.id IN (...)"]
+    end
+```
+
+---
+
 ## 変更ファイル一覧
 
 | ファイル | 変更内容 |
