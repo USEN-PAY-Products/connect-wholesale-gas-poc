@@ -595,9 +595,15 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   let storeJoinLines;
   if (opts.storeInvoiceIds && opts.storeInvoiceIds.length > 0) {
     // UUID ベース JOIN: 新規 INSERT した store_invoices のみに紐づけ（非対象 staging 行の混入防止）
+    // 呼び出し側がクォート付き/なしのどちらで渡しても安全に正規化する
+    const quotedIds = opts.storeInvoiceIds.map(function(id) {
+      // 既存のシングル/ダブルクォートを剥がして raw UUID にしてから escSql_ + クォート
+      const raw = String(id).replace(/^['"]|['"]$/g, '');
+      return "'" + escSql_(raw) + "'";
+    });
     storeJoinLines = [
       'JOIN ' + storeRef + ' si',
-      '  ON si.id IN (' + opts.storeInvoiceIds.join(', ') + ')',
+      '  ON si.id IN (' + quotedIds.join(', ') + ')',
       '  AND si.mall_code = wm.mall_code;',
     ];
   } else {
@@ -971,7 +977,7 @@ function buildMappedResubmitTransactionSql_(params) {
   const childUuids = [];
   const childRows = summaryData.merchantTotals.map(function(m) {
     const childUuid = Utilities.getUuid();
-    childUuids.push("'" + childUuid + "'");
+    childUuids.push(childUuid);
     const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
@@ -1140,7 +1146,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   const childUuids = [];
   const childRows = summaryData.merchantTotals.map(function(m) {
     const childUuid = Utilities.getUuid();
-    childUuids.push("'" + childUuid + "'");
+    childUuids.push(childUuid);
     const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';

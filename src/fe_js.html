@@ -14,6 +14,26 @@ function roundTax(value) {
 }
 
 /**
+ * JST (Asia/Tokyo) 基準で現在日時の年月日を返すユーティリティ。
+ * ユーザー端末のタイムゾーンに依存せず、BE 側と同じ Asia/Tokyo 基準で判定する。
+ * @returns {{ year: number, month: number, date: number, ym: string, ymd: string }}
+ */
+function jstNow_() {
+  var s = new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' });
+  var d = new Date(s);
+  var year  = d.getFullYear();
+  var month = d.getMonth() + 1;
+  var date  = d.getDate();
+  return {
+    year: year,
+    month: month,
+    date: date,
+    ym:  year + '-' + String(month).padStart(2, '0'),
+    ymd: year + '-' + String(month).padStart(2, '0') + '-' + String(date).padStart(2, '0')
+  };
+}
+
+/**
  * ツールチップの位置を画面内に収まるよう動的に調整する。
  * mouseenter 時に呼び出し、画面上部に余裕があれば上に、なければ下に表示する。
  */
@@ -360,8 +380,8 @@ function loadScheduleData_() {
   if (_scheduleLoaded) return;
   const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
   if (!wholesalerId) return;
-  const now = new Date();
-  const currentYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const jst = jstNow_();
+  const currentYM = jst.ym;
   const cacheKey = 'shiire_schedule_cache_' + wholesalerId + '_' + currentYM;
 
   // ① sessionStorage キャッシュから当月分を即座に復元
@@ -389,7 +409,7 @@ function loadScheduleData_() {
       // sessionStorage には当月分のみキャッシュ（初期表示高速化目的）
       try {
         const monthStart = currentYM + '-01';
-        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const lastDay = new Date(jst.year, jst.month, 0).getDate();
         const monthEnd = currentYM + '-' + String(lastDay).padStart(2, '0');
         const currentMonthOnly = data.filter(function(item) {
           const s = String(item.start_at).slice(0, 10);
@@ -1159,8 +1179,8 @@ function checkUploadDeadline_() {
 
   const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
   if (!wholesalerId) return;
-  const now       = new Date();
-  const currentYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const jst       = jstNow_();
+  const currentYM = jst.ym;
   const cacheKey  = 'shiire_schedule_cache_' + wholesalerId + '_' + currentYM;
   const cached    = sessionStorage.getItem(cacheKey);
   if (!cached) return;
@@ -1172,9 +1192,7 @@ function checkUploadDeadline_() {
     });
     if (!storage) return;
 
-    const today = now.getFullYear() + '-' +
-      String(now.getMonth() + 1).padStart(2, '0') + '-' +
-      String(now.getDate()).padStart(2, '0');
+    const today = jst.ymd;
     const endAt = String(storage.end_at).slice(0, 10);
 
     if (today > endAt) {
@@ -1259,8 +1277,8 @@ function handleFile(file) {
     // ── 当月重複チェック（sessionStorage キャッシュ参照）────────────────
     try {
       const cachedInvoices = JSON.parse(sessionStorage.getItem('shiire_invoices_cache') || '[]');
-      const now = new Date();
-      const currentYM = now.getFullYear() + '/' + String(now.getMonth() + 1).padStart(2, '0');
+      const jstDup = jstNow_();
+      const currentYM = jstDup.year + '/' + String(jstDup.month).padStart(2, '0');
       const hasCurrentMonth = cachedInvoices.some(inv => inv.created_at && inv.created_at.startsWith(currentYM));
       if (hasCurrentMonth) {
         errors.push('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
@@ -2177,11 +2195,12 @@ function renderConfirmPage() {
   mappings.forEach(m => { mappingMap[String(m.customer_code)] = m; });
 
   // ── サマリー計算（1パスで全集計）────────────────────────────────────────
-  // tax_amount は CSV の値をそのまま使用
+  // tax_amount は CSV の値をそのまま使用。未マッピング時は amount_ex_tax × tax_rate で計算
   const totals = parsedData.reduce((acc, r) => {
     const amtExTax  = Number(r['amount_ex_tax'] || 0);
     const taxRate   = Number(r['tax_rate']       || 0);
-    const taxAmount = Number(r['tax_amount']     || 0);
+    const rawTax    = r['tax_amount'];
+    const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
     acc.amountExTax += amtExTax;
     acc.tax         += taxAmount;
     if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
@@ -2198,14 +2217,15 @@ function renderConfirmPage() {
 
   const fmt = n => n.toLocaleString('ja-JP');
 
-  // 登録日時（現在日時）
-  const now = new Date();
-  const registeredAt = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  // 登録日時（JST 基準の現在日時）
+  const jstReg = jstNow_();
+  const nowForTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Tokyo' }));
+  const registeredAt = `${jstReg.year}/${String(jstReg.month).padStart(2,'0')}/${String(jstReg.date).padStart(2,'0')} ${String(nowForTime.getHours()).padStart(2,'0')}:${String(nowForTime.getMinutes()).padStart(2,'0')}`;
   const registeredAtEl = document.getElementById('summaryRegisteredAt');
   if (registeredAtEl) registeredAtEl.textContent = registeredAt;
 
-  // 請求月（アップロード日の年月）
-  const billingMonth = `${now.getFullYear()}年${now.getMonth()+1}月`;
+  // 請求月（JST 基準のアップロード月）
+  const billingMonth = `${jstReg.year}年${jstReg.month}月`;
   const billingMonthEl = document.getElementById('summaryBillingMonth');
   if (billingMonthEl) billingMonthEl.textContent = billingMonth;
 
@@ -2301,7 +2321,8 @@ function renderConfirmPage() {
     const st = rows.reduce((acc, r) => {
       const amtExTax  = Number(r['amount_ex_tax'] || 0);
       const taxRate   = Number(r['tax_rate']       || 0);
-      const taxAmount = Number(r['tax_amount']     || 0);
+      const rawTax    = r['tax_amount'];
+      const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
       acc.amountExTax += amtExTax;
       acc.tax         += taxAmount;
       if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
@@ -2425,7 +2446,8 @@ function renderConfirmPage() {
     rows.forEach(row => {
       const amtExTax  = Number(row['amount_ex_tax'] || 0);
       const taxRate   = Number(row['tax_rate']       || 0);
-      const taxAmount = Number(row['tax_amount']     || 0);
+      const rawTax    = row['tax_amount'];
+      const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
       const tr = document.createElement('tr');
       tr.innerHTML =
         `<td>${escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/'))}</td>` +
@@ -2576,10 +2598,7 @@ function renderDetailPage_(data) {
  */
 function checkReuploadDeadline_() {
   if (!_objectionEndAt) return;
-  const now   = new Date();
-  const today = now.getFullYear() + '-' +
-    String(now.getMonth() + 1).padStart(2, '0') + '-' +
-    String(now.getDate()).padStart(2, '0');
+  const today = jstNow_().ymd;
   const endAt = String(_objectionEndAt).slice(0, 10);
   if (today <= endAt) return;
 
@@ -3608,7 +3627,8 @@ window.addEventListener('hashchange', navigate);
     const st = (parsedData || []).reduce(function (acc, r) {
       const amtExTax  = Number(r['amount_ex_tax'] || 0);
       const taxRate   = Number(r['tax_rate']       || 0);
-      const taxAmount = Number(r['tax_amount']     || 0);
+      const rawTax    = r['tax_amount'];
+      const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
       acc.amountExTax += amtExTax;
       acc.tax         += taxAmount;
       if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
@@ -3698,7 +3718,8 @@ window.addEventListener('hashchange', navigate);
     (parsedData || []).forEach(function (row) {
       const amtExTax  = Number(row['amount_ex_tax'] || 0);
       const taxRate   = Number(row['tax_rate']       || 0);
-      const taxAmount = Number(row['tax_amount']     || 0);
+      const rawTax    = row['tax_amount'];
+      const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
       html += '<tr>' +
         '<td>' + escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/')) + '</td>' +
         '<td>' + escapeHtml(String(row['item_name'] || '')) + '</td>' +
