@@ -2572,7 +2572,7 @@ function renderDetailPage_(data) {
 
 /**
  * 異議申立期間（OBJECTION_PERIOD）の end_at を確認し、
- * 期限切れなら「修正ファイルをアップ」「変更なしで再請求」「一括再送信」ボタンを無効化する。
+ * 期限切れなら「修正ファイルをアップ」「変更なしで再請求」「請求取り下げ」「CSV一括アップロード」ボタンを無効化する。
  */
 function checkReuploadDeadline_() {
   if (!_objectionEndAt) return;
@@ -2595,22 +2595,22 @@ function checkReuploadDeadline_() {
   // 各 .backoffice-remark__actions に期限切れメッセージを追加（重複防止）
   document.querySelectorAll('.backoffice-remark__actions').forEach(function(actionsEl) {
     if (actionsEl.querySelector('.detail-action-btn__period-expired-msg')) return;
-    var msgEl = document.createElement('p');
+    const msgEl = document.createElement('p');
     msgEl.className = 'detail-action-btn__period-expired-msg';
     msgEl.textContent = '異議申立期間が終了しています';
     actionsEl.appendChild(msgEl);
   });
 
   // 一括再送信ボタン（CSV一括アップロード）
-  var bulkBtn = document.getElementById('detailBtnUploadCsv');
+  const bulkBtn = document.getElementById('detailBtnUploadCsv');
   if (bulkBtn) {
     bulkBtn.disabled = true;
     bulkBtn.title    = expiredMsg;
     bulkBtn.style.opacity = '0.5';
     // ボタンの親要素に期限切れメッセージを追加
-    var parentActions = bulkBtn.parentElement;
+    const parentActions = bulkBtn.parentElement;
     if (parentActions && !parentActions.querySelector('.detail-action-btn__period-expired-msg')) {
-      var msgEl = document.createElement('p');
+      const msgEl = document.createElement('p');
       msgEl.className = 'detail-action-btn__period-expired-msg';
       msgEl.textContent = '異議申立期間が終了しています';
       parentActions.appendChild(msgEl);
