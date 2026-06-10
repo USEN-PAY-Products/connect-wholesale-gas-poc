@@ -98,6 +98,90 @@ function getExpectedHeaders_() {
 }
 
 /**
+ * CSV テキストから加盟店毎の期待税額を計算し、summaryData.merchantTotals の
+ * tax10/tax8 が計算値から ±1円以内であることを検証する。
+ * フロントの改ざんを防ぐためのサーバーサイド防御。
+ *
+ * @param {string} csvText - UTF-8 CSV テキスト
+ * @param {Object} summaryData - { merchantTotals: [...] }
+ * @param {Object|null} csvFormatRules - accountInfo.csv_format_rules
+ * @param {string} roundingMethod - 'floor' | 'ceil' | 'round'
+ * @throws {Error} ±1円を超える調整がある場合
+ */
+function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMethod) {
+  var roundTax = (function () {
+    if (roundingMethod === 'ceil') return Math.ceil;
+    if (roundingMethod === 'round') return Math.round;
+    return Math.floor;
+  })();
+
+  var lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (lines.length < 2) return;
+
+  // フィールドのインデックスを特定
+  var ccIdx, amtIdx, rateIdx, taxIdx;
+  if (isNewFormatRules_(csvFormatRules)) {
+    csvFormatRules.columns.forEach(function (col) {
+      if (col.system_column === 'customer_code' || col.field === 'customer_code') ccIdx = col.index;
+      if (col.system_column === 'amount_ex_tax' || col.field === 'amount_ex_tax') amtIdx = col.index;
+      if (col.system_column === 'tax_rate'      || col.field === 'tax_rate')      rateIdx = col.index;
+      if (col.system_column === 'tax_amount'    || col.field === 'tax_amount')    taxIdx = col.index;
+    });
+  } else {
+    // デフォルト9列: 顧客コード(0), 日付(1), 品目(2), 数量(3), 単価(4), 税率区分(%)(5), 請求金額(税抜)(6), 消費税(7), 備考(8)
+    ccIdx = 0; amtIdx = 6; rateIdx = 5; taxIdx = 7;
+  }
+  if (ccIdx === undefined || amtIdx === undefined || rateIdx === undefined) return;
+
+  // 加盟店毎に税額を集計
+  var expected = {};
+  for (var i = 1; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    var cols = parseCsvLine_(line);
+    var cc = (cols[ccIdx] || '').trim();
+    if (!cc) continue;
+
+    var amtExTax  = Number(cols[amtIdx] || 0);
+    var taxRate   = Number(cols[rateIdx] || 0);
+    var rawTax    = taxIdx !== undefined ? cols[taxIdx] : undefined;
+    var taxAmount = (rawTax !== undefined && rawTax !== '')
+      ? Number(rawTax)
+      : roundTax(amtExTax * taxRate / 100);
+
+    if (!expected[cc]) expected[cc] = { tax10: 0, tax8: 0 };
+    if (taxRate === 10) expected[cc].tax10 += taxAmount;
+    else                expected[cc].tax8  += taxAmount;
+  }
+
+  // summaryData と比較
+  var errors = [];
+  summaryData.merchantTotals.forEach(function (m) {
+    var cc = String(m.customerCode || '');
+    var exp = expected[cc];
+    if (!exp) return;
+
+    var submittedTax10 = Math.round(Number(m.tax10 || 0));
+    var submittedTax8  = Math.round(Number(m.tax8 || 0));
+    var expectedTax10  = Math.round(exp.tax10);
+    var expectedTax8   = Math.round(exp.tax8);
+
+    if (Math.abs(submittedTax10 - expectedTax10) > 1) {
+      errors.push('加盟店 ' + cc + ': 税内訳（10%）の調整が±1円を超えています（送信値: ' + submittedTax10 + '円 / 計算値: ' + expectedTax10 + '円）');
+    }
+    if (Math.abs(submittedTax8 - expectedTax8) > 1) {
+      errors.push('加盟店 ' + cc + ': 税内訳（8%）の調整が±1円を超えています（送信値: ' + submittedTax8 + '円 / 計算値: ' + expectedTax8 + '円）');
+    }
+  });
+
+  if (errors.length > 0) {
+    logError_('Invoice', 'validateTaxAdjustment_: ' + errors.join('; '));
+    throw new Error('税額の調整が±1円の範囲を超えています: ' + errors[0]);
+  }
+  logInfo_('Invoice', 'validateTaxAdjustment_: OK (merchantTotals=' + summaryData.merchantTotals.length + ')');
+}
+
+/**
  * デフォルト9列フォーマット（csv_format_rules が null の卸）向け
  * BQ マルチステートメント・トランザクション SQL を組み立てる。
  * staging テーブルは STAGING_SCHEMA_（固定9列・名前付きカラム）前提で参照する。
@@ -561,6 +645,9 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
       validateCsvHeader_(csvText, getExpectedHeaders_());
     }
 
+    // ── 税額 ±1円バリデーション ────────────────────────────────────────────
+    validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
+
     const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
@@ -845,6 +932,9 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
       validateCsvHeader_(csvText, getExpectedHeaders_());
     }
 
+    // ── 税額 ±1円バリデーション ────────────────────────────────────────────
+    validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
+
     const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
@@ -997,6 +1087,9 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
       validateCsvHeader_(csvText, getExpectedHeaders_());
     }
     Logger.log('[CSV] ヘッダー検証完了');
+
+    // ── 税額 ±1円バリデーション ────────────────────────────────────────────
+    validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
 
     // ── UUID 生成（全テーブルの結合キー）──────────────────────────────────
     const invoiceUuid = Utilities.getUuid();

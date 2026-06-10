@@ -1861,6 +1861,35 @@ document.getElementById('btnConfirmBackBottom').addEventListener('click', functi
   openCancelModal(this);
 });
 
+// 確認ページ: キャンセルボタン → アップロード画面へ戻るモーダルを表示
+document.getElementById('btnConfirmCancel').addEventListener('click', function () {
+  var modal = document.getElementById('confirmCancelToUploadModal');
+  _modalTrigger = this;
+  modal.classList.remove('hidden');
+  var first = modal.querySelector(FOCUSABLE);
+  if (first) first.focus();
+});
+// キャンセルモーダル: 閉じる
+document.getElementById('confirmCancelToUploadClose').addEventListener('click', function () {
+  document.getElementById('confirmCancelToUploadModal').classList.add('hidden');
+  if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
+  _modalTrigger = null;
+});
+// キャンセルモーダル: OK → アップロード画面へ
+document.getElementById('confirmCancelToUploadOk').addEventListener('click', function () {
+  document.getElementById('confirmCancelToUploadModal').classList.add('hidden');
+  resetPage();
+  location.hash = '#upload';
+});
+// キャンセルモーダル: オーバーレイクリックで閉じる
+document.getElementById('confirmCancelToUploadModal').addEventListener('click', function (e) {
+  if (e.target === this) {
+    this.classList.add('hidden');
+    if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
+    _modalTrigger = null;
+  }
+});
+
 // モーダル: キャンセル（閉じるだけ）
 document.getElementById('cancelModalClose').addEventListener('click', () => {
   closeCancelModal();
@@ -1877,7 +1906,7 @@ document.getElementById('cancelModalOk').addEventListener('click', () => {
     _detailCurrentInvoiceId = null;
     location.hash = '#detail?invoiceId=' + parentId;
   } else {
-    location.hash = '#upload';
+    location.hash = '#home';
   }
 });
 
@@ -1939,7 +1968,8 @@ function collectSummaryData_() {
   };
 
   const merchantTotals = [];
-  document.querySelectorAll('.store-accordion').forEach(card => {
+  const confirmList = document.getElementById('confirmStoreList');
+  (confirmList ? confirmList.querySelectorAll('.store-accordion') : []).forEach(card => {
     const customerCode = card.dataset.cc || '';
     merchantTotals.push({
       customerCode,
@@ -1999,6 +2029,27 @@ btnFinalSubmit.addEventListener('click', () => {
     hideLoadingOverlay();
     resetSubmitButton();
     showToast('加盟店別請求書備考は250文字以内で入力してください。', 'error');
+    return;
+  }
+
+  // ── 税額 ±1円バリデーション ─────────────────────────────────────────────
+  const taxAdjustErrors = [];
+  const confirmListForTax = document.getElementById('confirmStoreList');
+  (confirmListForTax ? confirmListForTax.querySelectorAll('.store-accordion') : []).forEach(card => {
+    const cc = card.dataset.cc || '';
+    card.querySelectorAll('[data-field="tax8"], [data-field="tax10"]').forEach(el => {
+      const orig = Number(el.dataset.orig || 0);
+      const cur  = Math.trunc(Number(el.value) || 0);
+      if (Math.abs(cur - orig) > 1) {
+        const label = el.dataset.field === 'tax10' ? '税内訳（10%）' : '税内訳（8%）';
+        taxAdjustErrors.push('加盟店 ' + cc + ': ' + label + 'の調整は±1円までです（現在: ' + cur + '円 / 計算値: ' + orig + '円）');
+      }
+    });
+  });
+  if (taxAdjustErrors.length > 0) {
+    hideLoadingOverlay();
+    resetSubmitButton();
+    showToast(taxAdjustErrors[0], 'error');
     return;
   }
 
@@ -2134,16 +2185,10 @@ function onSubmitSuccess(result) {
   hideLoadingOverlay();
   location.hash = '#home';
 
-  // 入金日をカレンダー情報から取得
-  const depositEvent = _rawScheduleItems.find(item => item.event_type === 'DEPOSIT');
-  const depositDateStr = depositEvent
-    ? String(depositEvent.end_at).replace(/-/g, '/')
-    : '●●●●';
-
   const toastBody =
     '請求のご登録ありがとうございます。<br>' +
     '本請求は、本サービスの運営チームによる内容確認ののち、加盟店側での内容確認が行われます。<br>' +
-    '確認に問題がなければ最長で、' + depositDateStr + 'までに、指定口座に入金が行われます。';
+    '運営からの差戻、もしくは加盟店からの否認が発生した場合は再度対応をお願いします。';
 
   showToast('請求情報の登録が完了しました。', 'success', undefined, toastBody);
 }
@@ -2285,7 +2330,8 @@ function renderConfirmPage() {
    */
   const recalcSummary_ = () => {
     let totalExTax = 0, totalTax8 = 0, totalTax10 = 0;
-    document.querySelectorAll('.store-accordion').forEach(c => {
+    const confirmList = document.getElementById('confirmStoreList');
+    (confirmList ? confirmList.querySelectorAll('.store-accordion') : []).forEach(c => {
       const subSpan = c.querySelector('[data-field="subtotalAmount"]');
       const t8El    = c.querySelector('[data-field="tax8"]');
       const t10El   = c.querySelector('[data-field="tax10"]');
@@ -2364,8 +2410,8 @@ function renderConfirmPage() {
       `<span class="slh-col slh-col--amount"><span class="amount-display" data-field="totalAmount">${storeTotal.toLocaleString('ja-JP')}</span>円</span>` +
       `<span class="slh-col slh-col--extax"><span class="amount-display" data-field="subtotalAmount">${storeAmountExTax.toLocaleString('ja-JP')}</span>円</span>` +
       `<span class="slh-col slh-col--tax"><span class="amount-display" data-field="taxAmount">${storeTax.toLocaleString('ja-JP')}</span>円</span>` +
-      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" value="${st.tax10}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（10%）（円）" /><span class="unit-label">円</span></span>` +
-      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" value="${st.tax8}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（8%）（円）" /><span class="unit-label">円</span></span>` +
+      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" data-orig="${st.tax10}" value="${st.tax10}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（10%）（円）" /><span class="unit-label">円</span></span>` +
+      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" data-orig="${st.tax8}" value="${st.tax8}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（8%）（円）" /><span class="unit-label">円</span></span>` +
       `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
 
     const toggleAccordion = () => {
@@ -2407,6 +2453,24 @@ function renderConfirmPage() {
           el.value = v > 0 ? MAX_TAX_VALUE : -MAX_TAX_VALUE;
         }
         recalcCard_();
+        // ±1円バリデーション
+        const orig = Number(el.dataset.orig || 0);
+        const cur  = Math.trunc(Number(el.value) || 0);
+        const diff = Math.abs(cur - orig);
+        const parentCol = el.closest('.slh-col');
+        let errMsg = parentCol ? parentCol.querySelector('.tax-validation-error') : null;
+        if (diff > 1) {
+          el.classList.add('amount-input--error');
+          if (!errMsg && parentCol) {
+            errMsg = document.createElement('span');
+            errMsg.className = 'tax-validation-error';
+            parentCol.appendChild(errMsg);
+          }
+          if (errMsg) errMsg.textContent = '※±1円まで';
+        } else {
+          el.classList.remove('amount-input--error');
+          if (errMsg) errMsg.remove();
+        }
       });
     });
 
@@ -3685,8 +3749,8 @@ window.addEventListener('hashchange', navigate);
       '<span class="slh-col slh-col--amount"><span class="amount-display" data-field="previewTotalAmount">' + fmt(storeTotal) + '</span>円</span>' +
       '<span class="slh-col slh-col--extax"><span class="amount-display" data-field="previewSubtotalAmount">' + fmt(st.amountExTax) + '</span>円</span>' +
       '<span class="slh-col slh-col--tax"><span class="amount-display" data-field="previewTaxAmount">' + fmt(st.tax) + '</span>円</span>' +
-      '<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="previewTax10" value="' + st.tax10 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（10%）（円）" /><span class="unit-label">円</span></span>' +
-      '<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="previewTax8" value="' + st.tax8 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（8%）（円）" /><span class="unit-label">円</span></span>' +
+      '<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="previewTax10" data-orig="' + st.tax10 + '" value="' + st.tax10 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（10%）（円）" /><span class="unit-label">円</span></span>' +
+      '<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="previewTax8" data-orig="' + st.tax8 + '" value="' + st.tax8 + '" max="99999999999" step="1" inputmode="numeric" aria-label="税内訳（8%）（円）" /><span class="unit-label">円</span></span>' +
       '<span class="slh-col slh-col--toggle"></span>' +
     '</div>';
 
@@ -3786,6 +3850,32 @@ window.addEventListener('hashchange', navigate);
         const v = Number(el.value);
         if (!isNaN(v) && Math.abs(v) > MAX_TAX) el.value = v > 0 ? MAX_TAX : -MAX_TAX;
         recalcPreview_();
+        // ±1円バリデーション
+        var orig = Number(el.dataset.orig || 0);
+        var cur  = Math.trunc(Number(el.value) || 0);
+        var diff = Math.abs(cur - orig);
+        var parentCol = el.closest('.slh-col');
+        var errMsg = parentCol ? parentCol.querySelector('.tax-validation-error') : null;
+        if (diff > 1) {
+          el.classList.add('amount-input--error');
+          if (!errMsg && parentCol) {
+            errMsg = document.createElement('span');
+            errMsg.className = 'tax-validation-error';
+            parentCol.appendChild(errMsg);
+          }
+          if (errMsg) errMsg.textContent = '※±1円まで';
+          if (previewSubmit) previewSubmit.disabled = true;
+        } else {
+          el.classList.remove('amount-input--error');
+          if (errMsg) errMsg.remove();
+          // 他方のinputもエラーでなければ誓約チェック状態でボタンを復活
+          var otherEl = (el === tax10Input) ? tax8Input : tax10Input;
+          var otherOrig = Number((otherEl ? otherEl.dataset.orig : 0) || 0);
+          var otherCur  = Math.trunc(Number(otherEl ? otherEl.value : 0) || 0);
+          if (Math.abs(otherCur - otherOrig) <= 1 && previewOath && previewOath.checked) {
+            if (previewSubmit) previewSubmit.disabled = false;
+          }
+        }
       });
     });
   }
@@ -3806,6 +3896,22 @@ window.addEventListener('hashchange', navigate);
     const handoverVal = handoverInput ? (handoverInput.value || '').trim() : '';
     if (!handoverVal) {
       alert('\u26A0 〈加盟店との合意内容〉を記入してください。');
+      return;
+    }
+    // ±1円バリデーション
+    var taxAdjustErr = [];
+    [previewBody && previewBody.querySelector('[data-field="previewTax10"]'),
+     previewBody && previewBody.querySelector('[data-field="previewTax8"]')].forEach(function (el) {
+      if (!el) return;
+      var orig = Number(el.dataset.orig || 0);
+      var cur  = Math.trunc(Number(el.value) || 0);
+      if (Math.abs(cur - orig) > 1) {
+        var label = el.dataset.field === 'previewTax10' ? '税内訳（10%）' : '税内訳（8%）';
+        taxAdjustErr.push(label + 'の調整は±1円までです（現在: ' + cur + '円 / 計算値: ' + orig + '円）');
+      }
+    });
+    if (taxAdjustErr.length > 0) {
+      alert('⚠ ' + taxAdjustErr.join('\n'));
       return;
     }
     if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
