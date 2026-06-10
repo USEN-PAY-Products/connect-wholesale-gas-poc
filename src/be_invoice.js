@@ -127,14 +127,14 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
 
   ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8','feeAmount','paymentAmount'].forEach(function(f) {
     const v = Number(wt[f] || 0);
-    if (!isFinite(v) || v < 0 || !Number.isInteger(v)) {
+    if (!isFinite(v) || v < 0) {
       throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
     }
   });
   summaryData.merchantTotals.forEach(function(m, idx) {
     ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'].forEach(function(f) {
       const v = Number(m[f] || 0);
-      if (!isFinite(v) || v < 0 || !Number.isInteger(v)) {
+      if (!isFinite(v) || v < 0) {
         throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]);
       }
     });
@@ -155,9 +155,9 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     return (
       "('" + childUuid + "', '" + invoiceUuid + "', " + wsId + ", '" + mallCode + "', " +
-      Number(m.totalAmount)   + ', ' + Number(m.subtotalAmount) + ', ' + Number(m.taxAmount)  + ', ' +
-      Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
-      Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
+      Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
+      Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
+      Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
       remarkSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
@@ -190,7 +190,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     '  si.id,',
     '  s.transaction_date, s.item_name, s.quantity, CAST(NULL AS STRING), s.unit_price,',
     '  s.tax_rate, s.amount_ex_tax,',
-    '  CAST(FLOOR(s.amount_ex_tax * s.tax_rate / 100) AS INT64),',
+    '  s.tax_amount,',
     '  s.invoice_detail_remark',
     'FROM ' + stagingRef + ' s',
     'JOIN ' + merchantsRef + ' wm',
@@ -212,11 +212,11 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     '   handover_matter, wholesaler_invoice_csv_url, created_at)',
     'VALUES',
     "  ('" + invoiceUuid + "', '" + esc(wsUserId) + "', " + wsId + ", CURRENT_DATE('Asia/Tokyo'),",
-    '   ' + Number(wt.totalAmount)   + ', ' + Number(wt.subtotalAmount) + ', ' + Number(wt.taxAmount)  + ',',
-    '   ' + Number(wt.exTax10 || 0) + ', ' + Number(wt.tax10 || 0) + ',',
-    '   ' + Number(wt.exTax8  || 0) + ', ' + Number(wt.tax8  || 0) + ',',
+    '   ' + Math.round(Number(wt.totalAmount))   + ', ' + Math.round(Number(wt.subtotalAmount)) + ', ' + Math.round(Number(wt.taxAmount))  + ',',
+    '   ' + Math.round(Number(wt.exTax10 || 0)) + ', ' + Math.round(Number(wt.tax10 || 0)) + ',',
+    '   ' + Math.round(Number(wt.exTax8  || 0)) + ', ' + Math.round(Number(wt.tax8  || 0)) + ',',
     '   0,',
-    '   ' + feeRate + ', ' + Number(wt.feeAmount) + ', ' + Number(wt.paymentAmount) + ',',
+    '   ' + feeRate + ', ' + Math.round(Number(wt.feeAmount)) + ', ' + Math.round(Number(wt.paymentAmount)) + ',',
     "   NULL, '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
     '',
     'COMMIT;',
@@ -321,6 +321,27 @@ function buildMallCodeMap_(mappings, merchantTotals) {
 }
 
 /**
+ * merchantTotals から wholesalerTotal を再計算する。
+ * BE防御フィルタで merchantTotals を絞り込んだ後に呼び出す。
+ *
+ * @param {Array<Object>} merchantTotals
+ * @returns {Object} wholesalerTotal
+ */
+function recalcWholesalerTotal_(merchantTotals) {
+  const wt = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 };
+  merchantTotals.forEach(function (m) {
+    wt.totalAmount    += Number(m.totalAmount || 0);
+    wt.subtotalAmount += Number(m.subtotalAmount || 0);
+    wt.taxAmount      += Number(m.taxAmount || 0);
+    wt.exTax10        += Number(m.exTax10 || 0);
+    wt.tax10          += Number(m.tax10 || 0);
+    wt.exTax8         += Number(m.exTax8 || 0);
+    wt.tax8           += Number(m.tax8 || 0);
+  });
+  return wt;
+}
+
+/**
  * 差し戻し・否認後の再送信用 SQL を組み立てる。
  * sendInvoiceData の buildTransactionSql_ と同じ構造だが:
  *   - wholesaler_invoices には既存の parentInvoiceId を使ってINSERT（新しい親は作らない）
@@ -344,6 +365,12 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
+  const roundFee_ = (function() {
+    const m = accountInfo.tax_rounding_method || 'floor';
+    if (m === 'ceil')  return Math.ceil;
+    if (m === 'round') return Math.round;
+    return Math.floor;
+  })();
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -365,16 +392,18 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     ? "'" + esc(wholesalerHandover) + "'"
     : 'NULL';
 
+  const childUuids = [];
   const childValues = summaryData.merchantTotals.map((m) => {
     const childUuid = Utilities.getUuid();
+    childUuids.push("'" + childUuid + "'");
     const mallCode  = esc(mallCodeMap[String(m.customerCode)] || '');
     const remark    = esc(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     return (
       "('" + childUuid + "', '" + parentInvoiceId + "', " + wsId + ", '" + mallCode + "', " +
-      Number(m.totalAmount)   + ', ' + Number(m.subtotalAmount) + ', ' + Number(m.taxAmount)  + ', ' +
-      Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
-      Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
+      Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
+      Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
+      Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
       remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
@@ -390,10 +419,10 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
   };
   const newAmounts = {};
   amountFields.forEach(function (f) {
-    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+    newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
-  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newFeeAmount = roundFee_(newAmounts.totalAmount * feeRate / 100);
   const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
 
   const lines = [
@@ -403,6 +432,8 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE id = '" + storeInvoiceId + "'",
+    '  AND wholesaler_id = ' + wsId,
+    "  AND wholesaler_invoice_id = '" + parentInvoiceId + "'",
     '  AND is_latest = TRUE;',
     '',
     '-- 新しい store_invoices を INSERT',
@@ -428,7 +459,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '  si.id,',
     '  s.transaction_date, s.item_name, s.quantity, CAST(NULL AS STRING), s.unit_price,',
     '  s.tax_rate, s.amount_ex_tax,',
-    '  CAST(FLOOR(s.amount_ex_tax * s.tax_rate / 100) AS INT64),',
+    '  s.tax_amount,',
     '  s.invoice_detail_remark',
     'FROM ' + stagingRef + ' s',
     'JOIN ' + merchantsRef + ' wm',
@@ -436,9 +467,8 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '  AND wm.wholesaler_id = ' + wsId,
     '  AND wm.deleted_at IS NULL',
     'JOIN ' + storeRef + ' si',
-    '  ON si.mall_code = wm.mall_code',
-    "  AND si.wholesaler_invoice_id = '" + parentInvoiceId + "'",
-    '  AND si.is_latest = TRUE;',
+    '  ON si.id IN (' + childUuids.join(', ') + ')',
+    '  AND si.mall_code = wm.mall_code;',
     '',
     '-- 新しい wholesaler_invoices を INSERT（金額再計算済み）',
     'INSERT INTO ' + invRef,
@@ -492,6 +522,31 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     }
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('summaryData.merchantTotals が空です');
+    }
+
+    // ── 異議申立期間（OBJECTION_PERIOD）チェック ─────────────────────────────
+    const parentSummary = fetchInvoiceDetailSummary_(parentInvoiceId, accountInfo.wholesaler_id);
+    if (parentSummary && parentSummary.objection_end_at) {
+      const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      if (today > String(parentSummary.objection_end_at).slice(0, 10)) {
+        throw new Error('異議申立期間を過ぎているため、再アップロードできません。');
+      }
+    }
+
+    // ── BE防御: 対象 storeInvoiceId の mall_code 以外を除外 ──
+    const targetMallCode = fetchStoreInvoiceMallCode_(storeInvoiceId, accountInfo.wholesaler_id, parentInvoiceId);
+    if (targetMallCode) {
+      const customerToMall = {};
+      (mappings || []).forEach(function (m) {
+        if (m.customer_code && m.mall_code) customerToMall[String(m.customer_code)] = String(m.mall_code);
+      });
+      summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
+        return customerToMall[String(m.customerCode)] === targetMallCode;
+      });
+      if (summaryData.merchantTotals.length === 0) {
+        throw new Error('対象加盟店のデータが含まれていません');
+      }
+      summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
     }
 
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
@@ -594,6 +649,12 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
+  const roundFee_ = (function() {
+    const m = accountInfo.tax_rounding_method || 'floor';
+    if (m === 'ceil')  return Math.ceil;
+    if (m === 'round') return Math.round;
+    return Math.floor;
+  })();
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -610,8 +671,10 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
 
   const newWiUuid = Utilities.getUuid();
 
+  const childUuids = [];
   const childValues = summaryData.merchantTotals.map((m) => {
     const childUuid = Utilities.getUuid();
+    childUuids.push("'" + childUuid + "'");
     const mallCode  = esc(mallCodeMap[String(m.customerCode)] || '');
     const remark    = esc(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
@@ -619,9 +682,9 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     const handoverSql = handover ? "'" + esc(handover) + "'" : 'NULL';
     return (
       "('" + childUuid + "', '" + parentInvoiceId + "', " + wsId + ", '" + mallCode + "', " +
-      Number(m.totalAmount)   + ', ' + Number(m.subtotalAmount) + ', ' + Number(m.taxAmount)  + ', ' +
-      Number(m.exTax10 || 0) + ', ' + Number(m.tax10  || 0)    + ', ' +
-      Number(m.exTax8  || 0) + ', ' + Number(m.tax8   || 0)    + ', ' +
+      Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
+      Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
+      Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
       remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
@@ -637,10 +700,10 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
   };
   const newAmounts = {};
   amountFields.forEach(function (f) {
-    newAmounts[f] = Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0);
+    newAmounts[f] = Math.round(Number(latestWi[wiFieldMap[f]] || 0) - Number(oldStoreAmounts[f] || 0) + Number(wt[f] || 0));
   });
   newAmounts.nonTaxable = Number(latestWi.wholesaler_non_taxable_amount || 0);
-  const newFeeAmount = Math.floor(newAmounts.totalAmount * feeRate / 100);
+  const newFeeAmount = roundFee_(newAmounts.totalAmount * feeRate / 100);
   const newPaymentAmount = newAmounts.totalAmount - newFeeAmount;
 
   const lines = [
@@ -684,7 +747,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '  si.id,',
     '  s.transaction_date, s.item_name, s.quantity, CAST(NULL AS STRING), s.unit_price,',
     '  s.tax_rate, s.amount_ex_tax,',
-    '  CAST(FLOOR(s.amount_ex_tax * s.tax_rate / 100) AS INT64),',
+    '  s.tax_amount,',
     '  s.invoice_detail_remark',
     'FROM ' + stagingRef + ' s',
     'JOIN ' + merchantsRef + ' wm',
@@ -692,9 +755,8 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '  AND wm.wholesaler_id = ' + wsId,
     '  AND wm.deleted_at IS NULL',
     'JOIN ' + storeRef + ' si',
-    '  ON si.mall_code = wm.mall_code',
-    "  AND si.wholesaler_invoice_id = '" + parentInvoiceId + "'",
-    '  AND si.is_latest = TRUE;',
+    '  ON si.id IN (' + childUuids.join(', ') + ')',
+    '  AND si.mall_code = wm.mall_code;',
     '',
     '-- ⑤ 新しい wholesaler_invoices を INSERT（金額再計算済み）',
     'INSERT INTO ' + invRef,
@@ -746,6 +808,30 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('summaryData.merchantTotals が空です');
     }
+
+    // ── 異議申立期間（OBJECTION_PERIOD）チェック ─────────────────────────────
+    const parentSummary = fetchInvoiceDetailSummary_(parentInvoiceId, accountInfo.wholesaler_id);
+    if (parentSummary && parentSummary.objection_end_at) {
+      const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      if (today > String(parentSummary.objection_end_at).slice(0, 10)) {
+        throw new Error('異議申立期間を過ぎているため、再アップロードできません。');
+      }
+    }
+
+    // ── BE防御: 要対応の mall_code 一覧を取得し、summaryData をフィルタ ──
+    const eligibleMallCodes = new Set(fetchActionRequiredMallCodes_(parentInvoiceId, accountInfo.wholesaler_id));
+    const customerToMall = {};
+    (mappings || []).forEach(function (m) {
+      if (m.customer_code && m.mall_code) customerToMall[String(m.customer_code)] = String(m.mall_code);
+    });
+    summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
+      const mc = customerToMall[String(m.customerCode)] || '';
+      return eligibleMallCodes.has(mc);
+    });
+    if (summaryData.merchantTotals.length === 0) {
+      throw new Error('要対応の加盟店データが含まれていません');
+    }
+    summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
 
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
     const mallCodeMap   = buildMallCodeMap_(mappings, summaryData.merchantTotals);
@@ -874,6 +960,15 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     }
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('summaryData.merchantTotals が空です');
+    }
+
+    // ── 請求書受付期間（WHOLESALER_INVOICE_STORAGE）チェック ────────────────
+    const storageEndDate = fetchWholesalerInvoiceStorageEndDate_(accountInfo.wholesaler_id);
+    if (storageEndDate) {
+      const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      if (today > String(storageEndDate.end_at).slice(0, 10)) {
+        throw new Error('請求書受付期間を過ぎているため、アップロードできません。');
+      }
     }
 
     // ── 当月重複チェック（同一卸が当月に既に新規請求書を登録済みかチェック）──

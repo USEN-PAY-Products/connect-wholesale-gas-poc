@@ -313,6 +313,33 @@ function fetchObjectionPeriodEndDate_(wholesalerId, wholesalerInvoiceDate) {
 }
 
 /**
+ * 請求書受付期間（WHOLESALER_INVOICE_STORAGE）の end_at を取得する。
+ * 当月の business_calendar から期間を取得する。
+ *
+ * @param {number} wholesalerId - 卸業者ID
+ * @returns {Object|null} { end_at } を持つオブジェクト。見つからなければ null
+ */
+function fetchWholesalerInvoiceStorageEndDate_(wholesalerId) {
+  const config = getConfig_();
+  const today  = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  const sql =
+    'SELECT end_at ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.business_calendar` ' +
+    'WHERE wholesaler_id = @wholesaler_id ' +
+    "  AND event_type = 'WHOLESALER_INVOICE_STORAGE' " +
+    '  AND year_month = DATE_TRUNC(@today, MONTH) ' +
+    'LIMIT 1';
+
+  const params = [
+    { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
+    { name: 'today',         parameterType: { type: 'DATE'  }, parameterValue: { value: today } },
+  ];
+
+  const rows = runQuery_(config.gcpProjectId, sql, params);
+  return rows && rows.length > 0 ? rows[0] : null;
+}
+
+/**
  * 取下げ / 取下げ取り消し時の事前バリデーション用。
  * 指定した store_invoices が存在し、期待するステータスであることを確認する。
  *
@@ -405,6 +432,58 @@ function fetchTargetStoreInvoiceAmounts_(rootInvoiceId, wholesalerId, storeInvoi
     exTax8:         Number(r.exTax8 || 0),
     tax8:           Number(r.tax8 || 0),
   };
+}
+
+/**
+ * 一括再送信で対象となる要対応（RETURNED / DISPUTED）の mall_code 一覧を取得する。
+ *
+ * @param {string} rootInvoiceId - wholesaler_invoices.id
+ * @param {number} wholesalerId  - 卸ID
+ * @returns {string[]} 要対応の mall_code 配列
+ */
+function fetchActionRequiredMallCodes_(rootInvoiceId, wholesalerId) {
+  const config = getConfig_();
+  const sql =
+    'SELECT DISTINCT si.mall_code ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
+    'WHERE si.wholesaler_invoice_id = @invoice_id ' +
+    '  AND si.wholesaler_id = @wholesaler_id ' +
+    '  AND si.is_latest = TRUE ' +
+    '  AND (' +
+    "    si.backoffice_review_status = 'RETURNED' " +
+    "    OR (si.backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND si.invoice_status = 'DISPUTED') " +
+    '  )';
+  const params = [
+    { name: 'invoice_id',    parameterType: { type: 'STRING' }, parameterValue: { value: String(rootInvoiceId) } },
+    { name: 'wholesaler_id', parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
+  ];
+  const rows = runQuery_(config.gcpProjectId, sql, params);
+  return (rows || []).map(function (r) { return String(r.mall_code); });
+}
+
+/**
+ * 指定された store_invoices.id の mall_code を取得する。
+ *
+ * @param {string} storeInvoiceId - store_invoices.id
+ * @param {number} wholesalerId   - 卸ID
+ * @returns {string|null} mall_code または null
+ */
+function fetchStoreInvoiceMallCode_(storeInvoiceId, wholesalerId, parentInvoiceId) {
+  const config = getConfig_();
+  const sql =
+    'SELECT si.mall_code ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
+    'WHERE si.id = @store_invoice_id ' +
+    '  AND si.wholesaler_id = @wholesaler_id ' +
+    '  AND si.wholesaler_invoice_id = @parent_invoice_id ' +
+    'LIMIT 1';
+  const params = [
+    { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },
+    { name: 'wholesaler_id',    parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
+    { name: 'parent_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(parentInvoiceId) } },
+  ];
+  const rows = runQuery_(config.gcpProjectId, sql, params);
+  return (rows && rows.length > 0) ? String(rows[0].mall_code) : null;
 }
 
 /**

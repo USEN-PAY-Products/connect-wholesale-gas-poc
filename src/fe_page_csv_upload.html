@@ -35,6 +35,12 @@
     <!-- アップロード・エラー・ボタンを一つの白カードにまとめる -->
     <div class="card main-card">
 
+      <!-- 期限切れバナー（初期非表示、JS で制御） -->
+      <div class="deadline-banner hidden" id="uploadDeadlineBanner" role="alert">
+        <i class="fa-solid fa-circle-exclamation"></i>
+        <span id="uploadDeadlineMessage"></span>
+      </div>
+
       <!-- Upload section -->
       <div class="upload-section">
         <p class="card-label">請求CSVファイルを登録してください</p>
