@@ -2481,17 +2481,23 @@ function renderConfirmPage() {
         const cur  = Math.trunc(Number(el.value) || 0);
         const diff = Math.abs(cur - orig);
         const parentCol = el.closest('.slh-col');
+        const errId = 'tax-err-' + customerCode + '-' + el.dataset.field;
         let errMsg = parentCol ? parentCol.querySelector('.tax-validation-error') : null;
         if (diff > 1) {
           el.classList.add('amount-input--error');
+          el.setAttribute('aria-invalid', 'true');
+          el.setAttribute('aria-describedby', errId);
           if (!errMsg && parentCol) {
             errMsg = document.createElement('span');
             errMsg.className = 'tax-validation-error';
+            errMsg.id = errId;
             parentCol.appendChild(errMsg);
           }
           if (errMsg) errMsg.textContent = '※±1円まで';
         } else {
           el.classList.remove('amount-input--error');
+          el.removeAttribute('aria-invalid');
+          el.removeAttribute('aria-describedby');
           if (errMsg) errMsg.remove();
         }
       });
@@ -3878,18 +3884,24 @@ window.addEventListener('hashchange', navigate);
         const cur  = Math.trunc(Number(el.value) || 0);
         const diff = Math.abs(cur - orig);
         const parentCol = el.closest('.slh-col');
+        const errId = 'tax-err-preview-' + el.dataset.field;
         let errMsg = parentCol ? parentCol.querySelector('.tax-validation-error') : null;
         if (diff > 1) {
           el.classList.add('amount-input--error');
+          el.setAttribute('aria-invalid', 'true');
+          el.setAttribute('aria-describedby', errId);
           if (!errMsg && parentCol) {
             errMsg = document.createElement('span');
             errMsg.className = 'tax-validation-error';
+            errMsg.id = errId;
             parentCol.appendChild(errMsg);
           }
           if (errMsg) errMsg.textContent = '※±1円まで';
           if (previewSubmit) previewSubmit.disabled = true;
         } else {
           el.classList.remove('amount-input--error');
+          el.removeAttribute('aria-invalid');
+          el.removeAttribute('aria-describedby');
           if (errMsg) errMsg.remove();
           // 他方のinputもエラーでなければ誓約チェック状態でボタンを復活
           const otherEl = (el === tax10Input) ? tax8Input : tax10Input;

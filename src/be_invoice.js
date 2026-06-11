@@ -1017,8 +1017,8 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  *
  * フロー:
  *   ① Drive に CSV を保存（元ファイル保全）
- *   ② ヘッダー行のみ検証（列数・列名チェック。データ行は読まない）
- *   ③ 生CSV を BQ Load Job で staging テーブルへ投入（GAS は CSV をパースしない）
+ *   ② ヘッダー検証 + 税額 ±1円バリデーション（validateTaxAdjustment_）
+ *   ③ 生CSV を BQ Load Job で staging テーブルへ投入
  *   ④ Load Job 完了待ち（ポーリング）
  *   ⑤ BEGIN TRANSACTION で子・孫・親を一括 INSERT → COMMIT
  *   ⑥ staging テーブルを DROP（TRANSACTION 外）
@@ -1027,15 +1027,13 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  *   - wholesaler_id / wholesaler_user_id / mall_code はサーバー側で取得（改ざん防止）
  *   - summaryData.customerCode が merchant_mappings に存在するかをサーバー側で検証
  *   - 金額・備考はフロント確定値をそのまま使用（卸が確認画面で承認した値）
+ *   - 税額（tax10/tax8）は CSV テキストから GAS 上で再集計し、
+ *     summaryData との差異が ±1円を超える場合はエラーにする（validateTaxAdjustment_）
  *
  * 【TODO: 本番実装時の宿題】
- *   summaryData の金額はクライアント確定値のため、悪意ある改ざんを完全には防げない。
- *   POC では以下の理由で割り切る:
- *     - 操作者は卸業者自身（自分が損する改ざんをする動機がない）
- *     - 登録後に backoffice_review_status='PENDING_REVIEW' でバックオフィスが目視確認する
- *     - staging テーブルの明細と金額の突合は、バックオフィス承認フロー内で実施する設計とする
- *   本番実装時は Load Job 完了後に BQ で staging を再集計し、
- *   summaryData との差異が許容範囲を超えた場合はエラーにする仕組みを検討すること。
+ *   本番（Kotlin+React+Postgres）移行時は、DB 側で明細を再集計して
+ *   summaryData との突合を行う設計に切り替えること。
+ *   POC（GAS+BQ）では GAS 上で CSV をパースして検証する方式で実装している。
  *
  * @param {string} rawCsvBase64  - 元CSVのBase64（元ファイルのバイト列そのまま。Drive保存に使用）
  * @param {string} utf8CsvBase64 - UTF-8変換済みCSVのBase64（ヘッダー検証・BQ Load Jobに使用）
