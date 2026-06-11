@@ -198,7 +198,7 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
 
   if (errors.length > 0) {
     logError_('Invoice', 'validateTaxAdjustment_: ' + errors.join('; '));
-    throw new Error('税額の調整が±1円の範囲を超えています: ' + errors[0]);
+    throw new Error('税額の検証に失敗しました: ' + errors[0]);
   }
   logInfo_('Invoice', 'validateTaxAdjustment_: OK (merchantTotals=' + summaryData.merchantTotals.length + ')');
 }
