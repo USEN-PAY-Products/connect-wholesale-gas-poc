@@ -1863,10 +1863,10 @@ document.getElementById('btnConfirmBackBottom').addEventListener('click', functi
 
 // 確認ページ: キャンセルボタン → アップロード画面へ戻るモーダルを表示
 document.getElementById('btnConfirmCancel').addEventListener('click', function () {
-  var modal = document.getElementById('confirmCancelToUploadModal');
+  const modal = document.getElementById('confirmCancelToUploadModal');
   _modalTrigger = this;
   modal.classList.remove('hidden');
-  var first = modal.querySelector(FOCUSABLE);
+  const first = modal.querySelector(FOCUSABLE);
   if (first) first.focus();
 });
 // キャンセルモーダル: 閉じる
@@ -1887,6 +1887,28 @@ document.getElementById('confirmCancelToUploadModal').addEventListener('click', 
     this.classList.add('hidden');
     if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
     _modalTrigger = null;
+  }
+});
+// キャンセルモーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  const modal = document.getElementById('confirmCancelToUploadModal');
+  if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+    modal.classList.add('hidden');
+    if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
+    _modalTrigger = null;
+  }
+});
+// キャンセルモーダル: フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+document.getElementById('confirmCancelToUploadModal').addEventListener('keydown', function (e) {
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(this.querySelectorAll(FOCUSABLE));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last  = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
   }
 });
 
@@ -2263,8 +2285,8 @@ function renderConfirmPage() {
     const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
     acc.amountExTax += amtExTax;
     acc.tax         += taxAmount;
-    if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
-    else                { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
+    if (taxRate === 10)     { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+    else if (taxRate === 8) { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
     return acc;
   }, { amountExTax: 0, tax: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 });
 
@@ -2385,8 +2407,8 @@ function renderConfirmPage() {
       const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
       acc.amountExTax += amtExTax;
       acc.tax         += taxAmount;
-      if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
-      else                { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
+      if (taxRate === 10)     { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+      else if (taxRate === 8) { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
       return acc;
     }, { amountExTax: 0, tax: 0, exTax8: 0, tax8: 0, exTax10: 0, tax10: 0 });
 
@@ -3710,8 +3732,8 @@ window.addEventListener('hashchange', navigate);
       const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
       acc.amountExTax += amtExTax;
       acc.tax         += taxAmount;
-      if (taxRate === 10) { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
-      else                { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
+      if (taxRate === 10)     { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+      else if (taxRate === 8) { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
       return acc;
     }, { amountExTax: 0, tax: 0, exTax8: 0, tax8: 0, exTax10: 0, tax10: 0 });
     const storeTotal = st.amountExTax + st.tax;
@@ -3851,11 +3873,11 @@ window.addEventListener('hashchange', navigate);
         if (!isNaN(v) && Math.abs(v) > MAX_TAX) el.value = v > 0 ? MAX_TAX : -MAX_TAX;
         recalcPreview_();
         // ±1円バリデーション
-        var orig = Number(el.dataset.orig || 0);
-        var cur  = Math.trunc(Number(el.value) || 0);
-        var diff = Math.abs(cur - orig);
-        var parentCol = el.closest('.slh-col');
-        var errMsg = parentCol ? parentCol.querySelector('.tax-validation-error') : null;
+        const orig = Number(el.dataset.orig || 0);
+        const cur  = Math.trunc(Number(el.value) || 0);
+        const diff = Math.abs(cur - orig);
+        const parentCol = el.closest('.slh-col');
+        let errMsg = parentCol ? parentCol.querySelector('.tax-validation-error') : null;
         if (diff > 1) {
           el.classList.add('amount-input--error');
           if (!errMsg && parentCol) {
@@ -3869,9 +3891,9 @@ window.addEventListener('hashchange', navigate);
           el.classList.remove('amount-input--error');
           if (errMsg) errMsg.remove();
           // 他方のinputもエラーでなければ誓約チェック状態でボタンを復活
-          var otherEl = (el === tax10Input) ? tax8Input : tax10Input;
-          var otherOrig = Number((otherEl ? otherEl.dataset.orig : 0) || 0);
-          var otherCur  = Math.trunc(Number(otherEl ? otherEl.value : 0) || 0);
+          const otherEl = (el === tax10Input) ? tax8Input : tax10Input;
+          const otherOrig = Number((otherEl ? otherEl.dataset.orig : 0) || 0);
+          const otherCur  = Math.trunc(Number(otherEl ? otherEl.value : 0) || 0);
           if (Math.abs(otherCur - otherOrig) <= 1 && previewOath && previewOath.checked) {
             if (previewSubmit) previewSubmit.disabled = false;
           }
@@ -3899,14 +3921,14 @@ window.addEventListener('hashchange', navigate);
       return;
     }
     // ±1円バリデーション
-    var taxAdjustErr = [];
+    const taxAdjustErr = [];
     [previewBody && previewBody.querySelector('[data-field="previewTax10"]'),
      previewBody && previewBody.querySelector('[data-field="previewTax8"]')].forEach(function (el) {
       if (!el) return;
-      var orig = Number(el.dataset.orig || 0);
-      var cur  = Math.trunc(Number(el.value) || 0);
+      const orig = Number(el.dataset.orig || 0);
+      const cur  = Math.trunc(Number(el.value) || 0);
       if (Math.abs(cur - orig) > 1) {
-        var label = el.dataset.field === 'previewTax10' ? '税内訳（10%）' : '税内訳（8%）';
+        const label = el.dataset.field === 'previewTax10' ? '税内訳（10%）' : '税内訳（8%）';
         taxAdjustErr.push(label + 'の調整は±1円までです（現在: ' + cur + '円 / 計算値: ' + orig + '円）');
       }
     });
