@@ -166,6 +166,7 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
 
   // summaryData と比較
   const errors = [];
+  // (A) summaryData にあるが CSV にない加盟店を検出
   summaryData.merchantTotals.forEach(function (m) {
     const cc = String(m.customerCode || '');
     const exp = expected[cc];
@@ -184,6 +185,14 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
     }
     if (Math.abs(submittedTax8 - expectedTax8) > 1) {
       errors.push('加盟店 ' + cc + ': 税内訳（8%）の調整が±1円を超えています（送信値: ' + submittedTax8 + '円 / 計算値: ' + expectedTax8 + '円）');
+    }
+  });
+
+  // (B) CSV にあるが summaryData にない加盟店を検出（改ざんで加盟店を落とす攻撃を防止）
+  const submittedCodes = new Set(summaryData.merchantTotals.map(function (m) { return String(m.customerCode || ''); }));
+  Object.keys(expected).forEach(function (cc) {
+    if (!submittedCodes.has(cc)) {
+      errors.push('加盟店 ' + cc + ': CSVに明細が存在しますが、送信データに含まれていません');
     }
   });
 

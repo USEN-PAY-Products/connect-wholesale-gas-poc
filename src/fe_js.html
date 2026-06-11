@@ -3918,7 +3918,14 @@ window.addEventListener('hashchange', navigate);
   // ── 誓約チェックボックス ↔ 登録ボタン連動 ──
   if (previewOath) {
     previewOath.addEventListener('change', function () {
-      if (previewSubmit) previewSubmit.disabled = !previewOath.checked;
+      if (!previewSubmit) return;
+      if (!previewOath.checked) {
+        previewSubmit.disabled = true;
+        return;
+      }
+      // 税額±1円エラーが残っている場合は有効化しない
+      const hasError = previewBody && previewBody.querySelector('.amount-input--error');
+      previewSubmit.disabled = !!hasError;
     });
   }
 

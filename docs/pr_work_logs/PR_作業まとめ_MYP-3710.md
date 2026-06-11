@@ -30,6 +30,9 @@
 ### 3. 税額±1円バリデーション（BE サーバーサイド防御）
 
 `validateTaxAdjustment_` で CSV 全行をパースして期待税額を再計算し、`summaryData` との乖離が ±1円超ならエラー。
+双方向チェックにより、改ざんで加盟店を落とす攻撃も検知する。
+- (A) summaryData にあるが CSV にない加盟店 → エラー
+- (B) CSV にあるが summaryData にない加盟店 → エラー
 
 ### 4. 確認画面キャンセルボタン + モーダル
 
@@ -47,7 +50,11 @@
 
 `aria-invalid` / `aria-describedby` をエラー時に付与し、スクリーンリーダーにエラー状態を通知。
 
-### 8. コード品質改善
+### 8. 再送信モーダル誓約チェック × 税額エラーのボタン制御
+
+誓約チェックボックス ON 時に `.amount-input--error` が存在するかを確認し、税額エラーが残っている場合はボタンを `disabled` のまま維持。
+
+### 9. コード品質改善
 
 - `var` → `const/let`
 - `else` → `else if (taxRate === 8)` で明示的分岐
@@ -152,15 +159,19 @@ flowchart TD
     L --> N
     M --> N
     N --> G
-    G -->|ループ完了| O[summaryData.merchantTotals と比較]
+    G -->|ループ完了| O["(A) summaryData.merchantTotals → expected を比較"]
     O --> P{expected に customerCode あり?}
     P -->|No| Q[errors.push: CSV に該当データなし]
     P -->|Yes| R{"abs(submitted - expected) > 1?"}
     R -->|Yes| S[errors.push: ±1円超]
     R -->|No| T[OK]
-    Q --> U{errors.length > 0?}
-    S --> U
-    T --> U
+    Q --> X["(B) expected → summaryData の逆方向チェック"]
+    S --> X
+    T --> X
+    X --> Y{CSV にあるが summaryData にない cc?}
+    Y -->|Yes| Z[errors.push: 送信データに含まれていない]
+    Y -->|No| U{errors.length > 0?}
+    Z --> U
     U -->|Yes| V[throw Error: 先頭エラーメッセージ]
     U -->|No| W[検証 OK → return]
 ```
@@ -234,6 +245,9 @@ flowchart LR
 | DOM スコーピング | `confirmList.querySelectorAll` | SPA で全ページが同一 DOM に存在するため、ページ単位でスコープを限定 |
 | キャンセルモーダル max-width | `calc(100vw - 32px)` | 狭い画面でのはみ出し防止 |
 | アクセシビリティ | `aria-invalid` + `aria-describedby` | スクリーンリーダーにエラー状態を伝達 |
+| 加盟店落とし防止 | CSV → summaryData の逆方向チェック追加 | summaryData のみチェックでは CSV 側の加盟店を削除する改ざんを検知できないため |
+| invoice_lines の税額 | CSV 原本値を保持（補正しない） | 明細は CSV の忠実なコピーとして保全。±1円差は丸め由来であり実害なし。本番移行時に再設計 |
+| モーダルボタン制御 | 誓約チェック ON 時にも税額エラーを確認 | チェック切替だけでエラー中のボタンが有効化される不整合を防止 |
 
 ---
 
@@ -255,3 +269,5 @@ flowchart LR
 | 12 | モーダル(詳細) ±1円 | 再送信モーダルでも同様のバリデーション動作 |
 | 13 | レスポンシブ | 狭い画面でモーダルがはみ出さない |
 | 14 | スクリーンリーダー | エラー時に aria-invalid が読み上げられる |
+| 15 | BE 加盟店落とし | CSV に3加盟店あり summaryData を2加盟店に改ざん → エラー |
+| 16 | モーダル誓約+エラー | 税額エラー中に誓約チェック ON/OFF → ボタンは disabled のまま |
