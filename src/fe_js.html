@@ -1650,11 +1650,13 @@ function validateCsv(csvText) {
 
     // customer_code の有効性チェック（merchant_mappings）
     const cc = rowObj['customer_code'];
+    const ccCol = columns.find(c => c.system_column === 'customer_code' || c.field === 'customer_code');
+    const ccHeader = ccCol ? ccCol.csv_header : '加盟店コード';
     if (cc === undefined || cc === '') {
-      rowErrors.push(`${rowNum}行目: "得意先コード" は必須です`);
+      rowErrors.push(`${rowNum}行目: "${ccHeader}" は必須です`);
     } else {
       if (validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
-        rowErrors.push(`${rowNum}行目: "${cc}" は請求可能な加盟店コードではありません`);
+        rowErrors.push(`${rowNum}行目: "${ccHeader}" の値 "${cc}" は請求可能な${ccHeader}ではありません`);
       }
     }
 
