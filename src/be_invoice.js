@@ -98,6 +98,112 @@ function getExpectedHeaders_() {
 }
 
 /**
+ * CSV テキストから加盟店毎の期待税額を計算し、summaryData.merchantTotals の
+ * tax10/tax8 が計算値から ±1円以内であることを検証する。
+ * フロントの改ざんを防ぐためのサーバーサイド防御。
+ *
+ * @param {string} csvText - UTF-8 CSV テキスト
+ * @param {Object} summaryData - { merchantTotals: [...] }
+ * @param {Object|null} csvFormatRules - accountInfo.csv_format_rules
+ * @param {string} roundingMethod - 'floor' | 'ceil' | 'round'
+ * @throws {Error} ±1円を超える調整がある場合
+ */
+function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMethod) {
+  const roundTax = (function () {
+    if (roundingMethod === 'ceil') return Math.ceil;
+    if (roundingMethod === 'round') return Math.round;
+    return Math.floor;
+  })();
+
+  const lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (lines.length < 2) return;
+
+  // フィールドのインデックスを特定
+  let ccIdx, amtIdx, rateIdx, taxIdx;
+  if (isNewFormatRules_(csvFormatRules)) {
+    csvFormatRules.columns.forEach(function (col) {
+      if (col.system_column === 'customer_code' || col.field === 'customer_code') ccIdx = col.index;
+      if (col.system_column === 'amount_ex_tax' || col.field === 'amount_ex_tax') amtIdx = col.index;
+      if (col.system_column === 'tax_rate'      || col.field === 'tax_rate')      rateIdx = col.index;
+      if (col.system_column === 'tax_amount'    || col.field === 'tax_amount')    taxIdx = col.index;
+    });
+  } else {
+    // デフォルト9列: 顧客コード(0), 日付(1), 品目(2), 数量(3), 単価(4), 税率区分(%)(5), 請求金額(税抜)(6), 消費税(7), 備考(8)
+    ccIdx = 0; amtIdx = 6; rateIdx = 5; taxIdx = 7;
+  }
+  const missing = [];
+  if (ccIdx === undefined)   missing.push('customer_code');
+  if (amtIdx === undefined)  missing.push('amount_ex_tax');
+  if (rateIdx === undefined) missing.push('tax_rate');
+  if (missing.length > 0) {
+    throw new Error('[validateTaxAdjustment_] 税額検証に必要なカラムが csv_format_rules に定義されていません: ' + missing.join(', '));
+  }
+
+  // 加盟店毎に税額を集計
+  const expected = {};
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = parseCsvLine_(line);
+    const cc = (cols[ccIdx] || '').trim();
+    if (!cc) continue;
+
+    const amtExTax  = Number(cols[amtIdx] || 0);
+    const taxRate   = Number(cols[rateIdx] || 0);
+    const rawTax    = taxIdx !== undefined ? cols[taxIdx] : undefined;
+    const taxAmount = (rawTax !== undefined && rawTax !== '')
+      ? Number(rawTax)
+      : roundTax(amtExTax * taxRate / 100);
+
+    if (isNaN(amtExTax) || isNaN(taxRate) || isNaN(taxAmount)) {
+      throw new Error('[validateTaxAdjustment_] CSV ' + (i + 1) + '行目: 数値として解釈できないフィールドがあります（税抜額=' + cols[amtIdx] + ', 税率=' + cols[rateIdx] + (rawTax !== undefined ? ', 税額=' + rawTax : '') + '）');
+    }
+
+    if (!expected[cc]) expected[cc] = { tax10: 0, tax8: 0 };
+    if (taxRate === 10)     expected[cc].tax10 += taxAmount;
+    else if (taxRate === 8) expected[cc].tax8  += taxAmount;
+  }
+
+  // summaryData と比較
+  const errors = [];
+  // (A) summaryData にあるが CSV にない加盟店を検出
+  summaryData.merchantTotals.forEach(function (m) {
+    const cc = String(m.customerCode || '');
+    const exp = expected[cc];
+    if (!exp) {
+      errors.push('加盟店 ' + cc + ': CSVに該当データが存在しないため税額を検証できません');
+      return;
+    }
+
+    const submittedTax10 = Math.round(Number(m.tax10 || 0));
+    const submittedTax8  = Math.round(Number(m.tax8 || 0));
+    const expectedTax10  = Math.round(exp.tax10);
+    const expectedTax8   = Math.round(exp.tax8);
+
+    if (Math.abs(submittedTax10 - expectedTax10) > 1) {
+      errors.push('加盟店 ' + cc + ': 税内訳（10%）の調整が±1円を超えています（送信値: ' + submittedTax10 + '円 / 計算値: ' + expectedTax10 + '円）');
+    }
+    if (Math.abs(submittedTax8 - expectedTax8) > 1) {
+      errors.push('加盟店 ' + cc + ': 税内訳（8%）の調整が±1円を超えています（送信値: ' + submittedTax8 + '円 / 計算値: ' + expectedTax8 + '円）');
+    }
+  });
+
+  // (B) CSV にあるが summaryData にない加盟店を検出（改ざんで加盟店を落とす攻撃を防止）
+  const submittedCodes = new Set(summaryData.merchantTotals.map(function (m) { return String(m.customerCode || ''); }));
+  Object.keys(expected).forEach(function (cc) {
+    if (!submittedCodes.has(cc)) {
+      errors.push('加盟店 ' + cc + ': CSVに明細が存在しますが、送信データに含まれていません');
+    }
+  });
+
+  if (errors.length > 0) {
+    logError_('Invoice', 'validateTaxAdjustment_: ' + errors.join('; '));
+    throw new Error('税額検証エラー: ' + errors[0]);
+  }
+  logInfo_('Invoice', 'validateTaxAdjustment_: OK (merchantTotals=' + summaryData.merchantTotals.length + ')');
+}
+
+/**
  * デフォルト9列フォーマット（csv_format_rules が null の卸）向け
  * BQ マルチステートメント・トランザクション SQL を組み立てる。
  * staging テーブルは STAGING_SCHEMA_（固定9列・名前付きカラム）前提で参照する。
@@ -561,6 +667,9 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
       validateCsvHeader_(csvText, getExpectedHeaders_());
     }
 
+    // ── 税額 ±1円バリデーション ────────────────────────────────────────────
+    validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
+
     const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
@@ -845,6 +954,9 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
       validateCsvHeader_(csvText, getExpectedHeaders_());
     }
 
+    // ── 税額 ±1円バリデーション ────────────────────────────────────────────
+    validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
+
     const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
@@ -914,8 +1026,8 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  *
  * フロー:
  *   ① Drive に CSV を保存（元ファイル保全）
- *   ② ヘッダー行のみ検証（列数・列名チェック。データ行は読まない）
- *   ③ 生CSV を BQ Load Job で staging テーブルへ投入（GAS は CSV をパースしない）
+ *   ② ヘッダー検証 + 税額 ±1円バリデーション（validateTaxAdjustment_）
+ *   ③ 生CSV を BQ Load Job で staging テーブルへ投入
  *   ④ Load Job 完了待ち（ポーリング）
  *   ⑤ BEGIN TRANSACTION で子・孫・親を一括 INSERT → COMMIT
  *   ⑥ staging テーブルを DROP（TRANSACTION 外）
@@ -924,15 +1036,13 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  *   - wholesaler_id / wholesaler_user_id / mall_code はサーバー側で取得（改ざん防止）
  *   - summaryData.customerCode が merchant_mappings に存在するかをサーバー側で検証
  *   - 金額・備考はフロント確定値をそのまま使用（卸が確認画面で承認した値）
+ *   - 税額（tax10/tax8）は CSV テキストから GAS 上で再集計し、
+ *     summaryData との差異が ±1円を超える場合はエラーにする（validateTaxAdjustment_）
  *
  * 【TODO: 本番実装時の宿題】
- *   summaryData の金額はクライアント確定値のため、悪意ある改ざんを完全には防げない。
- *   POC では以下の理由で割り切る:
- *     - 操作者は卸業者自身（自分が損する改ざんをする動機がない）
- *     - 登録後に backoffice_review_status='PENDING_REVIEW' でバックオフィスが目視確認する
- *     - staging テーブルの明細と金額の突合は、バックオフィス承認フロー内で実施する設計とする
- *   本番実装時は Load Job 完了後に BQ で staging を再集計し、
- *   summaryData との差異が許容範囲を超えた場合はエラーにする仕組みを検討すること。
+ *   本番（Kotlin+React+Postgres）移行時は、DB 側で明細を再集計して
+ *   summaryData との突合を行う設計に切り替えること。
+ *   POC（GAS+BQ）では GAS 上で CSV をパースして検証する方式で実装している。
  *
  * @param {string} rawCsvBase64  - 元CSVのBase64（元ファイルのバイト列そのまま。Drive保存に使用）
  * @param {string} utf8CsvBase64 - UTF-8変換済みCSVのBase64（ヘッダー検証・BQ Load Jobに使用）
@@ -997,6 +1107,9 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
       validateCsvHeader_(csvText, getExpectedHeaders_());
     }
     Logger.log('[CSV] ヘッダー検証完了');
+
+    // ── 税額 ±1円バリデーション ────────────────────────────────────────────
+    validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
 
     // ── UUID 生成（全テーブルの結合キー）──────────────────────────────────
     const invoiceUuid = Utilities.getUuid();

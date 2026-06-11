@@ -76,6 +76,11 @@
 
       </div>
       <!-- JS互換用 hidden spans は削除（上の spanへ移動） -->
+
+      <!-- キャンセルボタン -->
+      <div class="confirm-cancel-btn-wrap">
+        <button type="button" class="btn btn-outline btn-cancel" id="btnConfirmCancel">キャンセル</button>
+      </div>
     </div>
 
     <!-- 加盟店別明細 -->
@@ -96,6 +101,28 @@
         <div class="modal__actions modal__actions--center">
           <button class="btn btn-back modal__btn" id="cancelModalOk">
             <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- キャンセル確認モーダル（キャンセルボタンから起動 → アップロード画面へ） -->
+    <div class="modal-overlay hidden"
+         id="confirmCancelToUploadModal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="confirmCancelToUploadTitle"
+         aria-describedby="confirmCancelToUploadDesc">
+      <div class="modal modal--warn">
+        <button class="modal__close" id="confirmCancelToUploadClose" aria-label="閉じる">&times;</button>
+        <h2 class="modal__title modal__title--warn" id="confirmCancelToUploadTitle">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          登録をキャンセルしてアップロード画面に戻りますか？
+        </h2>
+        <p class="modal__message modal__message--warn" id="confirmCancelToUploadDesc">アップロードされたファイルは、まだ登録が完了していません。アップロード画面に戻ると、編集中のデータは削除されます。</p>
+        <div class="modal__actions modal__actions--center">
+          <button class="btn btn-back modal__btn" id="confirmCancelToUploadOk">
+            <i class="fa-solid fa-chevron-left"></i> アップロード画面に戻る
           </button>
         </div>
       </div>
