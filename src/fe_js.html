@@ -1878,6 +1878,7 @@ document.getElementById('confirmCancelToUploadClose').addEventListener('click', 
 // キャンセルモーダル: OK → アップロード画面へ
 document.getElementById('confirmCancelToUploadOk').addEventListener('click', function () {
   document.getElementById('confirmCancelToUploadModal').classList.add('hidden');
+  _modalTrigger = null;
   resetPage();
   location.hash = '#upload';
 });

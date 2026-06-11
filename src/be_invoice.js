@@ -155,6 +155,10 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
       ? Number(rawTax)
       : roundTax(amtExTax * taxRate / 100);
 
+    if (isNaN(amtExTax) || isNaN(taxRate) || isNaN(taxAmount)) {
+      throw new Error('[validateTaxAdjustment_] CSV ' + (i + 1) + '行目: 数値として解釈できないフィールドがあります（税抜額=' + cols[amtIdx] + ', 税率=' + cols[rateIdx] + (rawTax !== undefined ? ', 税額=' + rawTax : '') + '）');
+    }
+
     if (!expected[cc]) expected[cc] = { tax10: 0, tax8: 0 };
     if (taxRate === 10)     expected[cc].tax10 += taxAmount;
     else if (taxRate === 8) expected[cc].tax8  += taxAmount;
@@ -165,7 +169,10 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
   summaryData.merchantTotals.forEach(function (m) {
     const cc = String(m.customerCode || '');
     const exp = expected[cc];
-    if (!exp) return;
+    if (!exp) {
+      errors.push('加盟店 ' + cc + ': CSVに該当データが存在しないため税額を検証できません');
+      return;
+    }
 
     const submittedTax10 = Math.round(Number(m.tax10 || 0));
     const submittedTax8  = Math.round(Number(m.tax8 || 0));
