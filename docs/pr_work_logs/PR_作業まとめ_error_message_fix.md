@@ -77,6 +77,24 @@
 - 元のエラーメッセージ（ユーザー向けに修正済み）がそのままフロントに伝わるようになる
 - `xxx failed:` プレフィックスがフロントに表示されなくなる
 
+### エラー伝搬フロー
+
+```mermaid
+graph LR
+    subgraph 変更前
+        A1["内部関数<br/>throw new Error('請求情報が見つかりません')"] --> B1["公開関数 catch"] --> C1["throw new Error(<br/>'sendInvoiceData failed: 請求情報が見つかりません')"]
+        C1 --> D1["FE に表示<br/>❌ 'sendInvoiceData failed: ...'"]
+    end
+```
+
+```mermaid
+graph LR
+    subgraph 変更後
+        A2["内部関数<br/>throw new Error('請求情報が見つかりません...')"] --> B2["公開関数 catch<br/>logError_ で記録"] --> C2["throw err<br/>（元のエラーをそのまま）"]
+        C2 --> D2["FE に表示<br/>✅ '請求情報が見つかりません...'"]
+    end
+```
+
 ---
 
 ## 3. UNAUTHORIZED 判定の安全化
@@ -98,7 +116,39 @@
 
 ### 問題
 
-再送信が 2 回以上行われると WI チェーンが形成される（WI-root → WI-resub1 → WI-resub2）。旧コードでは `wholesaler_invoice_id = @invoice_id` で直接比較していたため、チェーン内の別 WI に紐づく SI が検索・更新の対象から漏れていた。
+再送信が 2 回以上行われると WI チェーンが形成される。旧コードでは `wholesaler_invoice_id = @invoice_id` で直接比較していたため、チェーン内の別 WI に紐づく SI が検索・更新の対象から漏れていた。
+
+```mermaid
+graph TD
+    WI_A["WI-root (id=A, parent=NULL)"]
+    WI_B["WI-resub1 (id=B, parent=A)"]
+    WI_C["WI-resub2 (id=C, parent=A)"]
+
+    SI1["SI-1 (wi_id=A)"]
+    SI2["SI-2 (wi_id=A)"]
+    SI3["SI-3 (wi_id=B)"]
+    SI4["SI-4 (wi_id=C)"]
+
+    WI_A --> SI1
+    WI_A --> SI2
+    WI_B -->|parent| WI_A
+    WI_B --> SI3
+    WI_C -->|parent| WI_A
+    WI_C --> SI4
+
+    style WI_A fill:#4CAF50,color:#fff
+    style WI_B fill:#2196F3,color:#fff
+    style WI_C fill:#2196F3,color:#fff
+
+    subgraph "変更前: WHERE wi_id = A"
+        HIT1["✅ SI-1, SI-2"]
+        MISS1["❌ SI-3, SI-4 漏れ!"]
+    end
+
+    subgraph "変更後: WHERE wi_id IN (SELECT ...)" 
+        HIT2["✅ SI-1, SI-2, SI-3, SI-4 全件取得"]
+    end
+```
 
 ### 修正内容
 
@@ -144,6 +194,27 @@ WHERE wholesaler_invoice_id IN (
 
 再送信で INSERT する新 SI の `wholesaler_invoice_id` が `parentInvoiceId`（ルート WI の ID）を参照していた。正しくは新しく作成する WI の `newWiUuid` を参照すべき。
 
+```mermaid
+graph TD
+    subgraph "変更前 ❌"
+        A1["WI-root (id=A)"]
+        B1["WI-new (id=B, parent=A)"]
+        SI1["新SI (wi_id=A)<br/>❌ ルートWIを参照"]
+        B1 -->|parent| A1
+        A1 -.- SI1
+        style SI1 fill:#f44336,color:#fff
+    end
+
+    subgraph "変更後 ✅"
+        A2["WI-root (id=A)"]
+        B2["WI-new (id=B, parent=A)"]
+        SI2["新SI (wi_id=B)<br/>✅ 新WIを参照"]
+        B2 -->|parent| A2
+        B2 --> SI2
+        style SI2 fill:#4CAF50,color:#fff
+    end
+```
+
 ### 対象箇所（3 箇所 × 2 ファイル = 6 箇所）
 
 | ファイル | 関数 | 変更 |
@@ -181,6 +252,24 @@ WHERE wholesaler_invoice_id IN (
 ### 目的
 
 RFC 4180 に準拠し、CSV のクォート内改行（LF / CR / CRLF）をスペースに置換する前処理関数を追加。後段の `split('\n')` で行が壊れるのを防ぐ。
+
+### 状態遷移
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "クォート外" as OUT
+    state "クォート内" as IN
+
+    [*] --> OUT
+    OUT --> IN : " (開きクォート)
+    IN --> OUT : " (閉じクォート)
+    IN --> IN : "" (エスケープ → そのまま出力)
+    IN --> IN : CR+LF → スペース1つ
+    IN --> IN : LF or CR → スペース1つ
+    OUT --> OUT : その他 → そのまま出力
+    IN --> IN : その他 → そのまま出力
+```
 
 ### 実装ポイント
 
