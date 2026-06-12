@@ -224,11 +224,14 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
     }
   });
 
-  // (B) CSV にあるが summaryData にない加盟店を検出（改ざんで加盟店を落とす攻撃を防止）
+  // (B) CSV にあるが summaryData にない加盟店はスキップ
+  //     対象外の加盟店がCSVに含まれるケースを許容する（FE側でサイレント除外済み）
+  //     ※ staging → production の INSERT は JOIN store_invoices 経由のため、
+  //       対象外の加盟店行が BQ に混入することはない
   const submittedCodes = new Set(summaryData.merchantTotals.map(function (m) { return String(m.customerCode || ''); }));
   Object.keys(expected).forEach(function (cc) {
     if (!submittedCodes.has(cc)) {
-      errors.push('加盟店 ' + cc + ': CSVに明細が存在しますが、送信データに含まれていません');
+      logInfo_('Invoice', 'validateTaxAdjustment_: 加盟店 ' + cc + ' はCSVに存在しますが送信対象外のためスキップします');
     }
   });
 
