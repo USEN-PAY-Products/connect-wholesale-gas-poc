@@ -265,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function () {
       .withFailureHandler(function (err) {
         console.error('[account] getAccountInfo failed:', err);
         const msg = String(err.message || err);
-        if (msg.includes('UNAUTHORIZED:')) {
+        if (msg.startsWith('UNAUTHORIZED:')) {
           showErrorPage_('unauthorized');
         } else {
           showErrorPage_('system');
@@ -1711,12 +1711,13 @@ function validateCsv(csvText) {
     });
 
     // customer_code の有効性チェック（merchant_mappings）
+    // ※ cc === undefined の場合は汎用 required チェック（L1615）で既にエラー追加済みのためスキップ
     const cc = rowObj['customer_code'];
     const ccCol = columns.find(c => c.system_column === 'customer_code' || c.field === 'customer_code');
     const ccHeader = ccCol ? ccCol.csv_header : '加盟店コード';
-    if (cc === undefined || cc === '') {
+    if (cc !== undefined && cc === '') {
       rowErrors.push(`${rowNum}行目: "${ccHeader}" は必須です`);
-    } else {
+    } else if (cc !== undefined) {
       if (validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
         rowErrors.push(`${rowNum}行目: "${ccHeader}" の値 "${cc}" は請求可能な${ccHeader}ではありません`);
       }
