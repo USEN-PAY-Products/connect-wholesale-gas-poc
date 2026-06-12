@@ -265,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function () {
       .withFailureHandler(function (err) {
         console.error('[account] getAccountInfo failed:', err);
         const msg = String(err.message || err);
-        if (msg.startsWith('UNAUTHORIZED:')) {
+        if (msg.includes('UNAUTHORIZED:')) {
           showErrorPage_('unauthorized');
         } else {
           showErrorPage_('system');
