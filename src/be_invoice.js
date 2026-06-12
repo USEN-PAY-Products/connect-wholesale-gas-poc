@@ -106,12 +106,27 @@ function getExpectedHeaders_() {
  * @returns {string} クォート内改行をスペースに置換済みのテキスト
  */
 function stripQuotedNewlines_(csvText) {
-  var result = '', inQuote = false;
-  for (var i = 0; i < csvText.length; i++) {
-    var ch = csvText[i];
-    if (ch === '"') { inQuote = !inQuote; result += ch; }
-    else if (inQuote && (ch === '\n' || ch === '\r')) { result += ' '; }
-    else { result += ch; }
+  let result = '', inQuote = false;
+  for (let i = 0; i < csvText.length; i++) {
+    const ch = csvText[i];
+    if (ch === '"') {
+      if (inQuote && i + 1 < csvText.length && csvText[i + 1] === '"') {
+        // RFC 4180 エスケープ（""）— そのまま出力し状態を変えない
+        result += '""';
+        i++;
+      } else {
+        inQuote = !inQuote;
+        result += ch;
+      }
+    } else if (inQuote && ch === '\r' && i + 1 < csvText.length && csvText[i + 1] === '\n') {
+      // CRLF → スペース 1 つに正規化
+      result += ' ';
+      i++;
+    } else if (inQuote && (ch === '\n' || ch === '\r')) {
+      result += ' ';
+    } else {
+      result += ch;
+    }
   }
   return result;
 }
