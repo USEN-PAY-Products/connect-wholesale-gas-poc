@@ -997,7 +997,7 @@ function buildMappedResubmitTransactionSql_(params) {
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     return (
-      "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
+      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
@@ -1061,7 +1061,7 @@ function buildMappedResubmitTransactionSql_(params) {
     'SET is_latest = FALSE',
     "WHERE id = '" + escSql_(storeInvoiceId) + "'",
     '  AND wholesaler_id = ' + wsId,
-    "  AND wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND is_latest = TRUE;',
     '',
     '-- 新しい store_invoices を INSERT',
@@ -1176,7 +1176,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     const handover = _handovers[String(m.customerCode)] || '';
     const handoverSql = handover ? "'" + escSql_(handover) + "'" : 'NULL';
     return (
-      "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
+      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
@@ -1238,14 +1238,14 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     '-- ① 差し戻し store_invoices を is_latest = FALSE に更新',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
-    "WHERE wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     "  AND backoffice_review_status = 'RETURNED'",
     '  AND is_latest = TRUE;',
     '',
     '-- ② 否認 store_invoices を is_latest = FALSE に更新',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
-    "WHERE wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',

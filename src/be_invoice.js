@@ -526,7 +526,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     const remark    = esc(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     return (
-      "('" + childUuid + "', '" + parentInvoiceId + "', " + wsId + ", '" + mallCode + "', " +
+      "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " +
       Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
@@ -559,7 +559,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     'SET is_latest = FALSE',
     "WHERE id = '" + storeInvoiceId + "'",
     '  AND wholesaler_id = ' + wsId,
-    "  AND wholesaler_invoice_id = '" + parentInvoiceId + "'",
+    "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
     '  AND is_latest = TRUE;',
     '',
     '-- 新しい store_invoices を INSERT',
@@ -816,7 +816,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     const handover  = handovers[String(m.customerCode)] || '';
     const handoverSql = handover ? "'" + esc(handover) + "'" : 'NULL';
     return (
-      "('" + childUuid + "', '" + parentInvoiceId + "', " + wsId + ", '" + mallCode + "', " +
+      "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " +
       Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
@@ -847,14 +847,14 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '-- ① 差し戻し store_invoices を is_latest = FALSE に更新',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
-    "WHERE wholesaler_invoice_id = '" + parentInvoiceId + "'",
+    "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
     "  AND backoffice_review_status = 'RETURNED'",
     '  AND is_latest = TRUE;',
     '',
     '-- ② 否認 store_invoices を is_latest = FALSE に更新',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
-    "WHERE wholesaler_invoice_id = '" + parentInvoiceId + "'",
+    "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
     "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',
@@ -1243,6 +1243,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     const projectId = config.gcpProjectId;
     const datasetId = config.bqDatasetId;
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
+    const invRef    = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
 
     const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
 
@@ -1261,7 +1262,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
       "SET backoffice_review_status = 'PENDING_REVIEW', " +
       handoverSetClause + ' ' +
       "WHERE id = '" + storeInvoiceId + "' " +
-      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "' " +
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "') " +
       '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
       '  AND is_latest = TRUE ' +
       "  AND (backoffice_review_status = 'RETURNED' OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED'))";
@@ -1330,7 +1331,7 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       'UPDATE ' + storeRef,
       "SET invoice_status = 'WITHDRAWN'",
       "WHERE id = '" + storeInvoiceId + "'",
-      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "'",
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + wiRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
       '  AND is_latest = TRUE',
       "  AND invoice_status = 'DISPUTED';",
@@ -1468,7 +1469,7 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       'UPDATE ' + storeRef,
       "SET invoice_status = 'DISPUTED'",
       "WHERE id = '" + storeInvoiceId + "'",
-      "  AND wholesaler_invoice_id = '" + parentInvoiceId + "'",
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + wiRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
       '  AND is_latest = TRUE',
       "  AND invoice_status = 'WITHDRAWN';",
