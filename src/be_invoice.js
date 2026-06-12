@@ -136,7 +136,7 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
   if (amtIdx === undefined)  missing.push('amount_ex_tax');
   if (rateIdx === undefined) missing.push('tax_rate');
   if (missing.length > 0) {
-    throw new Error('[validateTaxAdjustment_] 税額検証に必要なカラムが csv_format_rules に定義されていません: ' + missing.join(', '));
+    throw new Error('CSVフォーマットの設定に不備があります。管理者にお問い合わせください。');
   }
 
   // 加盟店毎に税額を集計
@@ -156,7 +156,7 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
       : roundTax(amtExTax * taxRate / 100);
 
     if (isNaN(amtExTax) || isNaN(taxRate) || isNaN(taxAmount)) {
-      throw new Error('[validateTaxAdjustment_] CSV ' + (i + 1) + '行目: 数値として解釈できないフィールドがあります（税抜額=' + cols[amtIdx] + ', 税率=' + cols[rateIdx] + (rawTax !== undefined ? ', 税額=' + rawTax : '') + '）');
+      throw new Error('CSV ' + (i + 1) + '行目: 税抜額または税率に数値として解釈できない値が含まれています。半角数字で入力してください。');
     }
 
     if (!expected[cc]) expected[cc] = { tax10: 0, tax8: 0 };
@@ -198,7 +198,7 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
 
   if (errors.length > 0) {
     logError_('Invoice', 'validateTaxAdjustment_: ' + errors.join('; '));
-    throw new Error('税額検証エラー: ' + errors[0]);
+    throw new Error(errors[0]);
   }
   logInfo_('Invoice', 'validateTaxAdjustment_: OK (merchantTotals=' + summaryData.merchantTotals.length + ')');
 }
@@ -226,22 +226,36 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_RE.test(invoiceUuid)) throw new Error('[buildTransactionSql_] invoiceUuid の形式が不正です: ' + invoiceUuid);
-  if (!UUID_RE.test(wsUserId))    throw new Error('[buildTransactionSql_] wholesaler_user_id の形式が不正です: ' + wsUserId);
-  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[buildTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
-  if (!Number.isInteger(wsId) || wsId <= 0) throw new Error('[buildTransactionSql_] wholesaler_id が不正です: ' + wsId);
+  if (!UUID_RE.test(invoiceUuid)) {
+    logError_('Invoice', '[buildTransactionSql_] invoiceUuid の形式が不正です: ' + invoiceUuid);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!UUID_RE.test(wsUserId)) {
+    logError_('Invoice', '[buildTransactionSql_] wholesaler_user_id の形式が不正です: ' + wsUserId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) {
+    logError_('Invoice', '[buildTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!Number.isInteger(wsId) || wsId <= 0) {
+    logError_('Invoice', '[buildTransactionSql_] wholesaler_id が不正です: ' + wsId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
 
   ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8','feeAmount','paymentAmount'].forEach(function(f) {
     const v = Number(wt[f] || 0);
     if (!isFinite(v) || v < 0) {
-      throw new Error('[buildTransactionSql_] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
+      logError_('Invoice', '[buildTransactionSql_] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
+      throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
     }
   });
   summaryData.merchantTotals.forEach(function(m, idx) {
     ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'].forEach(function(f) {
       const v = Number(m[f] || 0);
       if (!isFinite(v) || v < 0) {
-        throw new Error('[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]);
+        logError_('Invoice', '[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]);
+        throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
       }
     });
   });
@@ -369,14 +383,12 @@ function buildStagingSchema_(csvFormatRules) {
     csvFormatRules.columns.forEach(function(col, i) {
       if (!Number.isInteger(col.index) || col.index < 0) {
         throw new Error(
-          '[buildStagingSchema_] columns[' + i + '].index が不正です: ' + JSON.stringify(col.index) + '。' +
-          '0 以上の整数を指定してください。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       if (col.index > MAX_COL_INDEX) {
         throw new Error(
-          '[buildStagingSchema_] columns[' + i + '].index が上限（' + MAX_COL_INDEX + '）を超えています: ' + col.index + '。' +
-          'CSV の列数が多すぎます。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
     });
@@ -395,8 +407,7 @@ function buildStagingSchema_(csvFormatRules) {
   // ヘッダー検証より後に呼ばれるため通常はここに到達しないが、
   // 二重防衛として明示的に throw する。
   throw new Error(
-    '[buildStagingSchema_] csv_format_rules が新形式（columns 配列）でも null でもありません。' +
-    'csv_format_rules の内容を確認してください: ' + JSON.stringify(csvFormatRules).slice(0, 200)
+    'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
   );
 }
 
@@ -417,10 +428,10 @@ function buildMallCodeMap_(mappings, merchantTotals) {
   (merchantTotals || []).forEach((m) => {
     const cc = String(m.customerCode || '');
     if (!(cc in map)) {
-      throw new Error('summaryData に未登録の customerCode が含まれています: "' + cc + '"');
+      throw new Error('顧客コード「' + cc + '」は登録されていません。CSVの顧客コードを確認してください。');
     }
     if (!map[cc]) {
-      throw new Error('mall_code が未設定の customerCode が含まれています: "' + cc + '"');
+      throw new Error('顧客コード「' + cc + '」の店舗設定が完了していません。管理者にお問い合わせください。');
     }
   });
   return map;
@@ -480,9 +491,18 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[buildResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
-  if (!UUID_RE.test(storeInvoiceId))  throw new Error('[buildResubmitTransactionSql_] storeInvoiceId の形式が不正です: ' + storeInvoiceId);
-  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[buildResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+  if (!UUID_RE.test(parentInvoiceId)) {
+    logError_('Invoice', '[buildResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!UUID_RE.test(storeInvoiceId)) {
+    logError_('Invoice', '[buildResubmitTransactionSql_] storeInvoiceId の形式が不正です: ' + storeInvoiceId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) {
+    logError_('Invoice', '[buildResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
 
   const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
 
@@ -619,10 +639,10 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
     const mappings    = accountInfo.merchant_mappings || [];
 
-    if (!rawCsvBase64)  throw new Error('rawCsvBase64 が空です');
-    if (!utf8CsvBase64) throw new Error('utf8CsvBase64 が空です');
-    if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');
-    if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
+    if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
+    if (!utf8CsvBase64) throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
+    if (!parentInvoiceId) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
+    if (!storeInvoiceId)  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
     if (!summaryData || !summaryData.wholesalerTotal || !Array.isArray(summaryData.merchantTotals)) {
       throw new Error('summaryData の形式が不正です');
     }
@@ -696,7 +716,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     // トランザクション SQL 実行
     // 最新の wholesaler_invoices と旧対象 store_invoices の金額を BQ から取得（再計算用）
     const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
-    if (!latestWi) throw new Error('最新の wholesaler_invoices が見つかりませんでした: ' + parentInvoiceId);
+    if (!latestWi) throw new Error('請求情報が見つかりませんでした。ページを再読み込みしてください。');
     const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, [storeInvoiceId]);
 
     let sql;
@@ -729,7 +749,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     return success_({ csv_url: csvUrl });
   } catch (err) {
     logError_('Invoice', 'resubmitInvoiceData', err);
-    throw new Error('resubmitInvoiceData failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -767,8 +787,14 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[buildBulkResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
-  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[buildBulkResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+  if (!UUID_RE.test(parentInvoiceId)) {
+    logError_('Invoice', '[buildBulkResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) {
+    logError_('Invoice', '[buildBulkResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
 
   const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
 
@@ -908,14 +934,14 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
     const mappings    = accountInfo.merchant_mappings || [];
 
-    if (!rawCsvBase64)     throw new Error('rawCsvBase64 が空です');
-    if (!utf8CsvBase64)    throw new Error('utf8CsvBase64 が空です');
-    if (!parentInvoiceId)  throw new Error('parentInvoiceId が指定されていません');
+    if (!rawCsvBase64)     throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
+    if (!utf8CsvBase64)    throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
+    if (!parentInvoiceId)  throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
     if (!summaryData || !summaryData.wholesalerTotal || !Array.isArray(summaryData.merchantTotals)) {
-      throw new Error('summaryData の形式が不正です');
+      throw new Error('送信データに不備があります。ページを再読み込みして再度お試しください。');
     }
     if (summaryData.merchantTotals.length === 0) {
-      throw new Error('summaryData.merchantTotals が空です');
+      throw new Error('送信対象の加盟店データがありません。CSVを確認してください。');
     }
 
     // ── 異議申立期間（OBJECTION_PERIOD）チェック ─────────────────────────────
@@ -982,7 +1008,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
 
     // 最新の wholesaler_invoices と旧対象 store_invoices の金額を取得（再計算用）
     const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
-    if (!latestWi) throw new Error('最新の wholesaler_invoices が見つかりませんでした: ' + parentInvoiceId);
+    if (!latestWi) throw new Error('請求情報が見つかりませんでした。ページを再読み込みしてください。');
     const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, null);
 
     // トランザクション SQL 実行
@@ -1017,7 +1043,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     return success_({ csv_url: csvUrl });
   } catch (err) {
     logError_('Invoice', 'bulkResubmitInvoiceData', err);
-    throw new Error('bulkResubmitInvoiceData failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1060,16 +1086,16 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     const mappings    = accountInfo.merchant_mappings || [];
 
     // ── 入力バリデーション ────────────────────────────────────────────────
-    if (!rawCsvBase64)  throw new Error('rawCsvBase64 が空です');
-    if (!utf8CsvBase64) throw new Error('utf8CsvBase64 が空です');
+    if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
+    if (!utf8CsvBase64) throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!summaryData || !summaryData.wholesalerTotal || !Array.isArray(summaryData.merchantTotals)) {
-      throw new Error('summaryData の形式が不正です');
+      throw new Error('送信データに不備があります。ページを再読み込みして再度お試しください。');
     }
     if (!remarks || typeof remarks !== 'object') {
-      throw new Error('remarks の形式が不正です');
+      throw new Error('送信データに不備があります。ページを再読み込みして再度お試しください。');
     }
     if (summaryData.merchantTotals.length === 0) {
-      throw new Error('summaryData.merchantTotals が空です');
+      throw new Error('送信対象の加盟店データがありません。CSVを確認してください。');
     }
 
     // ── 請求書受付期間（WHOLESALER_INVOICE_STORAGE）チェック ────────────────
@@ -1181,7 +1207,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
   } catch (err) {
     logError_('Invoice', 'sendInvoiceData', err);
-    throw new Error('sendInvoiceData failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1247,7 +1273,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
     logError_('Invoice', 'resubmitWithoutChanges', err);
-    throw new Error('resubmitWithoutChanges failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1270,12 +1296,12 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     logInfo_('Invoice', 'withdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
-    if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
-    if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');
+    if (!storeInvoiceId)  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
+    if (!parentInvoiceId) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
 
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!UUID_RE.test(storeInvoiceId))  throw new Error('storeInvoiceId の形式が不正です: ' + storeInvoiceId);
-    if (!UUID_RE.test(parentInvoiceId)) throw new Error('parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+    if (!UUID_RE.test(storeInvoiceId))  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
+    if (!UUID_RE.test(parentInvoiceId)) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
 
     // ── 事前バリデーション ──────────────────────────────────────────────────
     const storeRow = fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, 'DISPUTED');
@@ -1312,7 +1338,7 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       '-- @@row_count 検証: UPDATE が 0 行なら並行更新と判断しロールバック',
       'IF @@row_count = 0 THEN',
       '  ROLLBACK TRANSACTION;',
-      '  RAISE USING MESSAGE = \'対象レコードが更新できませんでした（並行更新の可能性があります）\';',
+      '  RAISE USING MESSAGE = \'他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。\';',
       'END IF;',
       '',
       '-- 2. wholesaler_invoices の新版を INSERT（金額 = 最新WI − 取下げstore）',
@@ -1369,7 +1395,7 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       runTransactionSql_(projectId, sql);
     } catch (txErr) {
       // @@row_count = 0 による RAISE（並行更新）は業務エラーとして error_() を返す
-      if (String(txErr.message || '').indexOf('対象レコードが更新できませんでした') !== -1) {
+      if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
         logInfo_('Invoice', 'withdrawStoreInvoice: 並行更新により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
         return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
       }
@@ -1380,7 +1406,7 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
     logError_('Invoice', 'withdrawStoreInvoice', err);
-    throw new Error('withdrawStoreInvoice failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1398,12 +1424,12 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
-    if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
-    if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');
+    if (!storeInvoiceId)  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
+    if (!parentInvoiceId) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
 
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!UUID_RE.test(storeInvoiceId))  throw new Error('storeInvoiceId の形式が不正です: ' + storeInvoiceId);
-    if (!UUID_RE.test(parentInvoiceId)) throw new Error('parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+    if (!UUID_RE.test(storeInvoiceId))  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
+    if (!UUID_RE.test(parentInvoiceId)) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
 
     // ── 事前バリデーション ──────────────────────────────────────────────────
     const storeRow = fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, 'WITHDRAWN');
@@ -1450,7 +1476,7 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       '-- @@row_count 検証: UPDATE が 0 行なら並行更新と判断しロールバック',
       'IF @@row_count = 0 THEN',
       '  ROLLBACK TRANSACTION;',
-      '  RAISE USING MESSAGE = \'対象レコードが更新できませんでした（並行更新の可能性があります）\';',
+      '  RAISE USING MESSAGE = \'他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。\';',
       'END IF;',
       '',
       '-- 2. wholesaler_invoices の新版を INSERT（金額 = 最新WI + 戻すstore）',
@@ -1507,7 +1533,7 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
       runTransactionSql_(projectId, sql);
     } catch (txErr) {
       // @@row_count = 0 による RAISE（並行更新）は業務エラーとして error_() を返す
-      if (String(txErr.message || '').indexOf('対象レコードが更新できませんでした') !== -1) {
+      if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
         logInfo_('Invoice', 'undoWithdrawStoreInvoice: 並行更新により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
         return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
       }
@@ -1518,7 +1544,7 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
     logError_('Invoice', 'undoWithdrawStoreInvoice', err);
-    throw new Error('undoWithdrawStoreInvoice failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1544,7 +1570,7 @@ function fetchInvoices() {
     return success_(result);
   } catch (err) {
     logError_('Invoice', 'fetchInvoices', err);
-    throw new Error('fetchInvoices failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1577,7 +1603,7 @@ function fetchInvoiceDetail(invoiceId) {
     return success_({ summary: summary, stores: stores });
   } catch (err) {
     logError_('Invoice', 'fetchInvoiceDetail', err);
-    throw new Error('fetchInvoiceDetail failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1599,7 +1625,7 @@ function getInvoiceLinesByStore(storeInvoiceId) {
     return success_(result);
   } catch (err) {
     logError_('Invoice', 'getInvoiceLinesByStore', err);
-    throw new Error('getInvoiceLinesByStore failed: ' + err.message);
+    throw err;
   }
 }
 
@@ -1622,7 +1648,7 @@ function fetchScheduleData() {
     return success_(rows || []);
   } catch (err) {
     logError_('Invoice', 'fetchScheduleData', err);
-    throw new Error('fetchScheduleData failed: ' + err.message);
+    throw err;
   }
 }
 

@@ -159,7 +159,7 @@ function getCsvFormatRules() {
     raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
   } catch (_) {
     // JSON パース失敗 → 不正データとして扱う
-    throw new Error('[getCsvFormatRules] csv_format_rules のパースに失敗しました。管理者に連絡してください。');
+    throw new Error('CSVフォーマットの設定に不備があります。管理者にお問い合わせください。');
   }
 
   // null / undefined → デフォルト卸（固定9列）
@@ -183,14 +183,12 @@ function getCsvFormatRules() {
       // ── 型・範囲チェック ────────────────────────────────────────────────────
       if (!Number.isInteger(col.index) || col.index < 0) {
         throw new Error(
-          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が不正です: ' +
-          JSON.stringify(col.index) + '。0以上の整数を指定してください。管理者に連絡してください。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       if (col.index > MAX_COL_INDEX) {
         throw new Error(
-          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています: ' +
-          col.index + '。管理者に連絡してください。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       // ── index 重複チェック ──────────────────────────────────────────────────
@@ -198,9 +196,7 @@ function getCsvFormatRules() {
       // 後に定義された列の値で前の列が上書きされ、誤ったデータになる。
       if (seenIndexes[col.index] !== undefined) {
         throw new Error(
-          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index = ' + col.index +
-          ' が重複しています (columns[' + seenIndexes[col.index] + '] と重複)。' +
-          '管理者に連絡してください。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       seenIndexes[col.index] = i;
@@ -211,9 +207,7 @@ function getCsvFormatRules() {
       if (sc && sc !== 'null') {
         if (seenSystemColumns[sc] !== undefined) {
           throw new Error(
-            '[getCsvFormatRules] csv_format_rules.columns[' + i + '].system_column = "' + sc +
-            '" が重複しています (columns[' + seenSystemColumns[sc] + '] と重複)。' +
-            '管理者に連絡してください。'
+            'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
           );
         }
         seenSystemColumns[sc] = i;
@@ -227,8 +221,7 @@ function getCsvFormatRules() {
   // バックエンドの buildStagingSchema_() も同条件で throw するため、
   // フロントで先に検知してユーザーに分かりやすく通知する。
   throw new Error(
-    '[getCsvFormatRules] csv_format_rules が未対応の形式です。' +
-    '管理者に csv_format_rules の設定を確認してもらってください。'
+    'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
   );
 }
 
@@ -1580,7 +1573,7 @@ function validateCsv(csvText) {
       switch (col.type) {
         case 'date': {
           // format 定義に応じてバリデーションパターンを切り替える。
-          // 変換は BigQuery 側（PARSE_DATE）に委ねるため、ここでは形式チェックのみ行う。
+          // 1) 正規表現で形式チェック → 2) Date オブジェクトで実在チェック。
           // ※ BQ 側の PARSE_DATE フォーマット文字列も合わせて更新が必要な場合は
           //    be_csv_mapper.js の buildInvoiceLinesSelectSql_() を確認すること。
           const fmt = col.format || 'YYYY-MM-DD';
@@ -1610,7 +1603,26 @@ function validateCsv(csvText) {
           if (!dateOk) {
             rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${dateHint}で入力してください`);
           } else {
-            rowObj[key] = val;
+            // 日付の実在チェック（例: 2月30日, 13月 などを検出）
+            // JS の Date は不正な日付を自動補正する（2/30 → 3/2）ため、
+            // 復元した年月日が元の値と一致するか確認する。
+            let y, m, d;
+            if (fmt === 'YYYYMMDD') {
+              y = parseInt(val.substring(0, 4), 10);
+              m = parseInt(val.substring(4, 6), 10);
+              d = parseInt(val.substring(6, 8), 10);
+            } else {
+              const parts = val.split(/[-\/]/);
+              y = parseInt(parts[0], 10);
+              m = parseInt(parts[1], 10);
+              d = parseInt(parts[2], 10);
+            }
+            const dt = new Date(y, m - 1, d);
+            if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" に存在しない日付が含まれています（${val}）`);
+            } else {
+              rowObj[key] = val;
+            }
           }
           break;
         }
@@ -3261,6 +3273,16 @@ function navigate() {
   }
 
   if (targetId === 'pageUpload') {
+    // 前回のエラー表示・ファイル情報・データをリセットして初期状態にする
+    // （エラー後に一覧へ戻り再度アップロード画面を開いた際、古いエラーが残らないようにする）
+    resetDropZone();
+    fileInfoEl.classList.add('hidden');
+    alertList.innerHTML = '';
+    errorCard.classList.add('hidden');
+    btnToConfirm.disabled = true;
+    rawCsvBase64  = null;
+    utf8CsvBase64 = null;
+    parsedData    = null;
     checkUploadDeadline_();
   }
 
