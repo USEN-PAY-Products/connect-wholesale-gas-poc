@@ -106,29 +106,30 @@ function getExpectedHeaders_() {
  * @returns {string} クォート内改行をスペースに置換済みのテキスト
  */
 function stripQuotedNewlines_(csvText) {
-  let result = '', inQuote = false;
+  const buf = [];
+  let inQuote = false;
   for (let i = 0; i < csvText.length; i++) {
     const ch = csvText[i];
     if (ch === '"') {
       if (inQuote && i + 1 < csvText.length && csvText[i + 1] === '"') {
         // RFC 4180 エスケープ（""）— そのまま出力し状態を変えない
-        result += '""';
+        buf.push('""');
         i++;
       } else {
         inQuote = !inQuote;
-        result += ch;
+        buf.push(ch);
       }
     } else if (inQuote && ch === '\r' && i + 1 < csvText.length && csvText[i + 1] === '\n') {
       // CRLF → スペース 1 つに正規化
-      result += ' ';
+      buf.push(' ');
       i++;
     } else if (inQuote && (ch === '\n' || ch === '\r')) {
-      result += ' ';
+      buf.push(' ');
     } else {
-      result += ch;
+      buf.push(ch);
     }
   }
-  return result;
+  return buf.join('');
 }
 
 /**
@@ -885,6 +886,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+    '  AND wholesaler_id = ' + wsId,
     "  AND backoffice_review_status = 'RETURNED'",
     '  AND is_latest = TRUE;',
     '',
@@ -892,6 +894,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+    '  AND wholesaler_id = ' + wsId,
     "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',
