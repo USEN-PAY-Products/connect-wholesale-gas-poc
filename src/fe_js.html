@@ -1666,8 +1666,9 @@ function validateCsv(csvText) {
               m = parseInt(parts[1], 10);
               d = parseInt(parts[2], 10);
             }
-            const dt = new Date(y, m - 1, d);
-            if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) {
+            const dt = new Date(0);
+            dt.setUTCFullYear(y, m - 1, d);
+            if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
               rowErrors.push(`${rowNum}行目: "${col.csv_header}" に存在しない日付が含まれています（${val}）`);
             } else {
               rowObj[key] = val;
