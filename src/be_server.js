@@ -43,7 +43,7 @@ function getAccountInfo() {
   } catch (err) {
     logError_('Auth', 'getAccountInfo', err);
     // UNAUTHORIZED はフロントが err.message で認証エラーを判定するためそのまま再throw
-    if (String(err.message || '').indexOf('UNAUTHORIZED') !== -1) {
+    if (String(err.message || '').startsWith('UNAUTHORIZED:')) {
       throw err;
     }
     throw new Error('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
