@@ -20,7 +20,7 @@ function getServerAccountInfo_() {
   const email = Session.getActiveUser().getEmail();
   if (!email) {
     logError_('Auth', '認証失敗: メールアドレスを取得できませんでした');
-    throw new Error('UNAUTHORIZED: ログインユーザーのメールアドレスを取得できませんでした。');
+    throw new Error('UNAUTHORIZED: ログイン情報の取得に失敗しました。再度ログインしてください。');
   }
 
   const accountInfo = fetchAccountInfoByEmail_(email);
@@ -42,7 +42,11 @@ function getAccountInfo() {
     return success_(getServerAccountInfo_());
   } catch (err) {
     logError_('Auth', 'getAccountInfo', err);
-    throw new Error('getAccountInfo failed: ' + err.message);
+    // UNAUTHORIZED はフロントが err.message で認証エラーを判定するためそのまま再throw
+    if (String(err.message || '').startsWith('UNAUTHORIZED:')) {
+      throw err;
+    }
+    throw new Error('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
   }
 }
 

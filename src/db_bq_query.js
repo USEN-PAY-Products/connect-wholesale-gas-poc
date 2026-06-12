@@ -110,7 +110,10 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '  MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
     'FROM ranked AS wi ' +
     'LEFT JOIN ' + tbl + '.store_invoices` AS si ' +
-    '  ON si.wholesaler_invoice_id = wi.root_id AND si.is_latest = TRUE ' +
+    '  ON si.wholesaler_invoice_id IN (' +
+    '    SELECT rr.id FROM ranked rr WHERE rr.root_id = wi.root_id' +
+    '  ) AND si.is_latest = TRUE ' +
+    '  AND si.wholesaler_id = @wholesaler_id ' +
     'WHERE wi.rn = 1 ' +
     'GROUP BY wi.id, wi.root_id, wi.wholesaler_invoice_date, created_at, ' +
     '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +
@@ -197,7 +200,10 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = si.mall_code ' +
-    'WHERE si.wholesaler_invoice_id = @invoice_id ' +
+    'WHERE si.wholesaler_invoice_id IN (' +
+    '  SELECT id FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`' +
+    '  WHERE id = @invoice_id OR wholesaler_invoice_id = @invoice_id' +
+    ') ' +
     '  AND si.wholesaler_id = @wholesaler_id ' +
     '  AND si.is_latest = TRUE ' +
     'ORDER BY ' +
@@ -355,7 +361,10 @@ function fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesal
     'SELECT id, invoice_status ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` ' +
     'WHERE id = @store_invoice_id ' +
-    '  AND wholesaler_invoice_id = @invoice_id ' +
+    '  AND wholesaler_invoice_id IN (' +
+    '    SELECT id FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`' +
+    '    WHERE id = @invoice_id OR wholesaler_invoice_id = @invoice_id' +
+    '  ) ' +
     '  AND wholesaler_id = @wholesaler_id ' +
     '  AND is_latest = TRUE ' +
     '  AND invoice_status = @expected_status ' +
@@ -409,7 +418,10 @@ function fetchTargetStoreInvoiceAmounts_(rootInvoiceId, wholesalerId, storeInvoi
     '  COALESCE(SUM(si.reduced_tax_target_amount), 0) AS exTax8, ' +
     '  COALESCE(SUM(si.reduced_tax_amount), 0) AS tax8 ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
-    'WHERE si.wholesaler_invoice_id = @invoice_id ' +
+    'WHERE si.wholesaler_invoice_id IN (' +
+    '  SELECT id FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`' +
+    '  WHERE id = @invoice_id OR wholesaler_invoice_id = @invoice_id' +
+    ') ' +
     '  AND si.wholesaler_id = @wholesaler_id ' +
     whereExtra;
 
@@ -446,7 +458,10 @@ function fetchActionRequiredMallCodes_(rootInvoiceId, wholesalerId) {
   const sql =
     'SELECT DISTINCT si.mall_code ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
-    'WHERE si.wholesaler_invoice_id = @invoice_id ' +
+    'WHERE si.wholesaler_invoice_id IN (' +
+    '  SELECT id FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`' +
+    '  WHERE id = @invoice_id OR wholesaler_invoice_id = @invoice_id' +
+    ') ' +
     '  AND si.wholesaler_id = @wholesaler_id ' +
     '  AND si.is_latest = TRUE ' +
     '  AND (' +
@@ -475,7 +490,10 @@ function fetchStoreInvoiceMallCode_(storeInvoiceId, wholesalerId, parentInvoiceI
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'WHERE si.id = @store_invoice_id ' +
     '  AND si.wholesaler_id = @wholesaler_id ' +
-    '  AND si.wholesaler_invoice_id = @parent_invoice_id ' +
+    '  AND si.wholesaler_invoice_id IN (' +
+    '    SELECT id FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`' +
+    '    WHERE id = @parent_invoice_id OR wholesaler_invoice_id = @parent_invoice_id' +
+    '  ) ' +
     'LIMIT 1';
   const params = [
     { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },

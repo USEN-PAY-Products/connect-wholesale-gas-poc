@@ -89,8 +89,7 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   if (!csvFormatRules || !Array.isArray(csvFormatRules.columns)) {
     logError_('CsvMapper', 'validateCsvHeaderByRules_: csv_format_rules が新形式ではありません');
     throw new Error(
-      '[CsvMapper] csv_format_rules が新形式ではありません。' +
-      'columns 配列が存在するか確認してください。'
+      'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
     );
   }
 
@@ -153,10 +152,7 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   }, 0);
   if (csvHeaders.length !== expectedColCount) {
     throw new Error(
-      '[CsvMapper] CSVの列数が定義と一致しません。' +
-      '期待値: ' + expectedColCount + '列, ' +
-      '実際: ' + csvHeaders.length + '列。\n' +
-      'CSVフォーマットが変更されていないか確認してください。'
+      'CSVの列数がフォーマット定義と一致しません（期待値: ' + expectedColCount + '列 / 実際: ' + csvHeaders.length + '列）。CSVフォーマットを確認してください。'
     );
   }
 
@@ -190,7 +186,7 @@ function validateCsvHeaderByRules_(csvText, csvFormatRules) {
   if (errors.length > 0) {
     logError_('CsvMapper', 'validateCsvHeaderByRules_: format=dynamic, columns=' + csvHeaders.length + ', エラー' + errors.length + '件');
     throw new Error(
-      '[CsvMapper] CSVヘッダー検証エラー（' + errors.length + '件）:\n' +
+      'CSVヘッダーに誤りがあります（' + errors.length + '件）:\n' +
       errors.map(function(e, i) { return '  ' + (i + 1) + '. ' + e; }).join('\n')
     );
   }
@@ -345,8 +341,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
       orderByExpr = txFieldRef; // ISO 8601 は DATE 型として比較可能
     } else {
       throw new Error(
-        '[CsvMapper] transaction_date の format が未対応です: "' + txDateCol.format + '"。' +
-        '対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD'
+        'CSVフォーマットの設定に不備があります。日付形式「' + txDateCol.format + '」は対応していません。管理者にお問い合わせください。'
       );
     }
   } else {
@@ -432,9 +427,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
           castExpr = 'SAFE_CAST(' + fieldRef + ' AS DATE)';
         } else {
           throw new Error(
-            '[CsvMapper] 列「' + col.csv_header + '」(index:' + col.index + ') の' +
-            ' format が未対応です: "' + col.format + '"。' +
-            '対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD'
+            'CSVフォーマットの設定に不備があります。日付形式「' + col.format + '」は対応していません。管理者にお問い合わせください。'
           );
         }
         // castExpr はこの時点で確定しているため、SELECT 式と同じ式を再利用して
@@ -571,7 +564,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
         message:
           '\u5217\u300c' + escSql_(col.csv_header) +
           '\u300d(index:' + col.index + ') \u306b\u6570\u5024\u3068\u3057\u3066\u89e3\u91c8\u3067\u304d\u306a\u3044\u5024\u304c\u542b\u307e\u308c\u3066\u3044\u307e\u3059\u3002' +
-          '\u3053\u306e\u5217\u306f line_tax_amount \u306e\u8a08\u7b97\u306b\u4f7f\u7528\u3059\u308b\u305f\u3081\u6570\u5024\u304c\u5fc5\u9808\u3067\u3059\u3002\u6570\u5024\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          '\u3053\u306e\u5217\u306f\u6d88\u8cbb\u7a0e\u984d\u306e\u8a08\u7b97\u306b\u4f7f\u7528\u3059\u308b\u305f\u3081\u6570\u5024\u304c\u5fc5\u9808\u3067\u3059\u3002\u6570\u5024\u306e\u307f\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
       });
     });
 
@@ -719,17 +712,21 @@ function buildMappedTransactionSql_(params) {
   // ── 入力値の型・範囲検証（SQL インジェクション対策の第一層） ────────────
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!UUID_RE.test(invoiceUuid)) {
-    throw new Error('[CsvMapper] invoiceUuid の形式が不正です: ' + invoiceUuid);
+    logError_('CsvMapper', '[buildMappedTransactionSql_] invoiceUuid の形式が不正です: ' + invoiceUuid);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
   if (!UUID_RE.test(wsUserId)) {
-    throw new Error('[CsvMapper] wsUserId の形式が不正です: ' + wsUserId);
+    logError_('CsvMapper', '[buildMappedTransactionSql_] wsUserId の形式が不正です: ' + wsUserId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
   // Staging テーブル名: 英数字とアンダースコアのみ許可（テーブル名インジェクション対策）
   if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) {
-    throw new Error('[CsvMapper] stagingId に不正な文字が含まれています: ' + stagingId);
+    logError_('CsvMapper', '[buildMappedTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
   if (!Number.isInteger(wsId) || wsId <= 0) {
-    throw new Error('[CsvMapper] wholesaler_id が不正です: ' + wsId);
+    logError_('CsvMapper', '[buildMappedTransactionSql_] wholesaler_id が不正です: ' + wsId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
 
   // 卸合計値の数値検証（有限・非負・整数）
@@ -737,7 +734,8 @@ function buildMappedTransactionSql_(params) {
     .forEach(function(f) {
       const v = Number(wt[f] || 0);
       if (!Number.isFinite(v) || v < 0) {
-        throw new Error('[CsvMapper] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
+        logError_('CsvMapper', '[buildMappedTransactionSql_] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
+        throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
       }
     });
 
@@ -747,8 +745,9 @@ function buildMappedTransactionSql_(params) {
       .forEach(function(f) {
         const v = Number(m[f] || 0);
         if (!Number.isFinite(v) || v < 0) {
+          logError_('CsvMapper', '[buildMappedTransactionSql_] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]);
           throw new Error(
-            '[CsvMapper] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]
+            '処理中にエラーが発生しました。ページを再読み込みして再度お試しください。'
           );
         }
       });
@@ -966,9 +965,18 @@ function buildMappedResubmitTransactionSql_(params) {
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[CsvMapper] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
-  if (!UUID_RE.test(storeInvoiceId))  throw new Error('[CsvMapper] storeInvoiceId の形式が不正です: ' + storeInvoiceId);
-  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[CsvMapper] stagingId に不正な文字が含まれています: ' + stagingId);
+  if (!UUID_RE.test(parentInvoiceId)) {
+    logError_('CsvMapper', '[buildMappedResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!UUID_RE.test(storeInvoiceId)) {
+    logError_('CsvMapper', '[buildMappedResubmitTransactionSql_] storeInvoiceId の形式が不正です: ' + storeInvoiceId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) {
+    logError_('CsvMapper', '[buildMappedResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
 
   const q            = function(tbl) { return '`' + projectId + '.' + datasetId + '.' + tbl + '`'; };
   const stagingRef   = q(stagingId);
@@ -989,7 +997,7 @@ function buildMappedResubmitTransactionSql_(params) {
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     return (
-      "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
+      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
@@ -1053,7 +1061,7 @@ function buildMappedResubmitTransactionSql_(params) {
     'SET is_latest = FALSE',
     "WHERE id = '" + escSql_(storeInvoiceId) + "'",
     '  AND wholesaler_id = ' + wsId,
-    "  AND wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND is_latest = TRUE;',
     '',
     '-- 新しい store_invoices を INSERT',
@@ -1139,8 +1147,14 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   const wt       = summaryData.wholesalerTotal;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_RE.test(parentInvoiceId)) throw new Error('[CsvMapper] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
-  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) throw new Error('[CsvMapper] stagingId に不正な文字が含まれています: ' + stagingId);
+  if (!UUID_RE.test(parentInvoiceId)) {
+    logError_('CsvMapper', '[buildMappedBulkResubmitTransactionSql_] parentInvoiceId の形式が不正です: ' + parentInvoiceId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(stagingId)) {
+    logError_('CsvMapper', '[buildMappedBulkResubmitTransactionSql_] stagingId に不正な文字が含まれています: ' + stagingId);
+    throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
+  }
 
   const q            = function(tbl) { return '`' + projectId + '.' + datasetId + '.' + tbl + '`'; };
   const stagingRef   = q(stagingId);
@@ -1162,7 +1176,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     const handover = _handovers[String(m.customerCode)] || '';
     const handoverSql = handover ? "'" + escSql_(handover) + "'" : 'NULL';
     return (
-      "  ('" + childUuid + "', '" + escSql_(parentInvoiceId) + "', " + wsId + ", '" + mallCode + "', " +
+      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
@@ -1224,14 +1238,16 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     '-- ① 差し戻し store_invoices を is_latest = FALSE に更新',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
-    "WHERE wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
+    '  AND wholesaler_id = ' + wsId,
     "  AND backoffice_review_status = 'RETURNED'",
     '  AND is_latest = TRUE;',
     '',
     '-- ② 否認 store_invoices を is_latest = FALSE に更新',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
-    "WHERE wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "'",
+    "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
+    '  AND wholesaler_id = ' + wsId,
     "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',

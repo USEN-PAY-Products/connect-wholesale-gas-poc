@@ -157,9 +157,11 @@ function getCsvFormatRules() {
   let raw;
   try {
     raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
-  } catch (_) {
+  } catch (e) {
     // JSON パース失敗 → 不正データとして扱う
-    throw new Error('[getCsvFormatRules] csv_format_rules のパースに失敗しました。管理者に連絡してください。');
+    console.error('[getCsvFormatRules] csv_format_rules の JSON パースに失敗しました。raw=',
+      sessionStorage.getItem('shiire_csv_format_rules'), e);
+    throw new Error('CSVフォーマットの設定に不備があります。管理者にお問い合わせください。');
   }
 
   // null / undefined → デフォルト卸（固定9列）
@@ -182,25 +184,28 @@ function getCsvFormatRules() {
     raw.columns.forEach(function (col, i) {
       // ── 型・範囲チェック ────────────────────────────────────────────────────
       if (!Number.isInteger(col.index) || col.index < 0) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が不正です。',
+          'index=', col.index, 'col=', JSON.stringify(col));
         throw new Error(
-          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が不正です: ' +
-          JSON.stringify(col.index) + '。0以上の整数を指定してください。管理者に連絡してください。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       if (col.index > MAX_COL_INDEX) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています。',
+          'index=', col.index, 'col=', JSON.stringify(col));
         throw new Error(
-          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています: ' +
-          col.index + '。管理者に連絡してください。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       // ── index 重複チェック ──────────────────────────────────────────────────
       // 重複があると validateCsv() で同じ列を複数回参照し、rowObj のキーが上書きされて
       // 後に定義された列の値で前の列が上書きされ、誤ったデータになる。
       if (seenIndexes[col.index] !== undefined) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が重複しています。',
+          'index=', col.index, '先行=columns[' + seenIndexes[col.index] + ']',
+          'col=', JSON.stringify(col));
         throw new Error(
-          '[getCsvFormatRules] csv_format_rules.columns[' + i + '].index = ' + col.index +
-          ' が重複しています (columns[' + seenIndexes[col.index] + '] と重複)。' +
-          '管理者に連絡してください。'
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       seenIndexes[col.index] = i;
@@ -210,10 +215,11 @@ function getCsvFormatRules() {
       const sc = col.system_column;
       if (sc && sc !== 'null') {
         if (seenSystemColumns[sc] !== undefined) {
+          console.error('[getCsvFormatRules] columns[' + i + '].system_column が重複しています。',
+            'system_column=', sc, '先行=columns[' + seenSystemColumns[sc] + ']',
+            'col=', JSON.stringify(col));
           throw new Error(
-            '[getCsvFormatRules] csv_format_rules.columns[' + i + '].system_column = "' + sc +
-            '" が重複しています (columns[' + seenSystemColumns[sc] + '] と重複)。' +
-            '管理者に連絡してください。'
+            'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
           );
         }
         seenSystemColumns[sc] = i;
@@ -226,9 +232,10 @@ function getCsvFormatRules() {
   // それ以外（旧形式・不正値）→ 明示エラー
   // バックエンドの buildStagingSchema_() も同条件で throw するため、
   // フロントで先に検知してユーザーに分かりやすく通知する。
+  console.error('[getCsvFormatRules] columns が未定義または不正な形式です。',
+    'type=', typeof raw, 'raw=', JSON.stringify(raw));
   throw new Error(
-    '[getCsvFormatRules] csv_format_rules が未対応の形式です。' +
-    '管理者に csv_format_rules の設定を確認してもらってください。'
+    'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
   );
 }
 
@@ -258,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function () {
       .withFailureHandler(function (err) {
         console.error('[account] getAccountInfo failed:', err);
         const msg = String(err.message || err);
-        if (msg.indexOf('UNAUTHORIZED') !== -1) {
+        if (msg.startsWith('UNAUTHORIZED:')) {
           showErrorPage_('unauthorized');
         } else {
           showErrorPage_('system');
@@ -1273,7 +1280,7 @@ function handleFile(file) {
     _currentReader = null;
 
     const buffer = e.target.result;
-    const text   = decodeBuffer_(buffer);
+    const text   = stripQuotedNewlines(decodeBuffer_(buffer));
 
     // validateCsv() 内で getCsvFormatRules() が throw する場合があるため try/catch する。
     // 未捕捉のまま例外が飛ぶと dropZone が is-analyzing のまま固まるため、
@@ -1429,6 +1436,41 @@ function decodeBuffer_(buffer) {
 // =============================================================================
 
 /**
+ * ダブルクォートで囲まれたフィールド内の改行をスペースに置換する前処理。
+ * RFC 4180 ではクォート内改行はフィールド値の一部だが、後段の split('\n') で
+ * 行が壊れるため、事前にスペースへ正規化する。
+ *
+ * @param {string} csvText - CSV テキスト全体
+ * @returns {string} クォート内改行をスペースに置換済みのテキスト
+ */
+function stripQuotedNewlines(csvText) {
+  const buf = [];
+  let inQuote = false;
+  for (let i = 0; i < csvText.length; i++) {
+    const ch = csvText[i];
+    if (ch === '"') {
+      if (inQuote && i + 1 < csvText.length && csvText[i + 1] === '"') {
+        // RFC 4180 エスケープ（""）— そのまま出力し状態を変えない
+        buf.push('""');
+        i++;
+      } else {
+        inQuote = !inQuote;
+        buf.push(ch);
+      }
+    } else if (inQuote && ch === '\r' && i + 1 < csvText.length && csvText[i + 1] === '\n') {
+      // CRLF → スペース 1 つに正規化
+      buf.push(' ');
+      i++;
+    } else if (inQuote && (ch === '\n' || ch === '\r')) {
+      buf.push(' ');
+    } else {
+      buf.push(ch);
+    }
+  }
+  return buf.join('');
+}
+
+/**
  * CSV の1行をフィールド配列にパースする。
  * RFC 4180 準拠のダブルクォート・エスケープ（""）・空フィールド・行頭カンマを正しく処理する。
  * 正規表現の lastIndex に依存しない状態機械ベース実装のため、連続カンマ等で無限ループしない。
@@ -1580,7 +1622,7 @@ function validateCsv(csvText) {
       switch (col.type) {
         case 'date': {
           // format 定義に応じてバリデーションパターンを切り替える。
-          // 変換は BigQuery 側（PARSE_DATE）に委ねるため、ここでは形式チェックのみ行う。
+          // 1) 正規表現で形式チェック → 2) Date オブジェクトで実在チェック。
           // ※ BQ 側の PARSE_DATE フォーマット文字列も合わせて更新が必要な場合は
           //    be_csv_mapper.js の buildInvoiceLinesSelectSql_() を確認すること。
           const fmt = col.format || 'YYYY-MM-DD';
@@ -1610,7 +1652,27 @@ function validateCsv(csvText) {
           if (!dateOk) {
             rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${dateHint}で入力してください`);
           } else {
-            rowObj[key] = val;
+            // 日付の実在チェック（例: 2月30日, 13月 などを検出）
+            // JS の Date は不正な日付を自動補正する（2/30 → 3/2）ため、
+            // 復元した年月日が元の値と一致するか確認する。
+            let y, m, d;
+            if (fmt === 'YYYYMMDD') {
+              y = parseInt(val.substring(0, 4), 10);
+              m = parseInt(val.substring(4, 6), 10);
+              d = parseInt(val.substring(6, 8), 10);
+            } else {
+              const parts = val.split(/[-\/]/);
+              y = parseInt(parts[0], 10);
+              m = parseInt(parts[1], 10);
+              d = parseInt(parts[2], 10);
+            }
+            const dt = new Date(0);
+            dt.setUTCFullYear(y, m - 1, d);
+            if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" に存在しない日付が含まれています（${val}）`);
+            } else {
+              rowObj[key] = val;
+            }
           }
           break;
         }
@@ -1649,12 +1711,13 @@ function validateCsv(csvText) {
     });
 
     // customer_code の有効性チェック（merchant_mappings）
+    // ※ cc === undefined の場合は汎用 required チェック（L1615）で既にエラー追加済みのためスキップ
     const cc = rowObj['customer_code'];
     const ccCol = columns.find(c => c.system_column === 'customer_code' || c.field === 'customer_code');
     const ccHeader = ccCol ? ccCol.csv_header : '加盟店コード';
-    if (cc === undefined || cc === '') {
+    if (cc !== undefined && cc === '') {
       rowErrors.push(`${rowNum}行目: "${ccHeader}" は必須です`);
-    } else {
+    } else if (cc !== undefined) {
       if (validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
         rowErrors.push(`${rowNum}行目: "${ccHeader}" の値 "${cc}" は請求可能な${ccHeader}ではありません`);
       }
@@ -3261,6 +3324,17 @@ function navigate() {
   }
 
   if (targetId === 'pageUpload') {
+    // 前回のエラー表示・ファイル情報・データをリセットして初期状態にする
+    // （エラー後に一覧へ戻り再度アップロード画面を開いた際、古いエラーが残らないようにする）
+    resetDropZone();
+    fileInfoEl.classList.add('hidden');
+    alertList.innerHTML = '';
+    errorCard.classList.add('hidden');
+    btnToConfirm.disabled = true;
+    rawCsvBase64  = null;
+    utf8CsvBase64 = null;
+    parsedData    = null;
+    sessionStorage.removeItem('shiire_parsedData');
     checkUploadDeadline_();
   }
 
@@ -3466,7 +3540,7 @@ window.addEventListener('hashchange', navigate);
       const buffer = e.target.result;
       let text;
       try {
-        text = decodeBuffer_(buffer);
+        text = stripQuotedNewlines(decodeBuffer_(buffer));
       } catch (err) {
         analyzingEl.classList.add('hidden');
         dropZoneEl.classList.remove('hidden');
