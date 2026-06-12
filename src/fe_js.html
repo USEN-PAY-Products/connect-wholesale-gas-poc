@@ -184,11 +184,15 @@ function getCsvFormatRules() {
     raw.columns.forEach(function (col, i) {
       // ── 型・範囲チェック ────────────────────────────────────────────────────
       if (!Number.isInteger(col.index) || col.index < 0) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が不正です。',
+          'index=', col.index, 'col=', JSON.stringify(col));
         throw new Error(
           'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       if (col.index > MAX_COL_INDEX) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています。',
+          'index=', col.index, 'col=', JSON.stringify(col));
         throw new Error(
           'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
@@ -197,6 +201,9 @@ function getCsvFormatRules() {
       // 重複があると validateCsv() で同じ列を複数回参照し、rowObj のキーが上書きされて
       // 後に定義された列の値で前の列が上書きされ、誤ったデータになる。
       if (seenIndexes[col.index] !== undefined) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が重複しています。',
+          'index=', col.index, '先行=columns[' + seenIndexes[col.index] + ']',
+          'col=', JSON.stringify(col));
         throw new Error(
           'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
@@ -208,6 +215,9 @@ function getCsvFormatRules() {
       const sc = col.system_column;
       if (sc && sc !== 'null') {
         if (seenSystemColumns[sc] !== undefined) {
+          console.error('[getCsvFormatRules] columns[' + i + '].system_column が重複しています。',
+            'system_column=', sc, '先行=columns[' + seenSystemColumns[sc] + ']',
+            'col=', JSON.stringify(col));
           throw new Error(
             'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
           );
@@ -222,6 +232,8 @@ function getCsvFormatRules() {
   // それ以外（旧形式・不正値）→ 明示エラー
   // バックエンドの buildStagingSchema_() も同条件で throw するため、
   // フロントで先に検知してユーザーに分かりやすく通知する。
+  console.error('[getCsvFormatRules] columns が未定義または不正な形式です。',
+    'type=', typeof raw, 'raw=', JSON.stringify(raw));
   throw new Error(
     'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
   );
@@ -1268,7 +1280,7 @@ function handleFile(file) {
     _currentReader = null;
 
     const buffer = e.target.result;
-    const text   = decodeBuffer_(buffer);
+    const text   = stripQuotedNewlines(decodeBuffer_(buffer));
 
     // validateCsv() 内で getCsvFormatRules() が throw する場合があるため try/catch する。
     // 未捕捉のまま例外が飛ぶと dropZone が is-analyzing のまま固まるため、
@@ -1422,6 +1434,25 @@ function decodeBuffer_(buffer) {
 // =============================================================================
 // Upload page: CSV parse & validate
 // =============================================================================
+
+/**
+ * ダブルクォートで囲まれたフィールド内の改行をスペースに置換する前処理。
+ * RFC 4180 ではクォート内改行はフィールド値の一部だが、後段の split('\n') で
+ * 行が壊れるため、事前にスペースへ正規化する。
+ *
+ * @param {string} csvText - CSV テキスト全体
+ * @returns {string} クォート内改行をスペースに置換済みのテキスト
+ */
+function stripQuotedNewlines(csvText) {
+  let result = '', inQuote = false;
+  for (let i = 0; i < csvText.length; i++) {
+    const ch = csvText[i];
+    if (ch === '"') { inQuote = !inQuote; result += ch; }
+    else if (inQuote && (ch === '\n' || ch === '\r')) { result += ' '; }
+    else { result += ch; }
+  }
+  return result;
+}
 
 /**
  * CSV の1行をフィールド配列にパースする。
@@ -3285,6 +3316,7 @@ function navigate() {
     rawCsvBase64  = null;
     utf8CsvBase64 = null;
     parsedData    = null;
+    sessionStorage.removeItem('shiire_parsedData');
     checkUploadDeadline_();
   }
 
@@ -3490,7 +3522,7 @@ window.addEventListener('hashchange', navigate);
       const buffer = e.target.result;
       let text;
       try {
-        text = decodeBuffer_(buffer);
+        text = stripQuotedNewlines(decodeBuffer_(buffer));
       } catch (err) {
         analyzingEl.classList.add('hidden');
         dropZoneEl.classList.remove('hidden');

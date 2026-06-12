@@ -113,6 +113,7 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '  ON si.wholesaler_invoice_id IN (' +
     '    SELECT rr.id FROM ranked rr WHERE rr.root_id = wi.root_id' +
     '  ) AND si.is_latest = TRUE ' +
+    '  AND si.wholesaler_id = @wholesaler_id ' +
     'WHERE wi.rn = 1 ' +
     'GROUP BY wi.id, wi.root_id, wi.wholesaler_invoice_date, created_at, ' +
     '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +

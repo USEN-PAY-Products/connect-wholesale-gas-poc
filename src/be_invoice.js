@@ -98,6 +98,25 @@ function getExpectedHeaders_() {
 }
 
 /**
+ * ダブルクォートで囲まれたフィールド内の改行をスペースに置換する前処理。
+ * RFC 4180 ではクォート内改行はフィールド値の一部だが、後段の split('\n') で
+ * 行が壊れるため、事前にスペースへ正規化する。
+ *
+ * @param {string} csvText - CSV テキスト全体
+ * @returns {string} クォート内改行をスペースに置換済みのテキスト
+ */
+function stripQuotedNewlines_(csvText) {
+  var result = '', inQuote = false;
+  for (var i = 0; i < csvText.length; i++) {
+    var ch = csvText[i];
+    if (ch === '"') { inQuote = !inQuote; result += ch; }
+    else if (inQuote && (ch === '\n' || ch === '\r')) { result += ' '; }
+    else { result += ch; }
+  }
+  return result;
+}
+
+/**
  * CSV テキストから加盟店毎の期待税額を計算し、summaryData.merchantTotals の
  * tax10/tax8 が計算値から ±1円以内であることを検証する。
  * フロントの改ざんを防ぐためのサーバーサイド防御。
@@ -115,7 +134,8 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
     return Math.floor;
   })();
 
-  const lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const safeCsvText = stripQuotedNewlines_(csvText);
+  const lines = safeCsvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   if (lines.length < 2) return;
 
   // フィールドのインデックスを特定
@@ -382,11 +402,13 @@ function buildStagingSchema_(csvFormatRules) {
     const MAX_COL_INDEX = 200;
     csvFormatRules.columns.forEach(function(col, i) {
       if (!Number.isInteger(col.index) || col.index < 0) {
+        logError_('Schema', 'columns[' + i + '].index が不正です。index=' + col.index + ', col=' + JSON.stringify(col));
         throw new Error(
           'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
       }
       if (col.index > MAX_COL_INDEX) {
+        logError_('Schema', 'columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています。index=' + col.index + ', col=' + JSON.stringify(col));
         throw new Error(
           'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
         );
