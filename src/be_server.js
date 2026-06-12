@@ -20,13 +20,13 @@ function getServerAccountInfo_() {
   const email = Session.getActiveUser().getEmail();
   if (!email) {
     logError_('Auth', '認証失敗: メールアドレスを取得できませんでした');
-    throw new Error('ログイン情報の取得に失敗しました。再度ログインしてください。');
+    throw new Error('UNAUTHORIZED: ログイン情報の取得に失敗しました。再度ログインしてください。');
   }
 
   const accountInfo = fetchAccountInfoByEmail_(email);
   if (!accountInfo) {
     logError_('Auth', '認証失敗: アカウント情報が見つかりません');
-    throw new Error('アカウント情報が見つかりませんでした。管理者にお問い合わせください。');
+    throw new Error('UNAUTHORIZED: アカウント情報が見つかりませんでした。管理者にお問い合わせください。');
   }
 
   logInfo_('Auth', '認証成功: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
@@ -42,6 +42,10 @@ function getAccountInfo() {
     return success_(getServerAccountInfo_());
   } catch (err) {
     logError_('Auth', 'getAccountInfo', err);
+    // UNAUTHORIZED はフロントが err.message で認証エラーを判定するためそのまま再throw
+    if (String(err.message || '').indexOf('UNAUTHORIZED') !== -1) {
+      throw err;
+    }
     throw new Error('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
   }
 }

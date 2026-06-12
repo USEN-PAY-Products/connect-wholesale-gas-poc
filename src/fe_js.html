@@ -157,8 +157,10 @@ function getCsvFormatRules() {
   let raw;
   try {
     raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
-  } catch (_) {
+  } catch (e) {
     // JSON パース失敗 → 不正データとして扱う
+    console.error('[getCsvFormatRules] csv_format_rules の JSON パースに失敗しました。raw=',
+      sessionStorage.getItem('shiire_csv_format_rules'), e);
     throw new Error('CSVフォーマットの設定に不備があります。管理者にお問い合わせください。');
   }
 
