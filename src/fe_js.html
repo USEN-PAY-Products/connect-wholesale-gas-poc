@@ -4377,4 +4377,63 @@ function buildResubmitRemarks_(bodyEl) {
   });
   return remarks;
 }
+
+// ---- logout.js ----
+// =============================================================================
+// Logout: ヘッダーストアドロップダウン & ログアウト処理
+// =============================================================================
+
+/** ヘッダー卸名クリックでドロップダウンを開閉する */
+(function initHeaderStoreDropdown() {
+  const storeArea = document.getElementById('headerStoreArea');
+  const dropdown  = document.getElementById('headerStoreDropdown');
+  if (!storeArea || !dropdown) return;
+
+  storeArea.addEventListener('click', function (e) {
+    e.stopPropagation();
+    const isOpen = !dropdown.classList.contains('hidden');
+    if (isOpen) {
+      dropdown.classList.add('hidden');
+      storeArea.classList.remove('is-open');
+    } else {
+      dropdown.classList.remove('hidden');
+      storeArea.classList.add('is-open');
+    }
+  });
+
+  // ドロップダウン外クリックで閉じる
+  document.addEventListener('click', function () {
+    dropdown.classList.add('hidden');
+    storeArea.classList.remove('is-open');
+  });
+})();
+
+/** ログアウトボタンクリックで sessionStorage クリア → LP へリダイレクト */
+(function initLogout() {
+  const btnLogout = document.getElementById('btnLogout');
+  if (!btnLogout) return;
+
+  btnLogout.addEventListener('click', function (e) {
+    e.stopPropagation();
+    sessionStorage.clear();
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          if (result && result.data && result.data.url) {
+            window.top.location.href = result.data.url;
+          }
+        })
+        .withFailureHandler(function (err) {
+          console.error('[logout] getLogoutUrl failed:', err);
+          // フォールバック: LP URL 取得失敗時は Google ログアウトへ
+          window.top.location.href = 'https://accounts.google.com/Logout';
+        })
+        .getLogoutUrl();
+    } else {
+      // GAS 環境外（ローカル開発時）
+      window.top.location.href = 'https://accounts.google.com/Logout';
+    }
+  });
+})();
 </script>
