@@ -140,13 +140,37 @@ button { cursor: pointer; font-family: inherit; }
   padding-left: 16px;
 }
 
+/* ---- Header: Store Dropdown ---- */
+#headerStoreArea {
+  position: relative;
+}
+
+.header-store-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1.4;
+}
+.header-store-trigger:hover { opacity: 0.8; }
+.header-store-trigger:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 .header-store img {
   width: 28px;
   height: 28px;
   flex-shrink: 0;
 }
 
-.header-store span {
+.header-store-trigger span {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -156,21 +180,17 @@ button { cursor: pointer; font-family: inherit; }
   font-style: normal;
   font-weight: 400;
   overflow: hidden;
+  text-align: left;
 }
 
 /* ---- Header: Store Dropdown ---- */
-.header-store {
-  position: relative;
-  cursor: pointer;
-}
-
 .header-store-chevron {
   font-size: 10px;
   margin-left: 4px;
   transition: transform 0.2s;
   flex-shrink: 0;
 }
-.header-store.is-open .header-store-chevron {
+.header-store-trigger.is-open .header-store-chevron {
   transform: rotate(180deg);
 }
 

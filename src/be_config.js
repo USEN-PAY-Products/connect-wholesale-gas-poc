@@ -6,6 +6,7 @@
 //   GCP_PROJECT_ID         … BigQuery の GCP プロジェクト ID
 //   BQ_DATASET_ID          … BigQuery のデータセット ID（例: connect_db）
 //   BQ_LOCATION            … BigQuery のリージョン（例: asia-northeast1。未設定時は US フォールバック）
+//   LP_URL                 … ログアウト後のリダイレクト先 LP URL（例: https://connect-dev.usen-pay.com/）
 //
 // 設定方法（GASエディタ）:
 //   プロジェクトの設定 → スクリプト プロパティ → プロパティを追加

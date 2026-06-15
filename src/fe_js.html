@@ -4385,27 +4385,27 @@ function buildResubmitRemarks_(bodyEl) {
 
 /** ヘッダー卸名クリックでドロップダウンを開閉する */
 (function initHeaderStoreDropdown() {
-  const storeArea = document.getElementById('headerStoreArea');
+  const trigger   = document.getElementById('headerStoreTrigger');
   const dropdown  = document.getElementById('headerStoreDropdown');
   const btnLogout = document.getElementById('btnLogout');
-  if (!storeArea || !dropdown) return;
+  if (!trigger || !dropdown) return;
 
   function openDropdown() {
     dropdown.classList.remove('hidden');
-    storeArea.classList.add('is-open');
-    storeArea.setAttribute('aria-expanded', 'true');
+    trigger.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
     if (btnLogout) btnLogout.focus();
   }
 
   function closeDropdown(returnFocus) {
     dropdown.classList.add('hidden');
-    storeArea.classList.remove('is-open');
-    storeArea.setAttribute('aria-expanded', 'false');
-    if (returnFocus) storeArea.focus();
+    trigger.classList.remove('is-open');
+    trigger.setAttribute('aria-expanded', 'false');
+    if (returnFocus) trigger.focus();
   }
 
-  // クリックでトグル
-  storeArea.addEventListener('click', function (e) {
+  // クリックでトグル（実 <button> なので Enter/Space も click として発火する）
+  trigger.addEventListener('click', function (e) {
     e.stopPropagation();
     const isOpen = !dropdown.classList.contains('hidden');
     if (isOpen) {
@@ -4415,21 +4415,7 @@ function buildResubmitRemarks_(bodyEl) {
     }
   });
 
-  // Enter / Space で開閉
-  storeArea.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      e.stopPropagation();
-      const isOpen = !dropdown.classList.contains('hidden');
-      if (isOpen) {
-        closeDropdown(false);
-      } else {
-        openDropdown();
-      }
-    }
-  });
-
-  // Escape で閉じてトリガー元へフォーカス戻し
+  // Escape で閉じてトリガーへフォーカス戻し
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && !dropdown.classList.contains('hidden')) {
       closeDropdown(true);
@@ -4447,6 +4433,8 @@ function buildResubmitRemarks_(bodyEl) {
   const btnLogout = document.getElementById('btnLogout');
   if (!btnLogout) return;
 
+  const FALLBACK_LOGOUT_URL = 'https://accounts.google.com/Logout';
+
   btnLogout.addEventListener('click', function (e) {
     e.stopPropagation();
     sessionStorage.clear();
@@ -4458,17 +4446,17 @@ function buildResubmitRemarks_(bodyEl) {
             window.top.location.href = result.data.url;
           } else {
             console.warn('[logout] getLogoutUrl: 想定外のレスポンス:', result);
-            window.top.location.href = 'https://accounts.google.com/Logout';
+            window.top.location.href = FALLBACK_LOGOUT_URL;
           }
         })
         .withFailureHandler(function (err) {
           console.error('[logout] getLogoutUrl failed:', err);
-          window.top.location.href = 'https://accounts.google.com/Logout';
+          window.top.location.href = FALLBACK_LOGOUT_URL;
         })
         .getLogoutUrl();
     } else {
       // GAS 環境外（ローカル開発時）
-      window.top.location.href = 'https://accounts.google.com/Logout';
+      window.top.location.href = FALLBACK_LOGOUT_URL;
     }
   });
 })();
