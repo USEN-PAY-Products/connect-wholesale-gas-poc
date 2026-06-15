@@ -4387,24 +4387,58 @@ function buildResubmitRemarks_(bodyEl) {
 (function initHeaderStoreDropdown() {
   const storeArea = document.getElementById('headerStoreArea');
   const dropdown  = document.getElementById('headerStoreDropdown');
+  const btnLogout = document.getElementById('btnLogout');
   if (!storeArea || !dropdown) return;
 
+  function openDropdown() {
+    dropdown.classList.remove('hidden');
+    storeArea.classList.add('is-open');
+    storeArea.setAttribute('aria-expanded', 'true');
+    if (btnLogout) btnLogout.focus();
+  }
+
+  function closeDropdown(returnFocus) {
+    dropdown.classList.add('hidden');
+    storeArea.classList.remove('is-open');
+    storeArea.setAttribute('aria-expanded', 'false');
+    if (returnFocus) storeArea.focus();
+  }
+
+  // クリックでトグル
   storeArea.addEventListener('click', function (e) {
     e.stopPropagation();
     const isOpen = !dropdown.classList.contains('hidden');
     if (isOpen) {
-      dropdown.classList.add('hidden');
-      storeArea.classList.remove('is-open');
+      closeDropdown(false);
     } else {
-      dropdown.classList.remove('hidden');
-      storeArea.classList.add('is-open');
+      openDropdown();
+    }
+  });
+
+  // Enter / Space で開閉
+  storeArea.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      const isOpen = !dropdown.classList.contains('hidden');
+      if (isOpen) {
+        closeDropdown(false);
+      } else {
+        openDropdown();
+      }
+    }
+  });
+
+  // Escape で閉じてトリガー元へフォーカス戻し
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !dropdown.classList.contains('hidden')) {
+      closeDropdown(true);
     }
   });
 
   // ドロップダウン外クリックで閉じる
   document.addEventListener('click', function () {
-    dropdown.classList.add('hidden');
-    storeArea.classList.remove('is-open');
+    closeDropdown(false);
   });
 })();
 
@@ -4422,11 +4456,13 @@ function buildResubmitRemarks_(bodyEl) {
         .withSuccessHandler(function (result) {
           if (result && result.data && result.data.url) {
             window.top.location.href = result.data.url;
+          } else {
+            console.warn('[logout] getLogoutUrl: 想定外のレスポンス:', result);
+            window.top.location.href = 'https://accounts.google.com/Logout';
           }
         })
         .withFailureHandler(function (err) {
           console.error('[logout] getLogoutUrl failed:', err);
-          // フォールバック: LP URL 取得失敗時は Google ログアウトへ
           window.top.location.href = 'https://accounts.google.com/Logout';
         })
         .getLogoutUrl();
