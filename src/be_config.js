@@ -6,6 +6,7 @@
 //   GCP_PROJECT_ID         … BigQuery の GCP プロジェクト ID
 //   BQ_DATASET_ID          … BigQuery のデータセット ID（例: connect_db）
 //   BQ_LOCATION            … BigQuery のリージョン（例: asia-northeast1。未設定時は US フォールバック）
+//   LP_URL                 … ログアウト後のリダイレクト先 LP URL（例: https://connect-dev.usen-pay.com/）
 //
 // 設定方法（GASエディタ）:
 //   プロジェクトの設定 → スクリプト プロパティ → プロパティを追加
@@ -17,12 +18,13 @@ function getConfig_() {
   const gcpProjectId  = props.getProperty('GCP_PROJECT_ID');
   const bqDatasetId   = props.getProperty('BQ_DATASET_ID');
   const bqLocation    = props.getProperty('BQ_LOCATION') || 'US';
+  const lpUrl         = props.getProperty('LP_URL') || '';
 
   if (!driveFolderId) throw new Error('Script Property "DRIVE_ROOT_FOLDER_ID" が未設定です');
   if (!gcpProjectId)  throw new Error('Script Property "GCP_PROJECT_ID" が未設定です');
   if (!bqDatasetId)   throw new Error('Script Property "BQ_DATASET_ID" が未設定です');
 
-  return { driveFolderId, gcpProjectId, bqDatasetId, bqLocation };
+  return { driveFolderId, gcpProjectId, bqDatasetId, bqLocation, lpUrl };
 }
 
 // =============================================================================
@@ -63,6 +65,7 @@ function setupScriptProperties(forceOverwrite) {
     'DRIVE_ROOT_FOLDER_ID': '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro',  // 本番フォルダ ID に変更してください
     'GCP_PROJECT_ID':       'usenpay-connect-dev',
     'BQ_DATASET_ID':        'connect_db',
+    'LP_URL':               'https://connect-dev.usen-pay.com/',   // 本番 LP URL は別途設定
     'ENV':                  'development',
   });
   console.log('[setupScriptProperties] Script Properties を設定しました（ENV=development）。');
@@ -92,6 +95,11 @@ function overwriteBqLocation() {
 /** GCP_PROJECT_ID を更新する（値は関数内を直接編集してから実行） */
 function overwriteGcpProjectId() {
   overwriteScriptProperty_('GCP_PROJECT_ID', 'usenpay-connect-dev');
+}
+
+/** LP_URL を開発環境用の値に設定する */
+function overwriteLpUrl() {
+  overwriteScriptProperty_('LP_URL', 'https://connect-dev.usen-pay.com/');
 }
 
 /**

@@ -109,10 +109,10 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '  MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' THEN 1 ELSE 0 END) AS has_resubmit, ' +
     '  MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
     'FROM ranked AS wi ' +
+    'JOIN ranked AS rr ON rr.root_id = wi.root_id ' +
     'LEFT JOIN ' + tbl + '.store_invoices` AS si ' +
-    '  ON si.wholesaler_invoice_id IN (' +
-    '    SELECT rr.id FROM ranked rr WHERE rr.root_id = wi.root_id' +
-    '  ) AND si.is_latest = TRUE ' +
+    '  ON si.wholesaler_invoice_id = rr.id ' +
+    '  AND si.is_latest = TRUE ' +
     '  AND si.wholesaler_id = @wholesaler_id ' +
     'WHERE wi.rn = 1 ' +
     'GROUP BY wi.id, wi.root_id, wi.wholesaler_invoice_date, created_at, ' +

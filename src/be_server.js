@@ -50,5 +50,36 @@ function getAccountInfo() {
   }
 }
 
+// =============================================================================
+// ログアウト: リダイレクト先URL取得
+// =============================================================================
+
+/**
+ * ログアウト時のリダイレクト先URLを返す。
+ * ScriptProperties の LP_URL に ?logout=true パラメータを付与して返却する。
+ * フロントエンドから google.script.run.getLogoutUrl() で呼び出される。
+ *
+ * @returns {{ status: 'success', data: { url: string } }}
+ */
+function getLogoutUrl() {
+  try {
+    const { lpUrl } = getConfig_();
+    if (!lpUrl) {
+      throw new Error('ログアウト先URLが設定されていません。管理者にお問い合わせください。');
+    }
+    // セキュリティ: https スキームのみ許可（オープンリダイレクト / XSS 防止）
+    if (!/^https:\/\//i.test(lpUrl)) {
+      logError_('Auth', 'getLogoutUrl: 不正なLP_URL スキーム: ' + lpUrl);
+      throw new Error('ログアウト先URLの設定が不正です。管理者にお問い合わせください。');
+    }
+    const separator = lpUrl.includes('?') ? '&' : '?';
+    const logoutUrl = lpUrl + separator + 'logout=true';
+    return success_({ url: logoutUrl });
+  } catch (err) {
+    logError_('Auth', 'getLogoutUrl', err);
+    throw new Error('ログアウト処理に失敗しました。ページを再読み込みしてください。');
+  }
+}
+
 // --- 請求登録・取得系の公開関数は be_invoice.js で定義 ---
 

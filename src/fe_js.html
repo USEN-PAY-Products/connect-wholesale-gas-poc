@@ -4377,4 +4377,91 @@ function buildResubmitRemarks_(bodyEl) {
   });
   return remarks;
 }
+
+// ---- logout.js ----
+// =============================================================================
+// Logout: ヘッダーストアドロップダウン & ログアウト処理
+// =============================================================================
+
+/** ヘッダー卸名クリックでドロップダウンを開閉する */
+(function initHeaderStoreDropdown() {
+  const trigger   = document.getElementById('headerStoreTrigger');
+  const dropdown  = document.getElementById('headerStoreDropdown');
+  const btnLogout = document.getElementById('btnLogout');
+  if (!trigger || !dropdown) return;
+
+  function openDropdown() {
+    dropdown.classList.remove('hidden');
+    trigger.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    if (btnLogout) btnLogout.focus();
+  }
+
+  function closeDropdown(returnFocus) {
+    dropdown.classList.add('hidden');
+    trigger.classList.remove('is-open');
+    trigger.setAttribute('aria-expanded', 'false');
+    if (returnFocus) trigger.focus();
+  }
+
+  // クリックでトグル（実 <button> なので Enter/Space も click として発火する）
+  trigger.addEventListener('click', function (e) {
+    e.stopPropagation();
+    const isOpen = !dropdown.classList.contains('hidden');
+    if (isOpen) {
+      closeDropdown(false);
+    } else {
+      openDropdown();
+    }
+  });
+
+  // Escape で閉じてトリガーへフォーカス戻し
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !dropdown.classList.contains('hidden')) {
+      closeDropdown(true);
+    }
+  });
+
+  // ドロップダウン外クリックで閉じる
+  document.addEventListener('click', function () {
+    closeDropdown(false);
+  });
+})();
+
+/** ログアウトボタンクリックで sessionStorage クリア → LP へリダイレクト */
+(function initLogout() {
+  const btnLogout = document.getElementById('btnLogout');
+  if (!btnLogout) return;
+
+  const FALLBACK_LOGOUT_URL = 'https://accounts.google.com/Logout';
+
+  btnLogout.addEventListener('click', function (e) {
+    e.stopPropagation();
+
+    // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
+    Object.keys(sessionStorage).forEach(function (key) {
+      if (key.startsWith('shiire_')) sessionStorage.removeItem(key);
+    });
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          if (result && result.data && result.data.url) {
+            window.top.location.href = result.data.url;
+          } else {
+            console.warn('[logout] getLogoutUrl: 想定外のレスポンス:', result);
+            window.top.location.href = FALLBACK_LOGOUT_URL;
+          }
+        })
+        .withFailureHandler(function (err) {
+          console.error('[logout] getLogoutUrl failed:', err);
+          window.top.location.href = FALLBACK_LOGOUT_URL;
+        })
+        .getLogoutUrl();
+    } else {
+      // GAS 環境外（ローカル開発時）
+      window.top.location.href = FALLBACK_LOGOUT_URL;
+    }
+  });
+})();
 </script>
