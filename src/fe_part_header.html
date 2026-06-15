@@ -11,7 +11,7 @@
     </button>
     <div class="header-store" id="headerStoreArea">
       <button class="header-store-trigger" id="headerStoreTrigger" type="button"
-              aria-haspopup="menu" aria-expanded="false"
+              aria-haspopup="true" aria-expanded="false"
               aria-controls="headerStoreDropdown">
         <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"
              aria-hidden="true">
@@ -21,11 +21,9 @@
         <span class="visually-hidden">アカウントメニュー</span>
         <i class="fa-solid fa-chevron-down header-store-chevron" aria-hidden="true"></i>
       </button>
-      <!-- ログアウト ドロップダウンメニュー -->
-      <div class="header-store-dropdown hidden" id="headerStoreDropdown"
-           role="menu" aria-label="アカウントメニュー">
-        <button class="header-store-dropdown__item" id="btnLogout" type="button"
-                role="menuitem">
+      <!-- ログアウト ドロップダウン -->
+      <div class="header-store-dropdown hidden" id="headerStoreDropdown">
+        <button class="header-store-dropdown__item" id="btnLogout" type="button">
           <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> ログアウト
         </button>
       </div>
