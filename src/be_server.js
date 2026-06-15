@@ -67,6 +67,11 @@ function getLogoutUrl() {
     if (!lpUrl) {
       throw new Error('ログアウト先URLが設定されていません。管理者にお問い合わせください。');
     }
+    // セキュリティ: https スキームのみ許可（オープンリダイレクト / XSS 防止）
+    if (!/^https:\/\//i.test(lpUrl)) {
+      logError_('Auth', 'getLogoutUrl: 不正なLP_URL スキーム: ' + lpUrl);
+      throw new Error('ログアウト先URLの設定が不正です。管理者にお問い合わせください。');
+    }
     const separator = lpUrl.includes('?') ? '&' : '?';
     const logoutUrl = lpUrl + separator + 'logout=true';
     return success_({ url: logoutUrl });

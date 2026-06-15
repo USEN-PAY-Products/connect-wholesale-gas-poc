@@ -4437,7 +4437,11 @@ function buildResubmitRemarks_(bodyEl) {
 
   btnLogout.addEventListener('click', function (e) {
     e.stopPropagation();
-    sessionStorage.clear();
+
+    // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
+    Object.keys(sessionStorage).forEach(function (key) {
+      if (key.startsWith('shiire_')) sessionStorage.removeItem(key);
+    });
 
     if (typeof google !== 'undefined' && google.script && google.script.run) {
       google.script.run
