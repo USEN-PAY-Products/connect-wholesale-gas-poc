@@ -2240,9 +2240,12 @@ btnFinalSubmit.addEventListener('click', () => {
         if (missingCodes.indexOf(cc) !== -1) {
           ta.classList.add('confirm-handover-input--error');
           ta.setAttribute('aria-invalid', 'true');
+          const errId = 'handover-err-' + cc;
+          ta.setAttribute('aria-describedby', errId);
           if (!ta.nextElementSibling || !ta.nextElementSibling.classList.contains('handover-validation-error')) {
             const errSpan = document.createElement('div');
             errSpan.className = 'handover-validation-error';
+            errSpan.id = errId;
             errSpan.textContent = '※ 加盟店との合意内容を記入してください';
             ta.insertAdjacentElement('afterend', errSpan);
           }
@@ -2256,15 +2259,19 @@ btnFinalSubmit.addEventListener('click', () => {
         } else {
           ta.classList.remove('confirm-handover-input--error');
           ta.removeAttribute('aria-invalid');
+          ta.removeAttribute('aria-describedby');
           if (parentDiv) {
             const errEl = parentDiv.querySelector('.handover-validation-error');
             if (errEl) errEl.remove();
           }
         }
       });
-      // 最初のエラー箇所までスクロール
+      // 最初のエラー箇所までスクロールしフォーカスを当てる
       const firstErr = document.querySelector('.confirm-handover-input--error');
-      if (firstErr) firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (firstErr) {
+        firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstErr.focus();
+      }
       hideLoadingOverlay();
       resetSubmitButton();
       return;
@@ -2679,6 +2686,7 @@ function renderConfirmPage() {
         handoverTa.addEventListener('input', function () {
           handoverTa.classList.remove('confirm-handover-input--error');
           handoverTa.removeAttribute('aria-invalid');
+          handoverTa.removeAttribute('aria-describedby');
           const errEl = handoverTa.nextElementSibling;
           if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
         });
@@ -3992,6 +4000,7 @@ window.addEventListener('hashchange', navigate);
         hInput.addEventListener('input', function () {
           hInput.classList.remove('confirm-handover-input--error');
           hInput.removeAttribute('aria-invalid');
+          hInput.removeAttribute('aria-describedby');
           const errEl = hInput.nextElementSibling;
           if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
         });
@@ -4133,9 +4142,11 @@ window.addEventListener('hashchange', navigate);
       if (handoverInput) {
         handoverInput.classList.add('confirm-handover-input--error');
         handoverInput.setAttribute('aria-invalid', 'true');
+        handoverInput.setAttribute('aria-describedby', 'previewHandoverErr');
         if (!handoverInput.nextElementSibling || !handoverInput.nextElementSibling.classList.contains('handover-validation-error')) {
           const errSpan = document.createElement('div');
           errSpan.className = 'handover-validation-error';
+          errSpan.id = 'previewHandoverErr';
           errSpan.textContent = '※ 加盟店との合意内容を記入してください';
           handoverInput.insertAdjacentElement('afterend', errSpan);
         }
