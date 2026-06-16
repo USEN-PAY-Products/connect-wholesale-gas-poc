@@ -284,7 +284,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
 
   ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8','feeAmount','paymentAmount'].forEach(function(f) {
     const v = Number(wt[f] || 0);
-    if (!isFinite(v) || v < 0) {
+    if (!isFinite(v)) {
       logError_('Invoice', '[buildTransactionSql_] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
       throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
     }
@@ -292,7 +292,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   summaryData.merchantTotals.forEach(function(m, idx) {
     ['totalAmount','subtotalAmount','taxAmount','exTax10','tax10','exTax8','tax8'].forEach(function(f) {
       const v = Number(m[f] || 0);
-      if (!isFinite(v) || v < 0) {
+      if (!isFinite(v)) {
         logError_('Invoice', '[buildTransactionSql_] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]);
         throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
       }

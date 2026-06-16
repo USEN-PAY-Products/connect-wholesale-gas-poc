@@ -1226,6 +1226,27 @@ button { cursor: pointer; font-family: inherit; }
   box-shadow: 0 0 0 2px rgba(74,127,245,.15);
 }
 
+/* handover 必須バリデーションエラー */
+.confirm-handover-input--error.backoffice-remark__handover-input,
+.confirm-handover-input--error {
+  border-color: #E53935;
+  background: #FFF5F5;
+}
+.confirm-handover-input--error.backoffice-remark__handover-input:focus,
+.confirm-handover-input--error:focus {
+  border-color: #E53935;
+  box-shadow: 0 0 0 2px rgba(229,57,53,.15);
+}
+.handover-validation-error {
+  color: #E53935;
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: -8px;
+  line-height: 1.4;
+  width: 100%;
+  text-align: right;
+}
+
 .remarks-input--readonly {
   background: #F5F5F5;
   color: #888;
@@ -1325,6 +1346,7 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: flex-start;
   gap: 16px;
+  flex-wrap: wrap;
 }
 .backoffice-remark__handover-input {
   flex: 1;
