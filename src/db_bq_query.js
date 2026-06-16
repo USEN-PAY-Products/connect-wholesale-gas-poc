@@ -97,6 +97,18 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '    ) AS rn ' +
     '  FROM ' + tbl + '.wholesaler_invoices` ' +
     '  WHERE wholesaler_id = @wholesaler_id ' +
+    '), ' +
+    'si_flags AS ( ' +
+    '  SELECT ' +
+    '    r.root_id, ' +
+    '    MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' THEN 1 ELSE 0 END) AS has_resubmit, ' +
+    '    MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
+    '  FROM ranked AS r ' +
+    '  INNER JOIN ' + tbl + '.store_invoices` AS si ' +
+    '    ON si.wholesaler_invoice_id = r.id ' +
+    '    AND si.is_latest = TRUE ' +
+    '    AND si.wholesaler_id = @wholesaler_id ' +
+    '  GROUP BY r.root_id ' +
     ') ' +
     'SELECT ' +
     '  wi.id AS wholesaler_invoice_id, wi.root_id, wi.wholesaler_invoice_date, ' +
@@ -106,21 +118,11 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '  wi.wholesaler_reduced_tax_target_amount, wi.wholesaler_reduced_tax_amount, ' +
     '  wi.wholesaler_non_taxable_amount, ' +
     '  wi.wholesaler_fee_rate, wi.invoice_fee_amount, wi.payment_amount, ' +
-    '  MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' THEN 1 ELSE 0 END) AS has_resubmit, ' +
-    '  MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
+    '  COALESCE(sf.has_resubmit, 0) AS has_resubmit, ' +
+    '  COALESCE(sf.has_denial, 0) AS has_denial ' +
     'FROM ranked AS wi ' +
-    'JOIN ranked AS rr ON rr.root_id = wi.root_id ' +
-    'LEFT JOIN ' + tbl + '.store_invoices` AS si ' +
-    '  ON si.wholesaler_invoice_id = rr.id ' +
-    '  AND si.is_latest = TRUE ' +
-    '  AND si.wholesaler_id = @wholesaler_id ' +
+    'LEFT JOIN si_flags AS sf ON sf.root_id = wi.root_id ' +
     'WHERE wi.rn = 1 ' +
-    'GROUP BY wi.id, wi.root_id, wi.wholesaler_invoice_date, created_at, ' +
-    '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +
-    '  wi.wholesaler_standard_tax_target_amount, wi.wholesaler_standard_tax_amount, ' +
-    '  wi.wholesaler_reduced_tax_target_amount, wi.wholesaler_reduced_tax_amount, ' +
-    '  wi.wholesaler_non_taxable_amount, ' +
-    '  wi.wholesaler_fee_rate, wi.invoice_fee_amount, wi.payment_amount ' +
     'ORDER BY wi.wholesaler_invoice_date DESC ' +
     'LIMIT 100';
 
