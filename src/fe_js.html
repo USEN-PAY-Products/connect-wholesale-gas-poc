@@ -1963,7 +1963,7 @@ document.getElementById('confirmCancelToUploadOk').addEventListener('click', fun
     resetPage();
     _isResubmitConfirm = false;
     _detailCurrentInvoiceId = null;
-    location.hash = '#detail?invoiceId=' + (parentId || '');
+    location.hash = parentId ? '#detail?invoiceId=' + encodeURIComponent(parentId) : '#home';
   } else {
     resetPage();
     location.hash = '#upload';

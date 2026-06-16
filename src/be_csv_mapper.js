@@ -729,7 +729,7 @@ function buildMappedTransactionSql_(params) {
     throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
 
-  // 卸合計値の数値検証（有限・整数）
+  // 卸合計値の数値検証（有限）
   ['totalAmount','subtotalAmount','taxAmount','exTax8','tax8','exTax10','tax10','feeAmount','paymentAmount']
     .forEach(function(f) {
       const v = Number(wt[f] || 0);
