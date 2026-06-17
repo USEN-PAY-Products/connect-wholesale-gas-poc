@@ -16,7 +16,8 @@
 /**
  * メールアドレスからアカウント情報を BQ から取得して集約されたオブジェクトを返す。
  * wholesaler_user → wholesalers → wholesaler_merchants → store を JOIN。
- * 削除済みユーザー・非アクティブ卸は除外する。
+ * 削除済みユーザーは除外する。
+ * wholesaler_status は 'active' と 'end' を許容する（end 卸は参照・再請求用途でログイン可能）。
  *
  * @param {string} email - GAS Session.getActiveUser().getEmail() の値
  * @returns {Object|null} アカウント情報オブジェクト。対応ユーザーがいない場合は null。
@@ -197,6 +198,7 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     '    WHERE wm.mall_code = si.mall_code ' +
     '      AND wm.wholesaler_id = si.wholesaler_id ' +
     '      AND wm.deleted_at IS NULL ' +
+    '    ORDER BY wm.created_at DESC ' +
     '    LIMIT 1) AS customer_code, ' +
     '  si.invoice_number, ' +
     '  si.backoffice_review_status, ' +

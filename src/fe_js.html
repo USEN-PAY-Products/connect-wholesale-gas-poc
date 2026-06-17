@@ -1540,6 +1540,8 @@ function parseCsvLine(line) {
  * merchant_mappings で customer_code の有効性もチェックする。
  *
  * @param {string} csvText
+ * @param {Object} [options] - バリデーションオプション
+ * @param {boolean} [options.skipCustomerCodeCheck] - true の場合、customer_code のメンバーシップチェックをスキップ（詳細画面再請求用。必須チェックは維持）
  * @returns {{ errors: string[], rows: Object[] }}
  */
 function validateCsv(csvText, options) {
