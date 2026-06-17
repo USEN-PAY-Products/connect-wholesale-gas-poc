@@ -997,7 +997,9 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     }
 
     // ── BE防御: 要対応の mall_code 一覧を取得し、summaryData をフィルタ ──
-    const eligibleMallCodes = new Set(fetchActionRequiredMallCodes_(parentInvoiceId, accountInfo.wholesaler_id));
+    const actionRequiredRows = fetchActionRequiredMallCodes_(parentInvoiceId, accountInfo.wholesaler_id);
+    const eligibleMallCodes = new Set(actionRequiredRows.map(function (r) { return r.mall_code; }));
+    const disputedMallCodes = new Set(actionRequiredRows.filter(function (r) { return r.invoice_status === 'DISPUTED'; }).map(function (r) { return r.mall_code; }));
     const customerToMall = {};
     (mappings || []).forEach(function (m) {
       if (m.customer_code && m.mall_code) customerToMall[String(m.customer_code)] = String(m.mall_code);
@@ -1009,6 +1011,18 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('要対応の加盟店データが含まれていません');
     }
+
+    // ── BE防御: 否認(DISPUTED)店舗は handover（加盟店との合意内容）必須 ──
+    var missingHandoverCodes = summaryData.merchantTotals.filter(function (m) {
+      var mc = customerToMall[String(m.customerCode)] || '';
+      if (!disputedMallCodes.has(mc)) return false;
+      var h = (handovers || {})[String(m.customerCode)] || '';
+      return !h.trim();
+    }).map(function (m) { return String(m.customerCode); });
+    if (missingHandoverCodes.length > 0) {
+      throw new Error('顧客ID: ' + missingHandoverCodes.join(', ') + ' — 加盟店との合意内容は必須です');
+    }
+
     summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
 
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
