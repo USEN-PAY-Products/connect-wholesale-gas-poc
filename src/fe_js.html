@@ -4190,8 +4190,8 @@ window.addEventListener('hashchange', navigate);
     const tax8El  = previewBody && previewBody.querySelector('[data-field="previewTax8"]');
     if (tax10El && tax8El && summaryData.merchantTotals && summaryData.merchantTotals.length > 0) {
       const mt = summaryData.merchantTotals[0];
-      mt.tax10 = Math.max(0, Math.trunc(Number(tax10El.value) || 0));
-      mt.tax8  = Math.max(0, Math.trunc(Number(tax8El.value)  || 0));
+      mt.tax10 = Math.trunc(Number(tax10El.value) || 0);
+      mt.tax8  = Math.trunc(Number(tax8El.value)  || 0);
       mt.taxAmount   = mt.tax10 + mt.tax8;
       mt.totalAmount = mt.subtotalAmount + mt.taxAmount;
       // wholesalerTotal も更新
