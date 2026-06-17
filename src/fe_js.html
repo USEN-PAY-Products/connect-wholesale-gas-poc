@@ -1926,9 +1926,22 @@ document.getElementById('btnConfirmBackBottom').addEventListener('click', functi
   openCancelModal(this);
 });
 
-// 確認ページ: キャンセルボタン → アップロード画面へ戻るモーダルを表示
+// 確認ページ: キャンセルボタン → 戻り先に応じたモーダルを表示
 document.getElementById('btnConfirmCancel').addEventListener('click', function () {
   const modal = document.getElementById('confirmCancelToUploadModal');
+  // 再送信モードの場合はモーダルの文言を詳細画面向けに切り替え
+  const titleEl = document.getElementById('confirmCancelToUploadTitle');
+  const descEl  = document.getElementById('confirmCancelToUploadDesc');
+  const okBtn   = document.getElementById('confirmCancelToUploadOk');
+  if (_isResubmitConfirm) {
+    if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> 登録をキャンセルして詳細画面に戻りますか？';
+    if (descEl)  descEl.textContent = 'アップロードされたファイルは、まだ登録が完了していません。詳細画面に戻ると、編集中のデータは削除されます。';
+    if (okBtn)   okBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i> 詳細画面に戻る';
+  } else {
+    if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> 登録をキャンセルしてアップロード画面に戻りますか？';
+    if (descEl)  descEl.textContent = 'アップロードされたファイルは、まだ登録が完了していません。アップロード画面に戻ると、編集中のデータは削除されます。';
+    if (okBtn)   okBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i> アップロード画面に戻る';
+  }
   _modalTrigger = this;
   modal.classList.remove('hidden');
   const first = modal.querySelector(FOCUSABLE);
@@ -1940,12 +1953,21 @@ document.getElementById('confirmCancelToUploadClose').addEventListener('click', 
   if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
   _modalTrigger = null;
 });
-// キャンセルモーダル: OK → アップロード画面へ
+// キャンセルモーダル: OK → 遷移元へ戻る
 document.getElementById('confirmCancelToUploadOk').addEventListener('click', function () {
   document.getElementById('confirmCancelToUploadModal').classList.add('hidden');
   _modalTrigger = null;
-  resetPage();
-  location.hash = '#upload';
+  if (_isResubmitConfirm) {
+    // 再送信モード: 詳細画面へ戻る
+    const parentId = _resubmitParentInvoiceId;
+    resetPage();
+    _isResubmitConfirm = false;
+    _detailCurrentInvoiceId = null;
+    location.hash = parentId ? '#detail?invoiceId=' + encodeURIComponent(parentId) : '#home';
+  } else {
+    resetPage();
+    location.hash = '#upload';
+  }
 });
 // キャンセルモーダル: オーバーレイクリックで閉じる
 document.getElementById('confirmCancelToUploadModal').addEventListener('click', function (e) {
@@ -2086,6 +2108,18 @@ function collectRemarks_() {
   return remarks;
 }
 
+/**
+ * 確認画面上の handover テキストエリアから値を収集する。
+ * @returns {Object.<string, string>}  { customerCode: handoverText }
+ */
+function collectHandovers_() {
+  const handovers = {};
+  document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
+    handovers[ta.dataset.customerCode] = ta.value || '';
+  });
+  return handovers;
+}
+
 // =============================================================================
 // Confirm page: Submit
 // =============================================================================
@@ -2192,7 +2226,56 @@ btnFinalSubmit.addEventListener('click', () => {
   if (_isResubmitConfirm) {
     // ── 再送信モード: bulkResubmitInvoiceData を呼ぶ ──────────────────────
     const parentInvoiceId = _resubmitParentInvoiceId;
-    const handovers = _resubmitHandovers;
+    // 確認画面の handover 入力欄から最新値を取得
+    const handovers = collectHandovers_();
+    // 否認店舗の handover 必須チェック
+    const missingCodes = _resubmitDisputedCodes.filter(function (cc) {
+      return !handovers[cc] || !handovers[cc].trim();
+    });
+    if (missingCodes.length > 0) {
+      // 未入力の handover textarea にエラー表示
+      document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
+        const cc = ta.dataset.customerCode;
+        const parentDiv = ta.closest('.backoffice-remark__disputed-handover');
+        if (missingCodes.indexOf(cc) !== -1) {
+          ta.classList.add('confirm-handover-input--error');
+          ta.setAttribute('aria-invalid', 'true');
+          const errId = 'handover-err-' + cc;
+          ta.setAttribute('aria-describedby', errId);
+          if (!ta.nextElementSibling || !ta.nextElementSibling.classList.contains('handover-validation-error')) {
+            const errSpan = document.createElement('div');
+            errSpan.className = 'handover-validation-error';
+            errSpan.id = errId;
+            errSpan.textContent = '※ 加盟店との合意内容を記入してください';
+            ta.insertAdjacentElement('afterend', errSpan);
+          }
+          // 対象アコーディオンを開く
+          const accordion = ta.closest('.store-accordion');
+          if (accordion && !accordion.classList.contains('is-open')) {
+            accordion.classList.add('is-open');
+            const accHeader = accordion.querySelector('.store-accordion__header');
+            if (accHeader) accHeader.setAttribute('aria-expanded', 'true');
+          }
+        } else {
+          ta.classList.remove('confirm-handover-input--error');
+          ta.removeAttribute('aria-invalid');
+          ta.removeAttribute('aria-describedby');
+          if (parentDiv) {
+            const errEl = parentDiv.querySelector('.handover-validation-error');
+            if (errEl) errEl.remove();
+          }
+        }
+      });
+      // 最初のエラー箇所までスクロールしフォーカスを当てる
+      const firstErr = document.querySelector('.confirm-handover-input--error');
+      if (firstErr) {
+        firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstErr.focus();
+      }
+      hideLoadingOverlay();
+      resetSubmitButton();
+      return;
+    }
     // 確認画面の備考で上書き
     const confirmRemarks = collectRemarks_();
     Object.keys(confirmRemarks).forEach(function (k) { remarks[k] = confirmRemarks[k]; });
@@ -2356,10 +2439,13 @@ function renderConfirmPage() {
     return acc;
   }, { amountExTax: 0, tax: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 });
 
-  const totalAmountExTax = totals.amountExTax;
-  const totalTax         = totals.tax;
+  const totalAmountExTax = roundTax(totals.amountExTax);
+  const totalTax         = roundTax(totals.tax);
   const totalAmountInTax = totalAmountExTax + totalTax;
-  const { exTax10, tax10, exTax8, tax8 } = totals;
+  const exTax10 = roundTax(totals.exTax10);
+  const tax10   = roundTax(totals.tax10);
+  const exTax8  = roundTax(totals.exTax8);
+  const tax8    = roundTax(totals.tax8);
   const feeAmount  = roundTax(totalAmountInTax * feeRate / 100);
   const payAmount  = totalAmountInTax - feeAmount;
 
@@ -2424,8 +2510,8 @@ function renderConfirmPage() {
       const t8El    = c.querySelector('[data-field="tax8"]');
       const t10El   = c.querySelector('[data-field="tax10"]');
       totalExTax += Number(String(subSpan ? subSpan.textContent : '0').replace(/[^0-9.-]/g, '')) || 0;
-      totalTax8  += Math.max(0, Math.trunc(Number(t8El  ? t8El.value  : 0) || 0));
-      totalTax10 += Math.max(0, Math.trunc(Number(t10El ? t10El.value : 0) || 0));
+      totalTax8  += Math.trunc(Number(t8El  ? t8El.value  : 0) || 0);
+      totalTax10 += Math.trunc(Number(t10El ? t10El.value : 0) || 0);
     });
     const totalTax   = totalTax8 + totalTax10;
     const totalInTax = totalExTax + totalTax;
@@ -2478,8 +2564,8 @@ function renderConfirmPage() {
       return acc;
     }, { amountExTax: 0, tax: 0, exTax8: 0, tax8: 0, exTax10: 0, tax10: 0 });
 
-    const storeAmountExTax = st.amountExTax;
-    const storeTax         = st.tax;
+    const storeAmountExTax = roundTax(st.amountExTax);
+    const storeTax         = roundTax(st.tax);
     const storeTotal       = storeAmountExTax + storeTax;
 
     const card = document.createElement('div');
@@ -2518,8 +2604,8 @@ function renderConfirmPage() {
     const totalAmountSpan = header.querySelector('[data-field="totalAmount"]');
     const subtotalSpan    = header.querySelector('[data-field="subtotalAmount"]');
     const recalcCard_ = () => {
-      const newTax8  = Math.max(0, Math.trunc(Number(tax8Input.value)  || 0));
-      const newTax10 = Math.max(0, Math.trunc(Number(tax10Input.value) || 0));
+      const newTax8  = Math.trunc(Number(tax8Input.value)  || 0);
+      const newTax10 = Math.trunc(Number(tax10Input.value) || 0);
       tax8Input.value  = newTax8;
       tax10Input.value = newTax10;
       const newTax   = newTax8 + newTax10;
@@ -2578,6 +2664,35 @@ function renderConfirmPage() {
       `<label class="remarks-label">・ 加盟店別請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>` +
       `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="※加盟店請求書に表示される備考情報を記載ください。" rows="2" maxlength="250"></textarea>`;
     body.appendChild(remarksDiv);
+
+    // 再送信モード: 否認店舗の handover 入力欄を追加（詳細画面の否認セクションと同じデザイン）
+    if (_isResubmitConfirm && _resubmitDisputedCodes.indexOf(customerCode) !== -1) {
+      const handoverDiv = document.createElement('div');
+      handoverDiv.className = 'store-accordion__backoffice-remark';
+      handoverDiv.innerHTML =
+        '<div class="backoffice-remark__disputed-left">' +
+          '<div class="backoffice-remark__disputed-handover">' +
+            '<span class="backoffice-remark__label">・ 【必須】加盟店<br>　との合意内容</span>' +
+            '<textarea class="backoffice-remark__handover-input confirm-handover-input" data-customer-code="' + escapeHtml(customerCode) + '"' +
+              ' placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。"></textarea>' +
+          '</div>' +
+        '</div>';
+      const handoverTa = handoverDiv.querySelector('textarea');
+      if (handoverTa && _resubmitHandovers[customerCode]) {
+        handoverTa.value = _resubmitHandovers[customerCode];
+      }
+      // 入力時にエラー状態をクリア
+      if (handoverTa) {
+        handoverTa.addEventListener('input', function () {
+          handoverTa.classList.remove('confirm-handover-input--error');
+          handoverTa.removeAttribute('aria-invalid');
+          handoverTa.removeAttribute('aria-describedby');
+          const errEl = handoverTa.nextElementSibling;
+          if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
+        });
+      }
+      body.appendChild(handoverDiv);
+    }
 
     // 明細アコーディオン（ネスト）
     const detailAccordion = document.createElement('div');
@@ -2641,8 +2756,8 @@ function renderConfirmPage() {
     const hiddenDiv = document.createElement('div');
     hiddenDiv.style.display = 'none';
     hiddenDiv.innerHTML =
-      `<input type="number" data-field="exTax10" value="${st.exTax10}" />` +
-      `<input type="number" data-field="exTax8"  value="${st.exTax8}"  />`;
+      `<input type="number" data-field="exTax10" value="${roundTax(st.exTax10)}" />` +
+      `<input type="number" data-field="exTax8"  value="${roundTax(st.exTax8)}"  />`;
     body.appendChild(hiddenDiv);
 
     card.appendChild(header);
@@ -2671,6 +2786,7 @@ let _isResubmitConfirm = false;
 let _resubmitParentInvoiceId = null;
 let _resubmitRemarks = {};
 let _resubmitHandovers = {};
+let _resubmitDisputedCodes = [];
 
 /**
  * 詳細画面を初期化する。
@@ -3722,23 +3838,19 @@ window.addEventListener('hashchange', navigate);
           if (cc && el.value) remarks_[cc] = el.value;
         });
 
-        // 否認行の handover を収集 & 必須チェック
+        // 否認行の handover を収集（空でも確認画面へ遷移OK）
         const handovers_ = {};
-        const missingHandoverCodes = [];
+        const disputedCodes_ = [];
         document.querySelectorAll('.backoffice-remark__handover-input[data-customer-code]').forEach(function (el) {
           const cc = el.dataset.customerCode || '';
           if (!cc) return;
+          disputedCodes_.push(cc);
           const val = (el.value || '').trim();
           if (val) {
             handovers_[cc] = val;
-          } else {
-            missingHandoverCodes.push(cc);
           }
         });
-        if (missingHandoverCodes.length > 0) {
-          alert('\u26A0 否認された加盟店（顧客コード: ' + missingHandoverCodes.join(', ') + '）の〈加盟店との合意内容〉が未入力です。一括再送信の前にすべて記入してください。');
-          return;
-        }
+        _resubmitDisputedCodes = disputedCodes_;
 
         // 再送信コンテキストを保存して確認画面へ遷移
         _isResubmitConfirm = true;
@@ -3881,6 +3993,20 @@ window.addEventListener('hashchange', navigate);
     html += '</div>'; // .backoffice-remark__disputed-left
     html += '</div>'; // .store-accordion__backoffice-remark
 
+    // previewHandoverInput に入力時エラークリアのイベントリスナーを登録
+    setTimeout(function () {
+      const hInput = document.getElementById('previewHandoverInput');
+      if (hInput) {
+        hInput.addEventListener('input', function () {
+          hInput.classList.remove('confirm-handover-input--error');
+          hInput.removeAttribute('aria-invalid');
+          hInput.removeAttribute('aria-describedby');
+          const errEl = hInput.nextElementSibling;
+          if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
+        });
+      }
+    }, 0);
+
     // 加盟店請求書備考（詳細画面と同じ remarks スタイル）
     html += '<div class="store-accordion__remarks">';
     html += '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>';
@@ -3937,8 +4063,8 @@ window.addEventListener('hashchange', navigate);
     const subtotalSpan    = previewBody.querySelector('[data-field="previewSubtotalAmount"]');
     const MAX_TAX = 99999999999;
     function recalcPreview_() {
-      const newTax10 = Math.max(0, Math.trunc(Number(tax10Input.value) || 0));
-      const newTax8  = Math.max(0, Math.trunc(Number(tax8Input.value)  || 0));
+      const newTax10 = Math.trunc(Number(tax10Input.value) || 0);
+      const newTax8  = Math.trunc(Number(tax8Input.value)  || 0);
       tax10Input.value = newTax10;
       tax8Input.value  = newTax8;
       const newTax = newTax10 + newTax8;
@@ -4005,15 +4131,27 @@ window.addEventListener('hashchange', navigate);
     });
   }
 
-  // ── モーダル内登録ボタン ──
-  document.addEventListener('click', function (e) {
-    const btn = e.target.closest('[data-action="modal-reupload-submit"]');
-    if (!btn) return;
+  // ── モーダル内登録ボタン（previewSubmit に直接バインド / 1回のみ登録） ──
+  if (previewSubmit) {
+    previewSubmit.addEventListener('click', function () {
     // 合意事項の必須チェック
     const handoverInput = document.getElementById('previewHandoverInput');
     const handoverVal = handoverInput ? (handoverInput.value || '').trim() : '';
     if (!handoverVal) {
-      alert('\u26A0 〈加盟店との合意内容〉を記入してください。');
+      if (handoverInput) {
+        handoverInput.classList.add('confirm-handover-input--error');
+        handoverInput.setAttribute('aria-invalid', 'true');
+        handoverInput.setAttribute('aria-describedby', 'previewHandoverErr');
+        if (!handoverInput.nextElementSibling || !handoverInput.nextElementSibling.classList.contains('handover-validation-error')) {
+          const errSpan = document.createElement('div');
+          errSpan.className = 'handover-validation-error';
+          errSpan.id = 'previewHandoverErr';
+          errSpan.textContent = '※ 加盟店との合意内容を記入してください';
+          handoverInput.insertAdjacentElement('afterend', errSpan);
+        }
+        handoverInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        handoverInput.focus();
+      }
       return;
     }
     // ±1円バリデーション
@@ -4052,8 +4190,8 @@ window.addEventListener('hashchange', navigate);
     const tax8El  = previewBody && previewBody.querySelector('[data-field="previewTax8"]');
     if (tax10El && tax8El && summaryData.merchantTotals && summaryData.merchantTotals.length > 0) {
       const mt = summaryData.merchantTotals[0];
-      mt.tax10 = Math.max(0, Math.trunc(Number(tax10El.value) || 0));
-      mt.tax8  = Math.max(0, Math.trunc(Number(tax8El.value)  || 0));
+      mt.tax10 = Math.trunc(Number(tax10El.value) || 0);
+      mt.tax8  = Math.trunc(Number(tax8El.value)  || 0);
       mt.taxAmount   = mt.tax10 + mt.tax8;
       mt.totalAmount = mt.subtotalAmount + mt.taxAmount;
       // wholesalerTotal も更新
@@ -4103,7 +4241,8 @@ window.addEventListener('hashchange', navigate);
         initDetailPage(parentInvoiceId);
       }, 1500);
     }
-  });
+    });
+  }
 
   // イベント委譲: reuploadボタン押下 → モーダルを開く
   document.addEventListener('click', function (e) {

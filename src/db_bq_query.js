@@ -450,15 +450,16 @@ function fetchTargetStoreInvoiceAmounts_(rootInvoiceId, wholesalerId, storeInvoi
 
 /**
  * 一括再送信で対象となる要対応（RETURNED / DISPUTED）の mall_code 一覧を取得する。
+ * 各 mall_code に対応する invoice_status も返却し、否認(DISPUTED)店舗の識別に使用する。
  *
  * @param {string} rootInvoiceId - wholesaler_invoices.id
  * @param {number} wholesalerId  - 卸ID
- * @returns {string[]} 要対応の mall_code 配列
+ * @returns {{ mall_code: string, invoice_status: string }[]} 要対応の mall_code と invoice_status の配列
  */
 function fetchActionRequiredMallCodes_(rootInvoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
-    'SELECT DISTINCT si.mall_code ' +
+    'SELECT DISTINCT si.mall_code, si.invoice_status ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'WHERE si.wholesaler_invoice_id IN (' +
     '  SELECT id FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`' +
@@ -475,7 +476,7 @@ function fetchActionRequiredMallCodes_(rootInvoiceId, wholesalerId) {
     { name: 'wholesaler_id', parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
   ];
   const rows = runQuery_(config.gcpProjectId, sql, params);
-  return (rows || []).map(function (r) { return String(r.mall_code); });
+  return (rows || []).map(function (r) { return { mall_code: String(r.mall_code), invoice_status: String(r.invoice_status || '') }; });
 }
 
 /**

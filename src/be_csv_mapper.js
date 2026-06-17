@@ -729,11 +729,11 @@ function buildMappedTransactionSql_(params) {
     throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
 
-  // 卸合計値の数値検証（有限・非負・整数）
+  // 卸合計値の数値検証（有限）
   ['totalAmount','subtotalAmount','taxAmount','exTax8','tax8','exTax10','tax10','feeAmount','paymentAmount']
     .forEach(function(f) {
       const v = Number(wt[f] || 0);
-      if (!Number.isFinite(v) || v < 0) {
+      if (!Number.isFinite(v)) {
         logError_('CsvMapper', '[buildMappedTransactionSql_] wholesalerTotal.' + f + ' が不正な値です: ' + wt[f]);
         throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
       }
@@ -744,7 +744,7 @@ function buildMappedTransactionSql_(params) {
     ['totalAmount','subtotalAmount','taxAmount','exTax8','tax8','exTax10','tax10']
       .forEach(function(f) {
         const v = Number(m[f] || 0);
-        if (!Number.isFinite(v) || v < 0) {
+        if (!Number.isFinite(v)) {
           logError_('CsvMapper', '[buildMappedTransactionSql_] merchantTotals[' + idx + '].' + f + ' が不正な値です: ' + m[f]);
           throw new Error(
             '処理中にエラーが発生しました。ページを再読み込みして再度お試しください。'
