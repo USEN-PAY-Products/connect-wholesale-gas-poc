@@ -189,17 +189,18 @@ function fetchInvoiceDetailSummary_(invoiceId, wholesalerId) {
 function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
+    'WITH latest_merchants AS ( ' +
+    '  SELECT mall_code, customer_code, ' +
+    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY created_at DESC) AS rn ' +
+    '  FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` ' +
+    '  WHERE wholesaler_id = @wholesaler_id ' +
+    '    AND deleted_at IS NULL ' +
+    ') ' +
     'SELECT ' +
     '  si.id AS store_invoice_id, ' +
     '  si.mall_code, ' +
     '  s.store_name, ' +
-    '  (SELECT wm.customer_code ' +
-    '     FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` AS wm ' +
-    '    WHERE wm.mall_code = si.mall_code ' +
-    '      AND wm.wholesaler_id = si.wholesaler_id ' +
-    '      AND wm.deleted_at IS NULL ' +
-    '    ORDER BY wm.created_at DESC ' +
-    '    LIMIT 1) AS customer_code, ' +
+    '  lm.customer_code, ' +
     '  si.invoice_number, ' +
     '  si.backoffice_review_status, ' +
     '  si.invoice_status, ' +
@@ -212,6 +213,8 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` AS si ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = si.mall_code ' +
+    'LEFT JOIN latest_merchants AS lm ' +
+    '  ON lm.mall_code = si.mall_code AND lm.rn = 1 ' +
     'WHERE si.wholesaler_invoice_id IN (' +
     '  SELECT id FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_invoices`' +
     '  WHERE id = @invoice_id OR wholesaler_invoice_id = @invoice_id' +

@@ -3178,8 +3178,15 @@ function buildDetailAccordion_(store, openByDefault) {
                      (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED'));
 
   // mall_code → customer_code 変換（BE が remarks[customerCode] で参照するため）
-  const mappings = getMerchantMappings();
-  const customerCode = (mappings.find(function (m) { return String(m.mall_code) === String(store.mall_code); }) || {}).customer_code || '';
+  // 優先順: 1) store.customer_code（BE由来）2) _detailMallToCustomerMap 3) getMerchantMappings()
+  let customerCode = store.customer_code || '';
+  if (!customerCode && _detailMallToCustomerMap) {
+    customerCode = _detailMallToCustomerMap[String(store.mall_code)] || '';
+  }
+  if (!customerCode) {
+    const mappings = getMerchantMappings();
+    customerCode = (mappings.find(function (m) { return String(m.mall_code) === String(store.mall_code); }) || {}).customer_code || '';
+  }
 
   const accordion = document.createElement('div');
   accordion.className = 'store-accordion' +
