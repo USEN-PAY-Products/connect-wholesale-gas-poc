@@ -101,6 +101,7 @@ function saveAccountInfo(data) {
     sessionStorage.setItem('shiire_wholesaler_id',        String(data.wholesaler_id        ?? ''));
     sessionStorage.setItem('shiire_wholesaler_user_id',   String(data.wholesaler_user_id   ?? ''));
     sessionStorage.setItem('shiire_wholesaler_name',      String(data.wholesaler_name      ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_status',    String(data.wholesaler_status    ?? ''));
     sessionStorage.setItem('shiire_invoice_fee_rate',     String(data.fee_rate             ?? 0));
     sessionStorage.setItem('shiire_tax_rounding_method',  String(data.tax_rounding_method  ?? ''));
     sessionStorage.setItem('shiire_merchant_mappings',    JSON.stringify(data.merchant_mappings  || []));
@@ -1203,6 +1204,18 @@ function checkUploadDeadline_() {
   // btnToConfirm: ファイルが正常に読み込まれていれば有効化、それ以外は disabled のまま
   if (btnConfirm) btnConfirm.disabled = !(parsedData && rawCsvBase64 && utf8CsvBase64);
 
+  // ── 契約終了卸の新規請求ブロック ──────────────────────────────────────
+  const wholesalerStatus = sessionStorage.getItem('shiire_wholesaler_status');
+  if (wholesalerStatus === 'end') {
+    message.textContent = '仕入れコネクトの契約が終了しているため、新規請求ができません。';
+    banner.classList.remove('hidden');
+    if (dropZone)   { dropZone.style.pointerEvents = 'none'; dropZone.style.opacity = '0.5'; }
+    if (btnSelect)  btnSelect.disabled  = true;
+    if (fileInput)   fileInput.disabled  = true;
+    if (btnConfirm) btnConfirm.disabled = true;
+    return;
+  }
+
   const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
   if (!wholesalerId) return;
   const jst       = jstNow_();
@@ -1529,7 +1542,9 @@ function parseCsvLine(line) {
  * @param {string} csvText
  * @returns {{ errors: string[], rows: Object[] }}
  */
-function validateCsv(csvText) {
+function validateCsv(csvText, options) {
+  options = options || {};
+  const skipCustomerCodeCheck = options.skipCustomerCodeCheck === true;
   const errors = [];
   const rows   = [];
 
@@ -1718,7 +1733,7 @@ function validateCsv(csvText) {
     if (cc !== undefined && cc === '') {
       rowErrors.push(`${rowNum}行目: "${ccHeader}" は必須です`);
     } else if (cc !== undefined) {
-      if (validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
+      if (!skipCustomerCodeCheck && validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
         rowErrors.push(`${rowNum}行目: "${ccHeader}" の値 "${cc}" は請求可能な${ccHeader}ではありません`);
       }
     }
@@ -2725,7 +2740,7 @@ function renderConfirmPage() {
         `<th class="num-th">単価</th>` +
         `<th class="num-th">数量</th>` +
         `<th class="num-th">明細金額（税抜）</th>` +
-        `<th class="num-th">内 消費税</th>` +
+        `<th class="num-th">消費税</th>` +
         `<th>備考</th>` +
       `</tr>`;
 
@@ -2777,6 +2792,8 @@ let _detailCurrentInvoiceId = null;
 let _detailActionRequiredMallCodes = [];
 /** RETURNED かつ invoice_status が null の加盟店 mall_code（警告のみでエラーにしない） */
 let _detailReturnedOnlyMallCodes = [];
+/** 詳細画面専用の mall_code → customer_code マップ（end 店舗も含む） */
+let _detailMallToCustomerMap = {};
 /** 異議申立期間の終了日（OBJECTION_PERIOD の end_at）。期間終了後は「取下げをやめる」を無効化する */
 let _objectionEndAt = null;
 /** リロード完了後に表示するトーストメッセージ（取り下げ / 取り消し成功時） */
@@ -3072,6 +3089,14 @@ function renderDetailStoreList_(stores) {
   _detailReturnedOnlyMallCodes = returned.filter(function (s) {
     return !s.invoice_status || s.invoice_status === null || s.invoice_status === 'null';
   }).map(function (s) { return s.mall_code; });
+
+  // 詳細画面専用の mall_code → customer_code マップを構築（end 店舗も含む）
+  _detailMallToCustomerMap = {};
+  stores.forEach(function(s) {
+    if (s.mall_code && s.customer_code) {
+      _detailMallToCustomerMap[String(s.mall_code)] = String(s.customer_code);
+    }
+  });
 
   const colHeader =
     '<div class="store-list-header">' +
@@ -3372,7 +3397,7 @@ function renderDetailLines_(lines, container) {
       '<table class="detail-table">' +
         '<thead><tr>' +
           '<th>取引日</th><th>明細項目</th><th class="num-th">単価</th><th class="num-th">数量</th>' +
-          '<th class="num-th">明細金額（税抜）</th><th class="num-th">内 消費税</th><th>備考</th>' +
+          '<th class="num-th">明細金額（税抜）</th><th class="num-th">消費税</th><th>備考</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
       '</table>';
@@ -3468,6 +3493,7 @@ function navigate() {
     _detailCurrentInvoiceId = null;
     _detailActionRequiredMallCodes = [];
     _detailReturnedOnlyMallCodes = [];
+    _detailMallToCustomerMap = {};
     _objectionEndAt = null;
   }
 
@@ -3666,7 +3692,7 @@ window.addEventListener('hashchange', navigate);
 
       let errors, rows;
       try {
-        const result = validateCsv(text);
+        const result = validateCsv(text, { skipCustomerCodeCheck: true });
         errors = result.errors;
         rows   = result.rows;
       } catch (err) {
@@ -3692,6 +3718,10 @@ window.addEventListener('hashchange', navigate);
         const mallToCustomer = {};
         mappings.forEach(function (m) {
           if (m.mall_code && m.customer_code) mallToCustomer[String(m.mall_code)] = String(m.customer_code);
+        });
+        // 詳細画面専用マップをマージ（end 店舗も含む）
+        Object.keys(_detailMallToCustomerMap || {}).forEach(function(mc) {
+          mallToCustomer[mc] = _detailMallToCustomerMap[mc];
         });
         if (_isBulk) {
           // 一括アップロード: 要対応全加盟店の網羅性チェック
@@ -4023,7 +4053,7 @@ window.addEventListener('hashchange', navigate);
     html += '<table class="detail-table">';
     html += '<thead><tr>' +
       '<th>取引日</th><th>明細項目</th><th class="num-th">単価</th><th class="num-th">数量</th>' +
-      '<th class="num-th">明細金額（税抜）</th><th class="num-th">内 消費税</th><th>備考</th>' +
+      '<th class="num-th">明細金額（税抜）</th><th class="num-th">消費税</th><th>備考</th>' +
     '</tr></thead><tbody>';
     (parsedData || []).forEach(function (row) {
       const amtExTax  = Number(row['amount_ex_tax'] || 0);

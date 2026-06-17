@@ -29,6 +29,7 @@ function fetchAccountInfoByEmail_(email) {
     '  wu.id                   AS wholesaler_user_id, ' +
     '  wu.wholesaler_id, ' +
     '  w.wholesaler_name, ' +
+    '  w.wholesaler_status, ' +
     '  w.wholesaler_fee_rate   AS fee_rate, ' +
     '  w.tax_rounding_method, ' +
     '  w.csv_format_rules, ' +
@@ -37,7 +38,7 @@ function fetchAccountInfoByEmail_(email) {
     '  s.store_name ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_user` AS wu ' +
     'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` AS w ' +
-    '  ON w.id = wu.wholesaler_id AND w.wholesaler_status = \'active\' ' +
+    '  ON w.id = wu.wholesaler_id AND w.wholesaler_status IN (\'active\', \'end\') ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` AS wm ' +
     '  ON wm.wholesaler_id = wu.wholesaler_id AND wm.deleted_at IS NULL ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
@@ -54,7 +55,7 @@ function fetchAccountInfoByEmail_(email) {
 
   const first = rows[0];
   const merchantMappings = rows
-    .filter(function(r) { return r.mall_code; })
+    .filter(function(r) { return r.mall_code && r.store_name; })  // store_name が null → 除外（end 店舗 / store 未登録の両方）
     .map(function(r) {
       return { customer_code: r.customer_code, mall_code: r.mall_code, store_name: r.store_name };
     });
@@ -63,6 +64,7 @@ function fetchAccountInfoByEmail_(email) {
     wholesaler_id:       Number(first.wholesaler_id),
     wholesaler_user_id:  first.wholesaler_user_id,
     wholesaler_name:     first.wholesaler_name,
+    wholesaler_status:   first.wholesaler_status,
     fee_rate:            Number(first.fee_rate),
     tax_rounding_method: first.tax_rounding_method,
     csv_format_rules:    (function() {
@@ -190,6 +192,12 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     '  si.id AS store_invoice_id, ' +
     '  si.mall_code, ' +
     '  s.store_name, ' +
+    '  (SELECT wm.customer_code ' +
+    '     FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` AS wm ' +
+    '    WHERE wm.mall_code = si.mall_code ' +
+    '      AND wm.wholesaler_id = si.wholesaler_id ' +
+    '      AND wm.deleted_at IS NULL ' +
+    '    LIMIT 1) AS customer_code, ' +
     '  si.invoice_number, ' +
     '  si.backoffice_review_status, ' +
     '  si.invoice_status, ' +

@@ -12,7 +12,7 @@
 function doGet(e) {
   return HtmlService.createTemplateFromFile('fe_index')
     .evaluate()
-    .setTitle('仕入れコネクト Portal Site')
+    .setTitle('仕入れコネクト')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
