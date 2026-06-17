@@ -701,6 +701,9 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
 
     // ── BE防御: 対象 storeInvoiceId の mall_code 以外を除外 ──
     const targetMallCode = fetchStoreInvoiceMallCode_(storeInvoiceId, accountInfo.wholesaler_id, parentInvoiceId);
+    if (!targetMallCode) {
+      throw new Error('対象の加盟店請求情報が見つかりません。ページを再読み込みしてください。');
+    }
     // store 由来の customer_code↔mall_code マップを構築（end 店舗含む）
     const storeRows = fetchStoreInvoicesByParent_(parentInvoiceId, accountInfo.wholesaler_id);
     const customerToMall = {};
@@ -711,15 +714,13 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
       }
     });
-    if (targetMallCode) {
-      summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
-        return customerToMall[String(m.customerCode)] === targetMallCode;
-      });
-      if (summaryData.merchantTotals.length === 0) {
-        throw new Error('対象加盟店のデータが含まれていません');
-      }
-      summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
+    summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
+      return customerToMall[String(m.customerCode)] === targetMallCode;
+    });
+    if (summaryData.merchantTotals.length === 0) {
+      throw new Error('対象加盟店のデータが含まれていません');
     }
+    summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
 
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
     const mallCodeMap   = buildMallCodeMap_(storeBasedMappings, summaryData.merchantTotals);
