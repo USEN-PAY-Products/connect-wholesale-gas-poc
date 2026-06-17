@@ -1013,10 +1013,10 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     }
 
     // ── BE防御: 否認(DISPUTED)店舗は handover（加盟店との合意内容）必須 ──
-    var missingHandoverCodes = summaryData.merchantTotals.filter(function (m) {
-      var mc = customerToMall[String(m.customerCode)] || '';
+    const missingHandoverCodes = summaryData.merchantTotals.filter(function (m) {
+      const mc = customerToMall[String(m.customerCode)] || '';
       if (!disputedMallCodes.has(mc)) return false;
-      var h = (handovers || {})[String(m.customerCode)] || '';
+      const h = (handovers || {})[String(m.customerCode)] || '';
       return !h.trim();
     }).map(function (m) { return String(m.customerCode); });
     if (missingHandoverCodes.length > 0) {

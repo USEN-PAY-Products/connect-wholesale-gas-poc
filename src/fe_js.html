@@ -4131,10 +4131,9 @@ window.addEventListener('hashchange', navigate);
     });
   }
 
-  // ── モーダル内登録ボタン ──
-  document.addEventListener('click', function (e) {
-    const btn = e.target.closest('[data-action="modal-reupload-submit"]');
-    if (!btn) return;
+  // ── モーダル内登録ボタン（previewSubmit に直接バインド / 1回のみ登録） ──
+  if (previewSubmit) {
+    previewSubmit.addEventListener('click', function () {
     // 合意事項の必須チェック
     const handoverInput = document.getElementById('previewHandoverInput');
     const handoverVal = handoverInput ? (handoverInput.value || '').trim() : '';
@@ -4242,7 +4241,8 @@ window.addEventListener('hashchange', navigate);
         initDetailPage(parentInvoiceId);
       }, 1500);
     }
-  });
+    });
+  }
 
   // イベント委譲: reuploadボタン押下 → モーダルを開く
   document.addEventListener('click', function (e) {
