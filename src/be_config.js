@@ -7,6 +7,7 @@
 //   BQ_DATASET_ID          … BigQuery のデータセット ID（例: connect_db）
 //   BQ_LOCATION            … BigQuery のリージョン（例: asia-northeast1。未設定時は US フォールバック）
 //   LP_URL                 … ログアウト後のリダイレクト先 LP URL（例: https://connect-dev.usen-pay.com/）
+//   ENV                    … 実行環境（development / production）。development のときヘッダー等に "(Dev)" を表示
 //
 // 設定方法（GASエディタ）:
 //   プロジェクトの設定 → スクリプト プロパティ → プロパティを追加
@@ -19,12 +20,13 @@ function getConfig_() {
   const bqDatasetId   = props.getProperty('BQ_DATASET_ID');
   const bqLocation    = props.getProperty('BQ_LOCATION') || 'US';
   const lpUrl         = props.getProperty('LP_URL') || '';
+  const env           = props.getProperty('ENV') || '';
 
   if (!driveFolderId) throw new Error('Script Property "DRIVE_ROOT_FOLDER_ID" が未設定です');
   if (!gcpProjectId)  throw new Error('Script Property "GCP_PROJECT_ID" が未設定です');
   if (!bqDatasetId)   throw new Error('Script Property "BQ_DATASET_ID" が未設定です');
 
-  return { driveFolderId, gcpProjectId, bqDatasetId, bqLocation, lpUrl };
+  return { driveFolderId, gcpProjectId, bqDatasetId, bqLocation, lpUrl, env };
 }
 
 // =============================================================================
