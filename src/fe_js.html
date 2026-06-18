@@ -3168,6 +3168,25 @@ function renderDetailStoreList_(stores) {
  * @param {boolean} openByDefault - RETURNED の場合 true（初期状態で展開）
  * @returns {HTMLElement}
  */
+/**
+ * mall_code から customer_code を解決する（end 店舗対応）。
+ * 優先順: 1) store.customer_code（BE由来）2) _detailMallToCustomerMap（end 店舗含む）3) getMerchantMappings()
+ * @param {string} mallCode - 解決対象の mall_code
+ * @param {Object} [store] - BE 由来の store オブジェクト（あれば customer_code を最優先で使用）
+ * @returns {string} customer_code（見つからなければ ''）
+ */
+function resolveCustomerCode_(mallCode, store) {
+  // 1) store.customer_code（BE 由来・最優先）
+  if (store && store.customer_code) return String(store.customer_code);
+  // 2) 詳細画面専用マップ（end 店舗も含む）
+  if (mallCode && _detailMallToCustomerMap && _detailMallToCustomerMap[String(mallCode)]) {
+    return _detailMallToCustomerMap[String(mallCode)];
+  }
+  // 3) SessionStorage の merchant_mappings（active 店舗のみ・最終フォールバック）
+  const mappings = getMerchantMappings();
+  return (mappings.find(function (m) { return String(m.mall_code) === String(mallCode); }) || {}).customer_code || '';
+}
+
 function buildDetailAccordion_(store, openByDefault) {
   const fmt        = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
   const isWithdrawn = store.invoice_status === 'WITHDRAWN';
@@ -3178,15 +3197,7 @@ function buildDetailAccordion_(store, openByDefault) {
                      (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED'));
 
   // mall_code → customer_code 変換（BE が remarks[customerCode] で参照するため）
-  // 優先順: 1) store.customer_code（BE由来）2) _detailMallToCustomerMap 3) getMerchantMappings()
-  let customerCode = store.customer_code || '';
-  if (!customerCode && _detailMallToCustomerMap) {
-    customerCode = _detailMallToCustomerMap[String(store.mall_code)] || '';
-  }
-  if (!customerCode) {
-    const mappings = getMerchantMappings();
-    customerCode = (mappings.find(function (m) { return String(m.mall_code) === String(store.mall_code); }) || {}).customer_code || '';
-  }
+  const customerCode = resolveCustomerCode_(store.mall_code, store);
 
   const accordion = document.createElement('div');
   accordion.className = 'store-accordion' +
@@ -3928,8 +3939,7 @@ window.addEventListener('hashchange', navigate);
     const accordion = _targetActionsEl ? _targetActionsEl.closest('.store-accordion') : null;
     const storeName = accordion ? (accordion.querySelector('.slh-col--name') || {}).textContent || '' : '';
     const mallCode  = accordion ? accordion.dataset.mallCode || '' : '';
-    const mappings  = getMerchantMappings();
-    const customerCode = (mappings.find(function (m) { return String(m.mall_code) === String(mallCode); }) || {}).customer_code || '';
+    const customerCode = resolveCustomerCode_(mallCode, null);
 
     // ── 対象外加盟店をサイレントに除外 ──
     if (customerCode && parsedData) {
@@ -4156,8 +4166,11 @@ window.addEventListener('hashchange', navigate);
     });
   }
 
-  // ── 誓約チェックボックス ↔ 登録ボタン連動 ──
-  if (previewOath) {
+  // ── 誓約チェックボックス ↔ 登録ボタン連動（多重登録防止: dataset フラグで初回のみ登録）──
+  // previewOath は固定要素のため、renderModalPreview_ が呼ばれるたびに登録すると累積する。
+  // 実害は disabled 切り替え（冪等）のみだが、一貫性のためガードする。
+  if (previewOath && !previewOath.dataset.changeBound) {
+    previewOath.dataset.changeBound = '1';
     previewOath.addEventListener('change', function () {
       if (!previewSubmit) return;
       if (!previewOath.checked) {
@@ -4170,8 +4183,13 @@ window.addEventListener('hashchange', navigate);
     });
   }
 
-  // ── モーダル内登録ボタン（previewSubmit に直接バインド / 1回のみ登録） ──
-  if (previewSubmit) {
+  // ── モーダル内登録ボタン（多重登録防止: dataset フラグで初回のみ登録）──
+  // renderModalPreview_ はプレビュー描画のたびに呼ばれるため、ガードが無いと
+  // モーダルを開く / ファイルを選び直すたびに click ハンドラが累積し、
+  // 1クリックで resubmitInvoiceData が多重実行されてしまう。
+  // ハンドラ内の参照（parsedData 等）は実行時に都度評価されるため初回登録で十分。
+  if (previewSubmit && !previewSubmit.dataset.submitBound) {
+    previewSubmit.dataset.submitBound = '1';
     previewSubmit.addEventListener('click', function () {
     // 合意事項の必須チェック
     const handoverInput = document.getElementById('previewHandoverInput');
@@ -4245,8 +4263,7 @@ window.addEventListener('hashchange', navigate);
     const remarksInput = document.getElementById('previewRemarksInput');
     const accordion = _targetActionsEl ? _targetActionsEl.closest('.store-accordion') : null;
     const mallCode  = accordion ? accordion.dataset.mallCode || '' : '';
-    const mappings  = getMerchantMappings();
-    const cc = (mappings.find(function (m) { return String(m.mall_code) === String(mallCode); }) || {}).customer_code || '';
+    const cc = resolveCustomerCode_(mallCode, null);
     const remarks = {};
     if (cc && remarksInput) remarks[cc] = remarksInput.value || '';
 
