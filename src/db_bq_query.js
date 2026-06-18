@@ -191,7 +191,7 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
   const sql =
     'WITH latest_merchants AS ( ' +
     '  SELECT mall_code, customer_code, ' +
-    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY created_at DESC) AS rn ' +
+    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY registration_at DESC) AS rn ' +
     '  FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` ' +
     '  WHERE wholesaler_id = @wholesaler_id ' +
     '    AND deleted_at IS NULL ' +

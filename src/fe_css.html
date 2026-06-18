@@ -1290,6 +1290,10 @@ button { cursor: pointer; font-family: inherit; }
   gap: 8px;
   flex-shrink: 0;
 }
+/* 否認差戻し（RETURNED + DISPUTED）: USEN PAY社コメント欄追加に伴い、ボタン群を否認理由行分下げて合意内容テキストエリアの上端に揃える */
+.backoffice-remark__actions--shifted {
+  margin-top: 32px;
+}
 .detail-section-header__actions .btn {
   display: flex;
   height: 36px;
@@ -1348,6 +1352,10 @@ button { cursor: pointer; font-family: inherit; }
   gap: 16px;
   flex-wrap: wrap;
 }
+/* 合意内容・USEN PAY社コメントのラベル幅を固定し、テキストエリアの開始位置と横幅を完全に揃える */
+.backoffice-remark__disputed-handover .backoffice-remark__label {
+  width: 120px;
+}
 .backoffice-remark__handover-input {
   flex: 1;
   min-height: 80px;
@@ -1364,6 +1372,20 @@ button { cursor: pointer; font-family: inherit; }
   outline: none;
   border-color: #4A7FF5;
   box-shadow: 0 0 0 2px rgba(74,127,245,.15);
+}
+/* USEN PAY社からのコメント（否認差戻し・読み取り専用／サイズは backoffice-remark__handover-input を共用し色・背景のみ上書き） */
+.backoffice-remark__pay-comment {
+  color: #E53935;
+  background: #F9FAFB;
+  resize: none;
+  cursor: default;
+}
+.backoffice-remark__pay-comment:focus {
+  border-color: #D9D9D9;
+  box-shadow: none;
+}
+.backoffice-remark__pay-comment:read-only {
+  outline: none;
 }
 
 

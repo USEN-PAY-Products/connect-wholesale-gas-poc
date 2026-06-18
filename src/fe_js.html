@@ -244,7 +244,28 @@ function getCsvFormatRules() {
 // Account: アプリ初期化（DOMContentLoaded で実行）
 // =============================================================================
 
+/**
+ * 開発環境（window.__APP_IS_DEV__ === true）のとき、ヘッダーのサービス名に
+ * "(Dev)" サフィックスを付与する。本番環境では何もしない。
+ * サーバー往復（getAccountInfo）の成否に依存せず同期的に実行するため、
+ * doGet がテンプレートへ注入した window.__APP_IS_DEV__ を参照する。
+ */
+function applyDevServiceNameLabel_() {
+  try {
+    if (window.__APP_IS_DEV__ !== true) return;
+    const el = document.getElementById('headerServiceName');
+    if (!el) return;
+    const suffix = '(Dev)';
+    if (!el.textContent.includes(suffix)) {
+      el.textContent = el.textContent + suffix;
+    }
+  } catch (e) {
+    console.warn('[env] サービス名の (Dev) 付与に失敗しました:', e);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+  applyDevServiceNameLabel_(); // 開発環境ではサービス名に "(Dev)" を付与
   showLoadingOverlay('読み込み中...');
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -3289,8 +3310,15 @@ function buildDetailAccordion_(store, openByDefault) {
           '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
           '<textarea class="backoffice-remark__handover-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(store.wholesaler_handover || '') + '</textarea>' +
         '</div>' +
+        // USEN PAY社からのコメント（否認差戻し RETURNED + DISPUTED のときのみ・読み取り専用）
+        (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED'
+          ? '<div class="backoffice-remark__disputed-handover">' +
+              '<span class="backoffice-remark__label">・ USEN PAY社<br>からのコメント</span>' +
+              '<textarea class="backoffice-remark__handover-input backoffice-remark__pay-comment" readonly>' + escapeHtml(store.backoffice_handover || '') + '</textarea>' +
+            '</div>'
+          : '') +
       '</div>' +
-      '<div class="backoffice-remark__actions">' +
+      '<div class="backoffice-remark__actions' + (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED' ? ' backoffice-remark__actions--shifted' : '') + '">' +
       (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
         ? '<span class="detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
         : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +

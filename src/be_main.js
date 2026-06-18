@@ -8,11 +8,26 @@
 /**
  * GAS Webアプリのエントリーポイント。
  * fe_index.html をテンプレートとして評価し、HTMLページを返す。
+ *
+ * 開発環境（ENV=development）のときだけタブタイトルとヘッダーのサービス名に
+ * "(Dev)" を付与する（ヘッダー側の付与は fe_js.html が window.__APP_IS_DEV__ を参照）。
  */
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('fe_index')
+  // 環境判定は既存ヘルパー getConfig_() を再利用する。
+  // 必須プロパティ未設定で throw しても画面表示を止めないよう、本番扱いにフォールバックする。
+  var isDev = false;
+  try {
+    isDev = getConfig_().env === 'development';
+  } catch (err) {
+    console.warn('[doGet] 環境判定に失敗したため本番扱いにします: ' + err);
+  }
+
+  var template = HtmlService.createTemplateFromFile('fe_index');
+  template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
+
+  return template
     .evaluate()
-    .setTitle('仕入れコネクト')
+    .setTitle(isDev ? '仕入れコネクト(Dev)' : '仕入れコネクト')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
