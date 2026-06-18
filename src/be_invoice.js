@@ -1155,7 +1155,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
 
     // ── 契約終了卸の新規請求ブロック ──────────────────────────────────────
     if (accountInfo.wholesaler_status === 'end') {
-      throw new Error('契約が終了しているため、新規請求ができません');
+      throw new Error('契約が終了しているため、新規請求ができません。');
     }
 
     // ── 入力バリデーション ────────────────────────────────────────────────
