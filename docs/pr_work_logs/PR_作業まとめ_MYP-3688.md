@@ -49,7 +49,7 @@
 
 ### 8. タブタイトル変更
 
-- `be_main.js`: `.setTitle('仕入れコネクト Portal Site')`
+- `be_main.js`: `.setTitle('仕入れコネクト')`
 
 ### 9. コピーライト変更
 

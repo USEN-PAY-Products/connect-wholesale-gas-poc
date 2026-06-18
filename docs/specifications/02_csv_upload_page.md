@@ -36,6 +36,7 @@ block-beta
     end
     block:card["メインカード"]
       columns 1
+      banner["受付期間バナー（期限切れ / 契約終了時のみ表示）"]
       label["請求CSVファイルを登録してください"]
       block:dropzone["ドロップゾーン"]
         columns 1
@@ -69,7 +70,6 @@ block-beta
 | 戻る時の挙動 | ファイルアップロード済みの場合は確認モーダルを表示 |
 
 ### 3.2 ドロップゾーン
-
 | 要素 | ID | 仕様 |
 |------|-----|------|
 | ドロップゾーン | `dropZone` | D&D対応エリア。初期状態は `is-disabled`（アカウント取得完了後に有効化） |
@@ -123,13 +123,31 @@ stateDiagram-v2
 
 表示順: **エラー → アラート** の順にリスト表示。
 
-### 3.5 アクションボタン
+### 3.5 受付期間バナー（期限切れ・契約終了）
 
+アップロード画面表示時に `checkUploadDeadline_()` が実行され、以下のいずれかに該当する場合は赤いバナーを表示し、アップロードUI（ドロップゾーン・ファイル選択・確認画面ボタン）を無効化する。
+
+| 要素 | ID | 仕様 |
+|------|-----|------|
+| バナー | `uploadDeadlineBanner` | 初期 `hidden`。`role="alert"` |
+| メッセージ | `uploadDeadlineMessage` | 状況に応じたテキストをJSで設定 |
+
+#### ブロック条件
+
+| # | 条件 | メッセージ |
+|---|------|-----------|
+| 1 | 契約終了卸（`shiire_wholesaler_status === 'end'`） | 仕入れコネクトの契約が終了しているため、新規請求ができません。 |
+| 2 | 請求書受付期間超過（`WHOLESALER_INVOICE_STORAGE` イベントの `end_at` < 本日） | 請求書受付期間（YYYY-MM-DD まで）を過ぎているため、アップロードできません。 |
+
+- 受付期間は SessionStorage のスケジュールキャッシュ（`shiire_schedule_cache_{wholesalerId}_{YYYY-MM}`）を参照し、`event_type === 'WHOLESALER_INVOICE_STORAGE'` の `end_at` と JST 基準の本日を比較する。
+- スケジュールキャッシュが後から更新された場合も `checkUploadDeadline_()` を再実行して期限判定をやり直す。
+
+### 3.6 アクションボタン
 | 要素 | ID | 仕様 |
 |------|-----|------|
 | 確認画面ボタン | `btnToConfirm` | 「確認画面へ進む →」。初期 `disabled`。バリデーションOK時に有効化 |
 
-### 3.6 一覧に戻る確認モーダル
+### 3.7 一覧に戻る確認モーダル
 
 | 要素 | ID | 仕様 |
 |------|-----|------|
@@ -160,10 +178,13 @@ sequenceDiagram
     Note over FE: is-analyzing クラス付与<br/>スピナー + ファイル名表示
 
     FE->>FE: FileReader.readAsArrayBuffer()
-    Note over FE: MIN_ANALYZE_MS (800ms) の<br/>最低表示時間を保証
+    Note over FE: MIN_ANALYZE_MS (600ms) の<br/>最低表示時間を保証
 
     FE->>FE: decodeBuffer_(arrayBuffer)
     Note over FE: UTF-8 → 失敗時 Shift_JIS<br/>で文字列化
+
+    FE->>FE: stripQuotedNewlines(text)
+    Note over FE: クォート内の改行をスペースに正規化<br/>（RFC 4180 エスケープ "" は保持）
 
     FE->>FE: rawCsvBase64 = Base64(元バイト列)
     FE->>FE: utf8CsvBase64 = Base64(UTF-8テキスト)
@@ -254,13 +275,18 @@ flowchart TD
 |---|------------|-------|----------------|
 | 5 | 列数不一致 | 行全体 | `N行目: カラム数が正しくありません（N列 / 期待値: M列）` |
 | 6 | 必須項目が空 | `required: true` 全列 | `N行目: "列名" は必須項目です` |
-| 7 | 日付形式不正 | `type: 'date'` | `N行目: "列名" はYYYY-MM-DD形式で入力してください` |
-| 8 | 未対応日付フォーマット | `type: 'date'` | `N行目: "列名" の日付フォーマット "X" は未対応です…` |
-| 9 | 整数型に非整数値 | `type: 'integer'` | `N行目: "列名" は整数で入力してください` |
-| 10 | enum制約違反 | `enum` 定義列 | `N行目: "列名" は 8 または 10 を入力してください` |
-| 11 | 文字列長超過 | `max_length` 定義列 | `N行目: "列名" はN文字以内で入力してください` |
-| 12 | 顧客コード空 | `customer_code` | `N行目: "得意先コード" は必須です` |
-| 13 | 顧客コード無効 | `customer_code` | `N行目: "X" は請求可能な加盟店コードではありません` |
+| 7 | 日付形式不正 | `type: 'date'` | `N行目: "列名" はYYYY-MM-DD形式（例: 2026-03-01）で入力してください`（format に応じてヒント文を切替） |
+| 8 | 存在しない日付 | `type: 'date'` | `N行目: "列名" に存在しない日付が含まれています（X）`（例: 2月30日・13月を検出） |
+| 9 | 未対応日付フォーマット | `type: 'date'` | `N行目: "列名" の日付フォーマット "X" は未対応です…` |
+| 10 | 整数型に非整数値 | `type: 'integer'` | `N行目: "列名" は整数で入力してください` |
+| 11 | 小数型に非数値 | `type: 'decimal'` | `N行目: "列名" は数値（小数第3位まで）で入力してください` |
+| 12 | enum制約違反 | `enum` 定義列 | `N行目: "列名" は 8 または 10 を入力してください` |
+| 13 | 文字列長超過 | `max_length` 定義列 | `N行目: "列名" はN文字以内で入力してください` |
+| 14 | 顧客コード空 | `customer_code` | `N行目: "ヘッダー名" は必須です` |
+| 15 | 顧客コード無効 | `customer_code` | `N行目: "ヘッダー名" の値 "X" は請求可能なヘッダー名ではありません` |
+
+> 📌 `customer_code` のメンバーシップ判定は `shiire_merchant_mappings`（`store_status=end` の加盟店は除外済み）と照合する。契約終了（`store_status=end`）の加盟店コードは新規請求では「請求可能な加盟店コードではありません」エラーになる（再請求は詳細画面から可能）。
+> 📌 詳細画面の再請求モーダルからの呼び出しは `validateCsv(text, { skipCustomerCodeCheck: true })` でメンバーシップ判定をスキップする（必須チェックは維持）。
 
 ### 5.4 後処理チェック
 
@@ -313,9 +339,11 @@ flowchart TD
 |------|------|
 | `shiire_parsedData` | パース結果（確認画面での表示用） |
 | `shiire_invoices_cache` | 請求一覧キャッシュ（当月重複チェック用） |
-| `shiire_merchant_mappings` | 加盟店マッピング（顧客コード検証用） |
+| `shiire_merchant_mappings` | 加盟店マッピング（顧客コード検証用、`store_status=end` 除外済み） |
 | `shiire_csv_format_rules` | CSVフォーマットルール |
 | `shiire_tax_rounding_method` | 消費税丸め方式（`floor` / `ceil` / `round`） |
+| `shiire_wholesaler_status` | 卸ステータス（`active` / `end`）。`end` は受付期間バナーで新規請求をブロック |
+| `shiire_schedule_cache_{wholesalerId}_{YYYY-MM}` | 当月スケジュールキャッシュ（受付期間チェック用） |
 
 ---
 
@@ -349,7 +377,7 @@ stateDiagram-v2
     IDLE --> PROCESSING: ファイル選択ダイアログ
 
     PROCESSING --> ANALYZING: handleFile()
-    Note right of ANALYZING: is-analyzing クラス\nスピナー表示\n最低800ms表示
+    Note right of ANALYZING: is-analyzing クラス\nスピナー表示\n最低600ms表示
 
     ANALYZING --> ERROR: バリデーションNG
     ANALYZING --> SUCCESS: バリデーションOK

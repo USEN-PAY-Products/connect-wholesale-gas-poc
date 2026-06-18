@@ -56,6 +56,7 @@ block-beta
         r6["8%対象小計/消費税"]
       end
     end
+    cancelBtn["キャンセル（→ アップロード/詳細画面へ）"]
     block:storeList["加盟店別詳細"]
       columns 1
       note["消費税内訳は自動計算されています..."]
@@ -82,8 +83,8 @@ block-beta
 | 要素 | 仕様 |
 |------|------|
 | タイトル | 新規: 「請求内容の確認」 / 再送信: 「再請求内容の確認」 |
-| 戻るボタン | 「← 一覧に戻る」（`#btnConfirmBack`, `#btnConfirmBackBottom`） |
-| 戻る時の挙動 | キャンセル確認モーダルを表示 |
+| 一覧に戻るボタン | 「← 一覧に戻る」（`#btnConfirmBack`, `#btnConfirmBackBottom`）→ キャンセル確認モーダル（`cancelModal`）を表示 |
+| キャンセルボタン | サマリーカード内の「キャンセル」（`#btnConfirmCancel`）→ アップロード/詳細画面へ戻るモーダル（`confirmCancelToUploadModal`）を表示 |
 
 ### 3.2 請求基本情報カード
 
@@ -132,23 +133,28 @@ block-beta
   columns 1
   block:accordion["加盟店アコーディオン"]
     columns 1
-    accHeader["ヘッダー: 加盟店名 | 請求金額（税込）| 小計 | 消費税 | 10% | 8% | ▼"]
+    accHeader["ヘッダー: 加盟店名 | 顧客ID | 請求金額 | 小計（税抜）| 消費税 | 税内訳（10%）input | 税内訳（8%）input | ▼"]
     block:body["ボディ（展開時）"]
       columns 1
-      remark["加盟店請求書備考: textarea"]
-      table["明細テーブル: 取引日 | 品目 | 単価 | 数量 | 金額（税抜）| 税率 | 消費税（input編集可）| 備考"]
+      remark["加盟店別請求書備考: textarea（250文字）"]
+      handover["【必須】加盟店との合意内容: textarea（再送信モードの否認加盟店のみ）"]
+      detailAcc["明細アコーディオン（ネスト・折りたたみ）: 取引日 | 明細項目 | 単価 | 数量 | 明細金額（税抜）| 消費税 | 備考"]
     end
   end
 ```
 
-### 3.4 消費税の手動編集
+### 3.4 消費税の手動編集（税内訳 10% / 8%）
+
+消費税の編集は**加盟店単位の「税内訳（10%）」「税内訳（8%）」の2つの入力欄**で行う。明細行ごとの消費税は読み取り専用の表示。
 
 | 仕様 | 詳細 |
 |------|------|
-| 編集対象 | 明細テーブル内の「消費税」列（`<input>` 要素） |
-| 初期値 | `roundTax(amount_ex_tax × tax_rate / 100)` で自動計算 |
-| 編集時の動作 | 加盟店単位の合計を再計算 → 卸全体のサマリーも再計算 |
+| 編集対象 | 加盟店ヘッダー行の「税内訳（10%）」「税内訳（8%）」（`data-field="tax10"` / `tax8"` の `<input type="number">`） |
+| 初期値 | 各税率の `roundTax(amount_ex_tax × tax_rate / 100)` 合計（`data-orig` に保持） |
+| 編集時の動作 | 加盟店の消費税・請求金額（税込）を再計算 → 卸全体のサマリー（合計・小計・消費税・手数料・振込予定額）も再計算 |
 | 丸め方式 | SessionStorage `shiire_tax_rounding_method`（`floor` / `ceil` / `round`） |
+| 桁数上限 | NUMERIC(11) = 11桁（`99999999999`）。超過入力は自動でクランプ |
+| **±1円バリデーション** | 計算値（`data-orig`）からの差が ±1円を超えると入力欄にエラー（`※±1円まで`）を表示し、送信不可。送信時にも `加盟店 XXX: 税内訳（10%）の調整は±1円までです（現在: X円 / 計算値: Y円）` で再チェック |
 
 ### 3.5 送信エリア
 
@@ -281,7 +287,23 @@ sequenceDiagram
 |---------|------|----------------|
 | 加盟店別請求書備考 | 250文字 | 「加盟店別請求書備考は250文字以内で入力してください。」 |
 
-### 6.3 金額桁数チェック
+### 6.3 税内訳 ±1円チェック
+
+加盟店ごとの「税内訳（10%）」「税内訳（8%）」 input の値が、自動計算値（`data-orig`）から ±1円を超えて調整されていないかを送信時に検証する。
+
+| 対象 | 上限 | エラーメッセージ |
+|------|------|----------------|
+| 税内訳（10%）/（8%） | 計算値±1円 | `加盟店 XXX: 税内訳（10%）の調整は±1円までです（現在: X円 / 計算値: Y円）` |
+
+### 6.4 再送信モード: 合意内容（handover）必須チェック
+
+一括再送信モードでは、否認加盟店（`_resubmitDisputedCodes`）の「【必須】加盟店との合意内容」（`confirm-handover-input`）が未入力の場合は送信をブロックする。
+
+| チェック | 挙動 |
+|---------|------|
+| 合意内容未入力 | 未入力の textarea に `※ 加盟店との合意内容を記入してください` を表示。該当アコーディオンを自動展開し、最初のエラー箇所へスクロール + フォーカス |
+
+### 6.5 金額桁数チェック
 
 | 対象 | テーブル | 上限桁数 |
 |------|---------|---------|
@@ -296,27 +318,38 @@ sequenceDiagram
 
 ## 7. キャンセル確認モーダル
 
-```mermaid
-stateDiagram-v2
-    [*] --> CONFIRM_PAGE: 確認画面表示中
+確認画面には「一覧に戻る」と「キャンセル」の2つの離脱動線があり、それぞれ別のモーダルを表示する。
 
-    CONFIRM_PAGE --> MODAL_OPEN: 「一覧に戻る」クリック
-    MODAL_OPEN --> CONFIRM_PAGE: ×ボタン / Esc / オーバーレイクリック
-    MODAL_OPEN --> NAVIGATE: 「一覧に戻る」確定
+### 7.1 一覧に戻る確認モーダル（`cancelModal`）
 
-    NAVIGATE --> UPLOAD: 新規登録モード\n#upload へ
-    NAVIGATE --> DETAIL: 再送信モード\n#detail?invoiceId=xxx へ
-```
+「← 一覧に戻る」（`btnConfirmBack` / `btnConfirmBackBottom`）から起動。確定すると `#home`（再送信モードは `#detail?invoiceId=xxx`）へ遷移する。
 
 | 要素 | ID | 仕様 |
 |------|-----|------|
 | オーバーレイ | `cancelModal` | `role="dialog"` `aria-modal="true"` |
 | タイトル | `cancelModalTitle` | 「⚠ 一覧に戻ると登録作業中のファイルは削除されますがよろしいですか？」 |
-| 説明文 | `cancelModalDesc` | 「アップロードされたファイルは、まだ登録が完了していません…」 |
+| 説明文 | `cancelModalDesc` | 「…一覧画面に戻ると、編集中のデータは削除されます。」 |
 | 確定ボタン | `cancelModalOk` | 「← 一覧に戻る」→ データリセット + 遷移 |
 | 閉じるボタン | `cancelModalClose` | モーダルを閉じるのみ |
-| フォーカストラップ | - | Tab / Shift+Tab をモーダル内に閉じ込め |
-| Escキー | - | モーダルを閉じる |
+
+### 7.2 アップロード/詳細画面へ戻るモーダル（`confirmCancelToUploadModal`）
+
+サマリーカード内の「キャンセル」（`btnConfirmCancel`）から起動。モードに応じて文言と遷移先を切り替える。
+
+| モード | タイトル | 確定ボタン | 遷移先 |
+|------|--------|----------|--------|
+| 新規登録 | 登録をキャンセルしてアップロード画面に戻りますか？ | アップロード画面に戻る | `#upload` |
+| 再送信 | 登録をキャンセルして詳細画面に戻りますか？ | 詳細画面に戻る | `#detail?invoiceId=xxx` |
+
+| 要素 | ID |
+|------|-----|
+| オーバーレイ | `confirmCancelToUploadModal` |
+| タイトル | `confirmCancelToUploadTitle` |
+| 説明文 | `confirmCancelToUploadDesc` |
+| 確定ボタン | `confirmCancelToUploadOk` |
+| 閉じるボタン | `confirmCancelToUploadClose` |
+
+両モーダルとも オーバーレイクリック / Escキー / フォーカストラップ（Tab / Shift+Tab）に対応。
 
 ---
 
@@ -330,6 +363,7 @@ stateDiagram-v2
 | `_resubmitParentInvoiceId` | `string\|null` | 再送信時の親請求ID |
 | `_resubmitRemarks` | `Object` | 再送信時の備考 `{ customerCode: value }` |
 | `_resubmitHandovers` | `Object` | 再送信時の合意事項 `{ customerCode: value }` |
+| `_resubmitDisputedCodes` | `string[]` | 再送信時に合意内容を必須とする否認加盟店の顧客コード |
 
 ---
 
@@ -340,8 +374,7 @@ stateDiagram-v2
 | 項目 | 内容 |
 |------|------|
 | タイトル | 「請求情報の登録が完了しました。」 |
-| 本文 | 「請求のご登録ありがとうございます。…最長で{入金日}までに、指定口座に入金が行われます。」 |
-| 入金日 | カレンダーデータの `event_type === 'DEPOSIT'` イベントの `end_at` |
+| 本文 | 「請求のご登録ありがとうございます。本請求は、本サービスの運営チームによる内容確認ののち、加盟店側での内容確認が行われます。運営からの差戻、もしくは加盟店からの否認が発生した場合は再度対応をお願いします。」 |
 | 自動非表示 | 8秒 |
 
 ### 一括再送信成功時

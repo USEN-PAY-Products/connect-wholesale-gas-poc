@@ -1,6 +1,6 @@
 # 画面仕様書
 
-仕入れコネクト Portal Site（卸側）の画面別仕様書です。
+仕入れコネクト（卸側）の画面別仕様書です。
 
 ## ドキュメント構成
 
@@ -16,7 +16,7 @@
 
 ## システム概要
 
-- **アプリケーション名**: 仕入れコネクト Portal Site
+- **アプリケーション名**: 仕入れコネクト
 - **基盤**: Google Apps Script（GAS）Webアプリ
 - **フロントエンド**: HTML + Vanilla JS（SPA構成、ハッシュルーター）
 - **バックエンド**: GAS サーバーサイド関数（`google.script.run` 経由）
@@ -34,12 +34,15 @@ flowchart TD
     HOME -->|新規請求を登録する| UPLOAD["CSVアップロード画面\n#upload"]
     HOME -->|詳細を見る| DETAIL["詳細画面\n#detail?invoiceId=xxx"]
     HOME -->|請求スケジュール| CAL_MODAL["カレンダーモーダル"]
+    HOME -->|ヘッダー卸名 → ログアウト| LOGOUT["LP へリダイレクト\ngetLogoutUrl()"]
 
+    UPLOAD -->|契約終了/受付期間外| BLOCKED["受付期間バナー\n（アップロード不可）"]
     UPLOAD -->|確認画面へ進む| CONFIRM["確認画面\n#confirm"]
     UPLOAD -->|一覧に戻る| HOME
 
     CONFIRM -->|登録内容を送信する| HOME
     CONFIRM -->|一覧に戻る| HOME
+    CONFIRM -->|キャンセル| UPLOAD
 
     DETAIL -->|一覧に戻る| HOME
     DETAIL -->|CSV一括アップロード| D_MODAL_BULK["アップロードモーダル\n（一括）"]
@@ -53,6 +56,8 @@ flowchart TD
 
     CAL_MODAL -->|閉じる| HOME
 ```
+
+> 📌 ヘッダー右上の卸事業者名をクリックするとドロップダウンが開き、「ログアウト」で LP（`LP_URL`）へリダイレクトする（全画面共通）。詳細は [05_common.md](05_common.md#6-認証アカウント管理) を参照。
 
 ## 関連ファイル
 

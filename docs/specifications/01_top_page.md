@@ -30,7 +30,7 @@ block-beta
   columns 1
   block:page["Top画面 (#home)"]
     columns 1
-    header["共通ヘッダー（仕入れコネクト Portal Site | 請求スケジュール | 卸名）"]
+    header["共通ヘッダー（仕入れコネクト | 請求スケジュール | 卸名）"]
     block:registration["請求の登録"]
       columns 1
       fab["新規請求を登録する ＋（FABボタン）"]
@@ -74,7 +74,7 @@ block-beta
 | 4 | 手数料（税込） | `invoice_fee_amount` | `999,999円` | |
 | 5 | 差戻し有無 | `has_resubmit` | バッジ表示 | `1` → 差戻し有（赤系）, `0` → 差戻し無 |
 | 6 | 否認有無 | `has_denial` | バッジ表示 | `1` → 否認有（赤系）, `0` → 否認無 |
-| 7 | 操作 | - | 「詳細を見る >」ボタン | `#detail?invoiceId=xxx` へ遷移 |
+| 7 | 操作 | - | 「詳細を見る >」ボタン | `#detail?invoiceId=xxx` へ遷移。ID は `root_id`（なければ `wholesaler_invoice_id`）を使用 |
 
 #### ステータスバッジ
 
@@ -105,7 +105,7 @@ sequenceDiagram
     BE-->>FE: { status: 'success', data: accountInfo }
 
     FE->>FE: saveAccountInfo(data)
-    Note over FE: SessionStorage に卸情報を保存<br/>・wholesaler_id<br/>・wholesaler_name<br/>・fee_rate<br/>・tax_rounding_method<br/>・merchant_mappings<br/>・csv_format_rules
+    Note over FE: SessionStorage に卸情報を保存<br/>・wholesaler_id<br/>・wholesaler_name<br/>・wholesaler_status<br/>・fee_rate<br/>・tax_rounding_method<br/>・merchant_mappings<br/>・csv_format_rules
     FE->>FE: enableUploadUi_()
     FE->>FE: hideLoadingOverlay()
     FE->>FE: navigate() → initHomePage()
@@ -180,6 +180,7 @@ Top画面と詳細画面のみで表示される。
 | 複数スケジュール | 同一日に複数イベントがある場合、均等分割の `linear-gradient` で表示 |
 | イベントラベル | イベント開始日 or 週の先頭（日曜日）にラベルテキストを表示 |
 | 今日の強調 | `cal-cell--today` クラスで当日をハイライト |
+| 凡例 | カレンダー下に、表示中の月に期間が重なるイベントを色 + 説明で一覧表示（`renderCalendarLegend_`、色+説明で重複排除） |
 | 閉じる | ×ボタン、オーバーレイクリック、Escキー |
 | フォーカストラップ | Tab / Shift+Tab をモーダル内に閉じ込め |
 | アクセシビリティ | `role="dialog"` `aria-modal="true"` |
@@ -215,6 +216,7 @@ flowchart TD
     K -->|Yes| M["角丸クラス\ngetCellPosClass()"]
     K -->|Yes| N["ラベルテキスト\n（start/single/日曜日のみ）"]
     K -->|No| O["通常セル"]
+    G --> P["renderCalendarLegend_()\n表示月に重なるイベントを凡例表示"]
 ```
 
 ---
@@ -254,6 +256,7 @@ flowchart TD
 | キー | 内容 | 用途 |
 |------|------|------|
 | `shiire_invoices_cache` | 請求一覧データ（JSON） | アップロード画面での当月重複チェック |
+| `shiire_schedule_cache_{wholesalerId}_{YYYY-MM}` | 当月のスケジュールデータ（JSON） | カレンダー初期表示高速化。BQ取得後に当月分のみキャッシュ |
 
 ---
 

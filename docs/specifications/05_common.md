@@ -2,7 +2,7 @@
 
 ## 1. 概要
 
-本ドキュメントは、仕入れコネクト Portal Site の全画面で共通して使用される要素・ロジック・デザインルールをまとめたものです。
+本ドキュメントは、仕入れコネクトの全画面で共通して使用される要素・ロジック・デザインルールをまとめたものです。
 
 ### 対応ファイル
 
@@ -14,7 +14,7 @@
 | `fe_js.html` | ルーター・共通ユーティリティ・全画面 JS |
 | `fe_page_error.html` | エラー画面 HTML |
 | `be_main.js` | GAS エントリーポイント（`doGet`, `include`） |
-| `be_server.js` | アカウント認証（`getAccountInfo`） |
+| `be_server.js` | アカウント認証（`getAccountInfo`）・ログアウト先URL取得（`getLogoutUrl`） |
 | `be_config.js` | 環境設定（Script Properties） |
 | `be_utils.js` | 共通ユーティリティ |
 
@@ -29,7 +29,7 @@ flowchart TB
     subgraph GAS ["Google Apps Script"]
         direction TB
         MAIN["be_main.js\ndoGet() / include()"]
-        SERVER["be_server.js\ngetAccountInfo()"]
+        SERVER["be_server.js\ngetAccountInfo()\ngetLogoutUrl()"]
         INVOICE["be_invoice.js\n請求CRUD API"]
         MAPPER["be_csv_mapper.js\nCSV動的マッピング"]
         CONFIG["be_config.js\n環境設定"]
@@ -153,24 +153,44 @@ block-beta
   block:header["共通ヘッダー（site-header）"]
     columns 3
     block:left["左側"]
-      logo["仕入れコネクト Portal Site"]
+      logo["仕入れコネクト"]
       produced["produced by USEN PAY"]
     end
     block:right["右側"]
       calendar["📅 請求スケジュール"]
-      store["🏢 卸事業者名"]
+      store["🏢 卸事業者名 ▼（クリックでドロップダウン）"]
     end
   end
 ```
 
 ### 4.2 要素詳細
 
-| 要素 | 仕様 |
+| 要素 | ID | 仕様 |
+|------|-----|------|
+| ロゴ | - | 「仕入れコネクト」→ `#home` へのリンク |
+| produced by | - | 「produced by USEN PAY」（`#B9BEC3`） |
+| 請求スケジュール | `btnCalendarOpen` | カレンダーモーダルを開くボタン。Top画面・詳細画面でのみ表示 |
+| 卸事業者名トリガー | `headerStoreTrigger` | ビルSVGアイコン + `headerWholesalerName` + ▼アイコン。クリックでログアウトドロップダウンを開閉（`aria-haspopup` / `aria-expanded`） |
+| 卸事業者名 | `headerWholesalerName` | ログイン時に `saveAccountInfo()` で設定。初期値は `―` |
+| ログアウトドロップダウン | `headerStoreDropdown` | 初期 `hidden`。「🚪 ログアウト」ボタン（`btnLogout`）を含む |
+
+### 4.3 ログアウトドロップダウン
+
+```mermaid
+stateDiagram-v2
+    [*] --> CLOSED: 初期表示
+    CLOSED --> OPEN: 卸名トリガークリック
+    OPEN --> CLOSED: 再クリック / 外側クリック / Escキー
+    OPEN --> LOGGING_OUT: 「ログアウト」クリック
+    LOGGING_OUT --> REDIRECT: sessionStorage(shiire_*) クリア → LP へ遷移
+```
+
+| 挙動 | 内容 |
 |------|------|
-| ロゴ | 「仕入れコネクト Portal Site」→ `#home` へのリンク |
-| produced by | 「produced by USEN PAY」（`#B9BEC3`） |
-| 請求スケジュール | カレンダーモーダルを開くボタン。Top画面・詳細画面でのみ表示 |
-| 卸事業者名 | `headerWholesalerName`。ログイン時に `saveAccountInfo()` で設定 |
+| 開閉 | 卸名トリガーのクリックでトグル。外側クリック・Escキーで閉じる |
+| フォーカス | 開いたら `btnLogout` へフォーカス。Escで閉じるとトリガーへ復帰 |
+| ログアウト処理 | `shiire_` プレフィックスの SessionStorage キーのみ削除 → `getLogoutUrl()` で取得した URL へ `window.top.location` で遷移 |
+| フォールバック | `getLogoutUrl()` 失敗時・GAS 環境外は `https://accounts.google.com/Logout` へ遷移 |
 
 ### 4.3 スタイル
 
@@ -216,7 +236,7 @@ sequenceDiagram
     FE->>BE: google.script.run.getAccountInfo()
     BE->>BE: Session.getActiveUser().getEmail()
     BE->>BQ: fetchAccountInfoByEmail_(email)
-    Note over BQ: wholesaler_user テーブルを起点に<br/>JOIN でアカウント情報を取得
+    Note over BQ: wholesaler_user テーブルを起点に<br/>JOIN でアカウント情報を取得<br/>wholesaler_status は active / end を許容
 
     alt アカウント情報取得成功
         BQ-->>BE: accountInfo
@@ -242,12 +262,44 @@ sequenceDiagram
 | `shiire_wholesaler_id` | 卸事業者ID | IDOR保護用（BE側で確定） |
 | `shiire_wholesaler_user_id` | ユーザーID | ログ・監査用 |
 | `shiire_wholesaler_name` | 卸事業者名 | ヘッダー表示 |
+| `shiire_wholesaler_status` | 卸ステータス（`active` / `end`） | 契約終了卸（`end`）の新規請求ブロック |
 | `shiire_invoice_fee_rate` | 手数料率 | 確認画面での手数料計算 |
 | `shiire_tax_rounding_method` | 消費税丸め方式 | `floor` / `ceil` / `round` |
-| `shiire_merchant_mappings` | 加盟店マッピング（JSON） | CSVバリデーション |
+| `shiire_merchant_mappings` | 加盟店マッピング（JSON） | CSVバリデーション。`store_status=end` の加盟店は除外済み |
 | `shiire_csv_format_rules` | CSVフォーマットルール（JSON） | 動的CSV定義 |
 | `shiire_parsedData` | パース済みCSVデータ（JSON） | 確認画面表示用 |
 | `shiire_invoices_cache` | 請求一覧キャッシュ（JSON） | 当月重複チェック |
+| `shiire_schedule_cache_{wholesalerId}_{YYYY-MM}` | 当月のスケジュール（JSON） | カレンダー初期表示高速化・受付期限チェック |
+| `shiire_resubmit_handover_matter` | USEN PAY社コメント | 一括再送信時の確認画面表示用 |
+
+> ⚠️ `rawCsvBase64` / `utf8CsvBase64`（送信用のBase64）はメモリのみに保持し、SessionStorage には保存しない（容量超過防止）。ページリロード後は再アップロードが必要。
+
+### 6.3 ログアウト
+
+ヘッダー右上の卸名トリガーをクリックして開くドロップダウンからログアウトできる（全画面共通）。
+
+```mermaid
+sequenceDiagram
+    participant U as ユーザー
+    participant FE as FE
+    participant BE as BE (be_server.js)
+
+    U->>FE: ログアウトボタンクリック
+    FE->>FE: sessionStorage の shiire_* キーを削除
+    FE->>BE: getLogoutUrl()
+    BE->>BE: getConfig_() で LP_URL を取得
+    Note over BE: https スキームのみ許可（オープンリダイレクト/XSS防止）
+    BE-->>FE: { url: LP_URL + '?logout=true' }
+    FE->>FE: window.top.location.href = url
+```
+
+| 項目 | 内容 |
+|------|------|
+| FE処理 | `shiire_` プレフィックスの SessionStorage キーのみ削除（他アプリへの副作用防止） |
+| BE API | `getLogoutUrl()` → `{ status: 'success', data: { url } }` |
+| URL生成 | `LP_URL` に `?logout=true`（既に `?` があれば `&`）を付与 |
+| セキュリティ | `LP_URL` が `https://` で始まらない場合はエラー |
+| フォールバック | API失敗・GAS環境外は `https://accounts.google.com/Logout` へ遷移 |
 
 ---
 
@@ -550,7 +602,8 @@ block-beta
 | `DRIVE_ROOT_FOLDER_ID` | CSV保存先 Drive フォルダID | `1rGvUwmPp...` |
 | `GCP_PROJECT_ID` | BigQuery GCPプロジェクトID | `usenpay-connect-dev` |
 | `BQ_DATASET_ID` | BigQueryデータセットID | `connect_db` |
-| `BQ_LOCATION` | BigQueryリージョン（任意） | `asia-northeast1` |
+| `BQ_LOCATION` | BigQueryリージョン（任意、未設定時は `US`） | `asia-northeast1` |
+| `LP_URL` | ログアウト後のリダイレクト先 LP URL（https のみ許可） | `https://connect-dev.usen-pay.com/` |
 | `ENV` | 環境識別子 | `development` / `production` |
 
 ### 16.2 環境ガード
