@@ -1773,7 +1773,7 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .cal-cell {
-  padding: 4px 2px;
+  padding: 4px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1788,34 +1788,46 @@ button { cursor: pointer; font-family: inherit; }
   pointer-events: none;
 }
 
-/* セル角丸（イベント期間の位置に応じた角丸） */
-.cal-cell--start  { border-radius: 8px 0 0 8px; }
-.cal-cell--end    { border-radius: 0 8px 8px 0; }
-.cal-cell--single { border-radius: 8px; }
-.cal-cell--middle { border-radius: 0; }
+/* 期間バー（日付番号の下に表示。複数日は横方向に連続、重なりは縦に積層） */
+.cal-cell__bars {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+}
+.cal-bar {
+  width: 100%;
+  height: 6px;
+  flex-shrink: 0;
+}
+/* 期間の位置に応じた端の丸み（始端/終端だけ丸める＝中間日は四角で連続） */
+.cal-bar--start  { border-radius: 6px 0 0 6px; }
+.cal-bar--end    { border-radius: 0 6px 6px 0; }
+.cal-bar--single { border-radius: 6px; }
+.cal-bar--middle { border-radius: 0; }
+/* 空きレーン: 高さ確保のみ（透明） */
+.cal-bar--spacer { background: transparent; }
 
 .cal-cell__num {
   font-size: 13px;
   font-weight: 400;
   color: #333;
-  line-height: 1.4;
-  min-width: 22px;
-  text-align: center;
-  border-radius: 50%;
-  padding: 1px;
-}
-
-/* 今日の日付 */
-.cal-cell--today .cal-cell__num {
-  background: #3a7bd5;
-  color: #fff;
-  font-weight: 700;
+  line-height: 1;
   width: 22px;
   height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
   border-radius: 50%;
+}
+
+/* 今日の日付（枠サイズは通常日と共通。色のみ変更してバーの縦位置をズラさない） */
+.cal-cell--today .cal-cell__num {
+  background: #3a7bd5;
+  color: #fff;
+  font-weight: 700;
 }
 
 /* イベントあり */
