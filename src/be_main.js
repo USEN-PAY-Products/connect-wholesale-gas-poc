@@ -15,14 +15,14 @@
 function doGet(e) {
   // 環境判定は既存ヘルパー getConfig_() を再利用する。
   // 必須プロパティ未設定で throw しても画面表示を止めないよう、本番扱いにフォールバックする。
-  var isDev = false;
+  let isDev = false;
   try {
     isDev = getConfig_().env === 'development';
   } catch (err) {
     console.warn('[doGet] 環境判定に失敗したため本番扱いにします: ' + err);
   }
 
-  var template = HtmlService.createTemplateFromFile('fe_index');
+  const template = HtmlService.createTemplateFromFile('fe_index');
   template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
 
   return template
