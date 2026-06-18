@@ -678,7 +678,6 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
   try {
     const accountInfo = getServerAccountInfo_();
     logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
-    const mappings    = accountInfo.merchant_mappings || [];
 
     if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!utf8CsvBase64) throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -702,22 +701,29 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
 
     // ── BE防御: 対象 storeInvoiceId の mall_code 以外を除外 ──
     const targetMallCode = fetchStoreInvoiceMallCode_(storeInvoiceId, accountInfo.wholesaler_id, parentInvoiceId);
-    if (targetMallCode) {
-      const customerToMall = {};
-      (mappings || []).forEach(function (m) {
-        if (m.customer_code && m.mall_code) customerToMall[String(m.customer_code)] = String(m.mall_code);
-      });
-      summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
-        return customerToMall[String(m.customerCode)] === targetMallCode;
-      });
-      if (summaryData.merchantTotals.length === 0) {
-        throw new Error('対象加盟店のデータが含まれていません');
-      }
-      summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
+    if (!targetMallCode) {
+      throw new Error('対象の加盟店請求情報が見つかりません。ページを再読み込みしてください。');
     }
+    // store 由来の customer_code↔mall_code マップを構築（end 店舗含む）
+    const storeRows = fetchStoreInvoicesByParent_(parentInvoiceId, accountInfo.wholesaler_id);
+    const customerToMall = {};
+    const storeBasedMappings = [];
+    storeRows.forEach(function (s) {
+      if (s.customer_code && s.mall_code) {
+        customerToMall[String(s.customer_code)] = String(s.mall_code);
+        storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
+      }
+    });
+    summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
+      return customerToMall[String(m.customerCode)] === targetMallCode;
+    });
+    if (summaryData.merchantTotals.length === 0) {
+      throw new Error('対象加盟店のデータが含まれていません');
+    }
+    summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
 
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
-    const mallCodeMap   = buildMallCodeMap_(mappings, summaryData.merchantTotals);
+    const mallCodeMap   = buildMallCodeMap_(storeBasedMappings, summaryData.merchantTotals);
 
     // ヘッダー検証
     const utf8Bytes = Utilities.base64Decode(utf8CsvBase64);
@@ -975,7 +981,6 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
   try {
     const accountInfo = getServerAccountInfo_();
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
-    const mappings    = accountInfo.merchant_mappings || [];
 
     if (!rawCsvBase64)     throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!utf8CsvBase64)    throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -1000,9 +1005,15 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     const actionRequiredRows = fetchActionRequiredMallCodes_(parentInvoiceId, accountInfo.wholesaler_id);
     const eligibleMallCodes = new Set(actionRequiredRows.map(function (r) { return r.mall_code; }));
     const disputedMallCodes = new Set(actionRequiredRows.filter(function (r) { return r.invoice_status === 'DISPUTED'; }).map(function (r) { return r.mall_code; }));
+    // store 由来の customer_code↔mall_code マップを構築（end 店舗含む）
+    const storeRows = fetchStoreInvoicesByParent_(parentInvoiceId, accountInfo.wholesaler_id);
     const customerToMall = {};
-    (mappings || []).forEach(function (m) {
-      if (m.customer_code && m.mall_code) customerToMall[String(m.customer_code)] = String(m.mall_code);
+    const storeBasedMappings = [];
+    storeRows.forEach(function (s) {
+      if (s.customer_code && s.mall_code) {
+        customerToMall[String(s.customer_code)] = String(s.mall_code);
+        storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
+      }
     });
     summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
       const mc = customerToMall[String(m.customerCode)] || '';
@@ -1026,7 +1037,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
 
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
-    const mallCodeMap   = buildMallCodeMap_(mappings, summaryData.merchantTotals);
+    const mallCodeMap   = buildMallCodeMap_(storeBasedMappings, summaryData.merchantTotals);
 
     // ヘッダー検証
     const utf8Bytes = Utilities.base64Decode(utf8CsvBase64);
@@ -1141,6 +1152,11 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     const accountInfo = getServerAccountInfo_();
     logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', merchantTotals_count=' + (summaryData && summaryData.merchantTotals ? summaryData.merchantTotals.length : 0));
     const mappings    = accountInfo.merchant_mappings || [];
+
+    // ── 契約終了卸の新規請求ブロック ──────────────────────────────────────
+    if (accountInfo.wholesaler_status === 'end') {
+      throw new Error('契約が終了しているため、新規請求ができません。');
+    }
 
     // ── 入力バリデーション ────────────────────────────────────────────────
     if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
