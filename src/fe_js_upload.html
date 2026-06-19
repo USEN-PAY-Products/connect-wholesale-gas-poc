@@ -1,0 +1,533 @@
+<script>
+// ---- upload.js ----
+// =============================================================================
+// Upload page: DOM references
+// =============================================================================
+
+const dropZone       = document.getElementById('dropZone');
+const btnSelectFile  = document.getElementById('btnSelectFile');
+const fileInput      = document.getElementById('fileInput');
+const btnToConfirm   = document.getElementById('btnToConfirm');
+const btnFinalSubmit = document.getElementById('btnFinalSubmit');
+const fileInfoEl     = document.getElementById('fileInfo');
+const fileInfoName   = document.getElementById('fileInfoName');
+const btnFileDelete  = document.getElementById('btnFileDelete');
+const errorCard      = document.getElementById('errorCard');
+const alertList      = document.getElementById('alertList');
+
+// =============================================================================
+// Upload page: State（バックエンド送信用データ保持）
+// =============================================================================
+
+/**
+ * 読み込んだCSVの元バイト列をBase64エンコードした文字列（DriveにSJISなど元ファイルそのまま保存するため）。
+ * ⚠️ メモリのみ保持。sessionStorage には保存しない（容量超過防止）。
+ * リロード時は再アップロードが必要。
+ */
+let rawCsvBase64 = null;
+
+/**
+ * decodeBuffer_() で UTF-8 化した CSV テキストを Base64 エンコードした文字列（BQ Load Job 投入用）。
+ * ⚠️ メモリのみ保持。sessionStorage には保存しない（容量超過防止）。
+ */
+let utf8CsvBase64 = null;
+
+/**
+ * handleFile() の MIN_ANALYZE_MS 待機用タイマーID。
+ * 連続ファイル選択時に前回のタイマーをキャンセルして競合を防ぐ。
+ */
+let _analyzeTimer = null;
+
+/**
+ * handleFile() で起動中の FileReader インスタンス。
+ * 連続ファイル選択時に前回の reader.onload が後から走って結果を上書きするのを防ぐため、
+ * 新しい handleFile 呼び出しの先頭で abort() してから破棄する。
+ */
+let _currentReader = null;
+
+/**
+ * パース済みデータ行の配列。各要素は csv_format_rules のキー（bq_field）をキーとしたオブジェクト。
+ * デフォルトフォーマット（9列）の場合のキー構成は以下の通り。
+ * @type {Array<{
+ *   customer_code:         string,
+ *   transaction_date:      string,
+ *   item_name:             string,
+ *   quantity:              number,
+ *   unit_price:            number,
+ *   tax_rate:              number,
+ *   amount_ex_tax:         number,
+ *   tax_amount:            number,
+ *   invoice_detail_remark: string,
+ * }>}
+ */
+let parsedData = null;
+
+// parsedData のみ sessionStorage から復元する（確認画面の表示用）。
+// rawCsvBase64 / utf8CsvBase64 はメモリのみ保持のため、リロード後は送信不可。
+try {
+  const _saved = sessionStorage.getItem('shiire_parsedData');
+  if (_saved) parsedData = JSON.parse(_saved);
+
+  // 型バリデーション: 想定外の値は捨ててセッションをクリア
+  const isValidRow = r =>
+    r !== null && typeof r === 'object' &&
+    'customer_code' in r &&
+    'amount_ex_tax' in r &&
+    'tax_rate'      in r;
+
+  if (parsedData !== null && (!Array.isArray(parsedData) || !parsedData.every(isValidRow))) {
+    console.warn('[state] sessionStorage の parsedData が不正な形式です。破棄します。');
+    parsedData = null;
+    sessionStorage.removeItem('shiire_parsedData');
+  }
+} catch (e) {
+  console.warn('[state] sessionStorage の復元に失敗しました:', e);
+}
+
+// =============================================================================
+// Upload page: Drop zone helpers
+// =============================================================================
+
+/** 初期状態の dropZone 内 HTML（リセット時に復元する） */
+const DROP_ZONE_DEFAULT_HTML = dropZone.innerHTML;
+
+/** dropZone を初期状態に戻す */
+function resetDropZone() {
+  dropZone.innerHTML = DROP_ZONE_DEFAULT_HTML;
+  // is-disabled / is-success / is-analyzing / drag-over を除去（アカウント取得済みの状態に戻す）
+  dropZone.classList.remove('is-disabled', 'is-success', 'is-analyzing', 'drag-over');
+  // innerHTML 差し替え後に DOM 参照とイベントを再登録
+  const newBtn   = dropZone.querySelector('#btnSelectFile');
+  const newInput = dropZone.querySelector('#fileInput');
+  // disabled 属性を除去（初期HTMLは disabled 状態でキャプチャされているため）
+  if (newBtn)   newBtn.disabled   = false;
+  if (newInput) newInput.disabled = false;
+  newBtn.addEventListener('click', () => newInput.click());
+  newInput.addEventListener('change', function () {
+    if (this.files[0]) handleFile(this.files[0]);
+    this.value = '';
+  });
+}
+
+/**
+ * dropZone を CSV 解析中スピナー表示に切り替える。
+ * handleFile() の FileReader 起動「前」に呼び出し、解析中であることをユーザーに伝える。
+ * @param {string} fileName - 選択されたファイル名
+ */
+function setDropZoneAnalyzing(fileName) {
+  dropZone.innerHTML = `
+    <div class="drop-zone__spinner"></div>
+    <p class="drop-zone__analyzing-text">CSVを確認中...</p>
+    <p class="drop-zone__analyzing-sub" id="dropZoneAnalyzingName"></p>
+  `;
+  // XSS対策: ファイル名は textContent で挿入
+  dropZone.querySelector('#dropZoneAnalyzingName').textContent = fileName;
+  dropZone.classList.remove('is-disabled', 'is-success', 'drag-over');
+  dropZone.classList.add('is-analyzing');
+}
+
+/**
+ * dropZone を成功表示に切り替える
+ * @param {string} fileName
+ */
+function setDropZoneSuccess(fileName, fileSize) {
+  // ドロップゾーンは初期状態に戻す（成功表示にしない）
+  resetDropZone();
+  // ドロップゾーン下のファイル情報エリアを表示
+  const sizeText = fileSize != null
+    ? '（' + (fileSize / 1024).toFixed(1) + 'KB）'
+    : '';
+  fileInfoName.textContent = fileName + sizeText;
+  fileInfoEl.classList.remove('hidden');
+}
+
+// =============================================================================
+// Upload page: Drag & Drop
+// =============================================================================
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+['dragleave', 'dragend'].forEach(ev =>
+  dropZone.addEventListener(ev, () => dropZone.classList.remove('drag-over'))
+);
+
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+// =============================================================================
+// Upload page: Click to select file
+// =============================================================================
+
+btnSelectFile.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  // 同じファイルを再選択できるようリセット
+  fileInput.value = '';
+});
+
+// =============================================================================
+// Upload page: File handler
+// =============================================================================
+
+/**
+ * SessionStorage のカレンダーキャッシュから WHOLESALER_INVOICE_STORAGE の end_at を取得し、
+ * 期限切れならアップロードフォームを無効化する。
+ */
+function checkUploadDeadline_() {
+  const banner  = document.getElementById('uploadDeadlineBanner');
+  const message = document.getElementById('uploadDeadlineMessage');
+  if (!banner || !message) return;
+
+  // 一旦リセット（前回の期限切れ判定で無効化した入力UIも復元）
+  banner.classList.add('hidden');
+  const dropZone   = document.getElementById('dropZone');
+  const btnSelect  = document.getElementById('btnSelectFile');
+  const fileInput  = document.getElementById('fileInput');
+  const btnConfirm = document.getElementById('btnToConfirm');
+  if (dropZone)   { dropZone.style.pointerEvents = ''; dropZone.style.opacity = ''; }
+  if (btnSelect)  btnSelect.disabled  = false;
+  if (fileInput)   fileInput.disabled  = false;
+  // btnToConfirm: ファイルが正常に読み込まれていれば有効化、それ以外は disabled のまま
+  if (btnConfirm) btnConfirm.disabled = !(parsedData && rawCsvBase64 && utf8CsvBase64);
+
+  // ── 契約終了卸の新規請求ブロック ──────────────────────────────────────
+  const wholesalerStatus = sessionStorage.getItem('shiire_wholesaler_status');
+  if (wholesalerStatus === 'end') {
+    message.textContent = '仕入れコネクトの契約が終了しているため、新規請求ができません。';
+    banner.classList.remove('hidden');
+    if (dropZone)   { dropZone.style.pointerEvents = 'none'; dropZone.style.opacity = '0.5'; }
+    if (btnSelect)  btnSelect.disabled  = true;
+    if (fileInput)   fileInput.disabled  = true;
+    if (btnConfirm) btnConfirm.disabled = true;
+    return;
+  }
+
+  const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
+  if (!wholesalerId) return;
+  const jst       = jstNow_();
+  const currentYM = jst.ym;
+  const cacheKey  = 'shiire_schedule_cache_' + wholesalerId + '_' + currentYM;
+  const cached    = sessionStorage.getItem(cacheKey);
+  if (!cached) return;
+
+  try {
+    const events  = JSON.parse(cached);
+    const storage = events.find(function(e) {
+      return e.event_type === 'WHOLESALER_INVOICE_STORAGE';
+    });
+    if (!storage) return;
+
+    const today = jst.ymd;
+    const endAt = String(storage.end_at).slice(0, 10);
+
+    if (today > endAt) {
+      // 期限切れ: アップロードフォームを無効化
+      message.textContent = '請求書受付期間（' + endAt + ' まで）を過ぎているため、アップロードできません。';
+      banner.classList.remove('hidden');
+      if (dropZone)   { dropZone.style.pointerEvents = 'none'; dropZone.style.opacity = '0.5'; }
+      if (btnSelect)  btnSelect.disabled  = true;
+      if (fileInput)   fileInput.disabled  = true;
+      if (btnConfirm) btnConfirm.disabled = true;
+    }
+  } catch (e) {
+    console.warn('[upload] 期限チェック失敗:', e);
+  }
+}
+
+/** @param {File} file */
+function handleFile(file) {
+  // ── Step 1: アカウント情報取得済みチェック ────────────────────────────────
+  if (!sessionStorage.getItem('shiire_csv_format_rules')) {
+    showToast('アカウント情報を取得中です。しばらく待ってから再度お試しください。');
+    return;
+  }
+
+  // ── Step 2: ファイル形式チェック ──────────────────────────────────────────
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    showToast('CSVファイルを選択してください');
+    resetDropZone();
+    return;
+  }
+
+  hideToast();
+
+  // ── Step 3: CSVを読み込んでパース＆バリデーション ────────────────────────
+  // ファイル選択直後にドロップゾーンを「解析中」スピナーへ切り替える。
+  // すぐに結果が出るとユーザーが「本当に確認したの？」と不安になるため、
+  // 最低 MIN_ANALYZE_MS だけスピナーを表示してから結果を描画する。
+  // 連続ファイル選択時に前回のタイマーが残っていると古い結果で上書きされるため、
+  // 新しい handleFile 呼び出しの先頭で必ずキャンセルする。
+  if (_analyzeTimer !== null) {
+    clearTimeout(_analyzeTimer);
+    _analyzeTimer = null;
+  }
+  // 前回の FileReader が読み込み中なら abort して onload が後から発火しないようにする
+  if (_currentReader !== null) {
+    _currentReader.abort();
+    _currentReader = null;
+  }
+  setDropZoneAnalyzing(file.name);
+  const analyzeStartMs = Date.now();
+  const MIN_ANALYZE_MS = 600; // スピナーの最小表示時間 (ms)
+
+  const reader = new FileReader();
+  _currentReader = reader; // グローバルに保持して次回の呼び出しで abort できるようにする
+
+  reader.onload = e => {
+    // abort 後に遅れて発火した古い onload は無視する
+    if (reader !== _currentReader) return;
+    _currentReader = null;
+
+    const buffer = e.target.result;
+    const text   = stripQuotedNewlines(decodeBuffer_(buffer));
+
+    // validateCsv() 内で getCsvFormatRules() が throw する場合があるため try/catch する。
+    // 未捕捉のまま例外が飛ぶと dropZone が is-analyzing のまま固まるため、
+    // catch 時はスピナーを解除してユーザーに通知する。
+    let errors, rows;
+    try {
+      ({ errors, rows } = validateCsv(text));
+    } catch (err) {
+      _currentReader = null;
+      dropZone.classList.remove('is-analyzing');
+      showToast(err.message || 'CSVの検証中にエラーが発生しました');
+      resetDropZone();
+      return;
+    }
+
+    // ── 当月重複チェック（sessionStorage キャッシュ参照）────────────────
+    try {
+      const cachedInvoices = JSON.parse(sessionStorage.getItem('shiire_invoices_cache') || '[]');
+      const jstDup = jstNow_();
+      const currentYM = jstDup.year + '/' + String(jstDup.month).padStart(2, '0');
+      const hasCurrentMonth = cachedInvoices.some(inv => inv.created_at && inv.created_at.startsWith(currentYM));
+      if (hasCurrentMonth) {
+        errors.push('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
+      }
+    } catch (e) {
+      console.warn('[upload] 当月重複チェックに失敗しました:', e);
+    }
+
+    // ── 加盟店網羅性チェック（アラート: 非ブロッキング）────────────────────
+    const warnings = [];
+    if (rows.length > 0) {
+      try {
+        const mappings = getMerchantMappings();
+        const csvCustomerCodes = new Set(rows.map(r => String(r.customer_code)));
+        mappings.forEach(m => {
+          if (m.is_active !== false && !csvCustomerCodes.has(String(m.customer_code))) {
+            warnings.push((m.store_name || m.customer_code) + 'の請求明細がありません。');
+          }
+        });
+      } catch (e) {
+        console.warn('[upload] 加盟店網羅性チェックに失敗しました:', e);
+      }
+    }
+
+    if (errors.length === 0) {
+      // 成功: Base64はメモリのみ保持（sessionStorageには保存しない・容量超過防止）
+      rawCsvBase64  = arrayBufferToBase64_(buffer);
+      // BQ Load Job は UTF-8 を前提とするため、decodeBuffer_() で変換済みの text を
+      // UTF-8 として再エンコードした Base64 を別途保持する
+      utf8CsvBase64 = stringToBase64Utf8_(text);
+      parsedData    = rows;
+      // parsedData のみ sessionStorage に保存（確認画面の表示用。リロード後は送信不可）
+      try {
+        sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows));
+      } catch (e) {
+        console.warn('[state] sessionStorage への保存に失敗しました:', e);
+      }
+    } else {
+      // エラー: 保持データをクリア
+      rawCsvBase64  = null;
+      utf8CsvBase64 = null;
+      parsedData    = null;
+      try {
+        sessionStorage.removeItem('shiire_parsedData');
+      } catch (e) {
+        console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+      }
+    }
+
+    // スピナーが最低表示時間に達するまで待ってから結果を描画する
+    const elapsed   = Date.now() - analyzeStartMs;
+    const remaining = Math.max(0, MIN_ANALYZE_MS - elapsed);
+    _analyzeTimer = setTimeout(() => {
+      _analyzeTimer = null;
+      dropZone.classList.remove('is-analyzing');
+      renderErrors(errors, warnings, file.name, file.size);
+    }, remaining);
+  };
+
+  reader.onerror = () => {
+    if (reader !== _currentReader) return;
+    _currentReader = null;
+    dropZone.classList.remove('is-analyzing');
+    showToast('ファイルの読み込みに失敗しました');
+    resetDropZone();
+  };
+
+  // SJIS / UTF-8 を自動判定するため ArrayBuffer で読み込む
+  reader.readAsArrayBuffer(file);
+}
+
+
+// =============================================================================
+// Upload page: Render errors to UI
+// =============================================================================
+
+/**
+ * @param {string[]} errors   - ブロッキングエラー（送信ボタンを disabled にする）
+ * @param {string[]} warnings - 非ブロッキングアラート（送信は可能）
+ * @param {string}   [fileName] - 成功時に表示するファイル名
+ * @param {number}   [fileSize] - ファイルサイズ（バイト）
+ */
+function renderErrors(errors, warnings, fileName, fileSize) {
+  // リストをいったん空にする
+  alertList.innerHTML = '';
+  const hasErrors   = errors.length > 0;
+  const hasWarnings = warnings && warnings.length > 0;
+
+  if (hasErrors || hasWarnings) {
+    // エラーがある場合は dropZone を初期状態に戻しファイル情報も非表示、アラートのみなら成功表示
+    if (hasErrors) {
+      resetDropZone();
+      fileInfoEl.classList.add('hidden');
+    } else {
+      setDropZoneSuccess(fileName || '', fileSize);
+    }
+
+    // エラーを先に表示
+    errors.forEach(msg => {
+      const li = document.createElement('li');
+      li.className = 'alert-item alert-item--error';
+      li.innerHTML = '<i class="fa-solid fa-circle alert-icon"></i>' + escapeHtml(msg);
+      alertList.appendChild(li);
+    });
+    // アラートを後に表示
+    (warnings || []).forEach(msg => {
+      const li = document.createElement('li');
+      li.className = 'alert-item alert-item--warn';
+      li.innerHTML = '<i class="fa-solid fa-triangle-exclamation alert-icon"></i>' + escapeHtml(msg);
+      alertList.appendChild(li);
+    });
+
+    errorCard.classList.remove('hidden');
+    btnToConfirm.disabled = hasErrors; // エラーがなければボタン有効
+  } else {
+    // エラーもアラートもなし → 成功表示
+    setDropZoneSuccess(fileName || '', fileSize);
+    errorCard.classList.add('hidden');
+    btnToConfirm.disabled = false;
+  }
+}
+
+// =============================================================================
+// Upload page: Submit helpers & page reset
+// =============================================================================
+
+/** 確認ページ送信ボタンのデフォルトラベル（リセット時に使用） */
+const SUBMIT_DEFAULT_HTML = '登録内容を送信する <i class="fa-solid fa-chevron-right"></i>';
+
+/** 送信中 UI に切り替える */
+function setSubmitLoading() {
+  btnFinalSubmit.disabled = true;
+  btnFinalSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 送信中...';
+}
+
+/** 送信ボタンを通常状態に戻す（チェックボックスの状態に追従する） */
+function resetSubmitButton() {
+  const checked = document.getElementById('checkConfirm')?.checked ?? false;
+  btnFinalSubmit.disabled = !checked;
+  btnFinalSubmit.innerHTML = SUBMIT_DEFAULT_HTML;
+}
+
+/**
+ * 画面全体を初期状態にリセットする（送信成功後に呼ぶ）
+ */
+function resetPage() {
+  rawCsvBase64  = null;
+  utf8CsvBase64 = null;
+  parsedData    = null;
+  homeInitialized = false; // 登録完了後に #home へ戻ったとき請求一覧を再取得する
+  try {
+    sessionStorage.removeItem('shiire_parsedData');
+  } catch (e) {
+    console.warn('[state] sessionStorage のクリアに失敗しました:', e);
+  }
+  resetDropZone();
+  fileInfoEl.classList.add('hidden');
+  alertList.innerHTML = '';
+  errorCard.classList.add('hidden');
+  btnToConfirm.disabled = true;
+  btnToConfirm.innerHTML = '確認画面へ進む <i class="fa-solid fa-chevron-right"></i>';
+  resetSubmitButton();
+  hideToast();
+}
+
+// アップロードページ: 確認画面へ進むボタン
+btnToConfirm.addEventListener('click', () => {
+  if (!parsedData || !rawCsvBase64 || !utf8CsvBase64) {
+    showToast('送信できるデータがありません。CSVを再度選択してください。', 'error');
+    return;
+  }
+  location.hash = '#confirm';
+});
+
+// アップロードページ: ファイル削除ボタン → アップロード前の初期状態に戻す
+btnFileDelete.addEventListener('click', () => {
+  resetPage();
+});
+
+// =============================================================================
+// =============================================================================
+// Upload page: 一覧に戻る確認モーダル
+// =============================================================================
+
+const uploadBackModal      = document.getElementById('uploadBackModal');
+const btnUploadBack        = document.getElementById('btnUploadBack');
+const uploadBackModalClose = document.getElementById('uploadBackModalClose');
+const uploadBackModalOk    = document.getElementById('uploadBackModalOk');
+
+// 一覧に戻るボタン: ファイルがアップロード済みならモーダル表示、そうでなければそのまま戻る
+btnUploadBack.addEventListener('click', function () {
+  if (parsedData && parsedData.length > 0) {
+    uploadBackModal.classList.remove('hidden');
+  } else {
+    location.hash = '#home';
+  }
+});
+
+// モーダル: ×ボタンで閉じる
+uploadBackModalClose.addEventListener('click', () => {
+  uploadBackModal.classList.add('hidden');
+});
+
+// モーダル: 一覧に戻るボタン → データリセットしてホームへ
+uploadBackModalOk.addEventListener('click', () => {
+  uploadBackModal.classList.add('hidden');
+  resetPage();
+  location.hash = '#home';
+});
+
+// モーダル: オーバーレイクリックで閉じる
+uploadBackModal.addEventListener('click', function (e) {
+  if (e.target === this) uploadBackModal.classList.add('hidden');
+});
+
+// モーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !uploadBackModal.classList.contains('hidden')) {
+    uploadBackModal.classList.add('hidden');
+  }
+});
+
+</script>

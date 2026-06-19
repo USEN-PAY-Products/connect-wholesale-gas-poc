@@ -17,7 +17,7 @@
 | ファイル | 役割 |
 |---------|------|
 | `fe_page_confirm.html` | HTML テンプレート |
-| `fe_js.html` | 描画ロジック（`renderConfirmPage()`, `collectSummaryData_()` 等） |
+| `fe_js_confirm.html` | 描画ロジック（`renderConfirmPage()`, `collectSummaryData_()` 等） |
 | `fe_css.html` | スタイル定義 |
 | `be_invoice.js` | バックエンド API（`sendInvoiceData()`, `bulkResubmitInvoiceData()`） |
 | `be_csv_mapper.js` | CSVマッピング・BQ SQL生成 |
@@ -201,7 +201,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant U as ユーザー
-    participant FE as FE (fe_js.html)
+    participant FE as FE (フロントエンド)
     participant BE as BE (be_invoice.js)
     participant BQ as BigQuery
     participant GD as Google Drive

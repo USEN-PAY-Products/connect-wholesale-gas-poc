@@ -1,0 +1,123 @@
+<script>
+// =============================================================================
+// Home page: 初期化
+// =============================================================================
+
+/**
+ * ホーム画面表示時に GAS からデータを取得し、カレンダーと請求履歴を描画する。
+ * 既に描画済みの場合は再描画しない（フラグ管理）。
+ */
+let homeInitialized = false;
+
+function initHomePage() {
+  if (homeInitialized) return;
+  // アカウント情報が未取得の場合（getAccountInfo失敗時など）はスキップ
+  if (!sessionStorage.getItem('shiire_wholesaler_id')) return;
+  homeInitialized = true;
+
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    // スケジュールデータ取得（共通関数で遅延ロード）
+    loadScheduleData_();
+
+    // 請求履歴取得（BQ直接取得: wholesaler_id はサーバー側でログインユーザーから確定するため引数不要）
+    showLoadingOverlay('請求情報を取得中...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        hideLoadingOverlay();
+        const invoices = result && result.data ? result.data : [];
+        try {
+          sessionStorage.setItem('shiire_invoices_cache', JSON.stringify(invoices));
+        } catch (e) {
+          console.warn('[home] sessionStorage への請求キャッシュ保存に失敗しました:', e);
+        }
+        renderBillingHistory(invoices);
+      })
+      .withFailureHandler(function(err) {
+        console.error('[home] fetchInvoices failed:', err);
+        hideLoadingOverlay();
+        renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
+      })
+      .fetchInvoices();
+  } else {
+    // GAS 環境外での実行は非対応
+    console.error('[home] google.script.run が利用できません。GAS Webアプリとして実行してください。');
+    renderCalendar();
+    renderBillingHistory([]);
+    hideLoadingOverlay();
+  }
+}
+// =============================================================================
+// Home page: 請求履歴描画
+// =============================================================================
+
+/**
+ * 請求履歴リストを描画する
+ * @param {Array<{
+ *   wholesaler_invoice_id: string,
+ *   wholesaler_invoice_date: string,
+ *   wholesaler_total_amount: number,
+ *   wholesaler_subtotal_amount: number,
+ *   wholesaler_tax_amount: number,
+ *   wholesaler_standard_tax_target_amount: number,
+ *   wholesaler_standard_tax_amount: number,
+ *   wholesaler_reduced_tax_target_amount: number,
+ *   wholesaler_reduced_tax_amount: number,
+ *   wholesaler_fee_rate: number,
+ *   invoice_fee_amount: number,
+ *   payment_amount: number
+ * }>} items
+ */
+function renderBillingHistory(items) {
+  const tbody = document.getElementById('billingHistoryBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!items || items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="billing-empty">請求履歴がありません。</td></tr>';
+    return;
+  }
+
+  const fmt = n => Number(n).toLocaleString('ja-JP');
+
+  items.forEach(item => {
+    const tr = document.createElement('tr');
+
+    // 請求月
+    const monthLabel = item.wholesaler_invoice_date
+      ? String(Number(item.wholesaler_invoice_date.slice(0, 4))) + '年' + String(Number(item.wholesaler_invoice_date.slice(5, 7))) + '月'
+      : '';
+
+    // 登録日時（created_at があれば使用、なければ invoice_date）
+    const regDate = item.created_at || item.wholesaler_invoice_date || '';
+    const regLabel = regDate ? regDate.replace('T', ' ').slice(0, 16) : '';
+
+    // 手数料（税込）
+    const feeAmount = item.invoice_fee_amount != null ? fmt(item.invoice_fee_amount) + '円' : '';
+
+    // 差戻し・否認バッジ（BQから has_resubmit / has_denial を 0/1 で取得）
+    const resubmitBadge = Number(item.has_resubmit)
+      ? '<span class="badge badge--resubmit"><i class="fa-solid fa-rotate-left"></i> 差戻し有</span>'
+      : '<span class="badge badge--none">差戻し無</span>';
+    const denialBadge = Number(item.has_denial)
+      ? '<span class="badge badge--denial"><i class="fa-solid fa-minus-circle"></i> 否認有</span>'
+      : '<span class="badge badge--none">否認無</span>';
+
+    tr.innerHTML = 
+      '<td>' + escapeHtml(monthLabel) + '</td>' +
+      '<td>' + escapeHtml(regLabel) + '</td>' +
+      '<td>' + fmt(item.wholesaler_total_amount) + '円</td>' +
+      '<td>' + feeAmount + '</td>' +
+      '<td>' + resubmitBadge + '</td>' +
+      '<td>' + denialBadge + '</td>' +
+      '<td><button type="button" class="btn-detail-link" data-id="' + escapeHtml(item.root_id || item.wholesaler_invoice_id) + '">詳細を見る &gt;</button></td>';
+
+    tr.querySelector('.btn-detail-link').addEventListener('click', function() {
+      location.hash = '#detail?invoiceId=' + encodeURIComponent(this.dataset.id);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+</script>

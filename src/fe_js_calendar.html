@@ -1,0 +1,509 @@
+<script>
+// =============================================================================
+// Home page: カレンダー状態
+// =============================================================================
+
+/** 現在表示中の年月（初期値は実行時の当月） */
+const _today = new Date();
+let calYear  = _today.getFullYear();
+let calMonth = _today.getMonth(); // 0始まり
+
+/** スケジュールデータのキャッシュ（日付文字列 → オブジェクト配列） */
+let scheduleMap = {};
+let _scheduleLoaded = false;
+
+/**
+ * スケジュールデータを取得する。
+ * 1. sessionStorage に当月キャッシュがあれば即座に scheduleMap を構築（瞬時表示）
+ * 2. BQ からも非同期で取得し、全月データで上書き
+ *    ※ キャッシュは当月分のみ保持（初期表示高速化目的）
+ */
+function loadScheduleData_() {
+  if (_scheduleLoaded) return;
+  const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
+  if (!wholesalerId) return;
+  const jst = jstNow_();
+  const currentYM = jst.ym;
+  const cacheKey = 'shiire_schedule_cache_' + wholesalerId + '_' + currentYM;
+
+  // ① sessionStorage キャッシュから当月分を即座に復元
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        buildScheduleMap(parsed);
+        const overlay = document.getElementById('calendarModalOverlay');
+        if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
+      }
+    }
+  } catch (e) {
+    console.warn('[calendar] sessionStorage キャッシュ復元失敗:', e);
+  }
+
+  // ② BQ から最新データを非同期取得
+  if (typeof google === 'undefined' || !google.script || !google.script.run) return;
+  _scheduleLoaded = true;
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      const data = result && result.data ? result.data : [];
+      // sessionStorage には当月分のみキャッシュ（初期表示高速化目的）
+      try {
+        const monthStart = currentYM + '-01';
+        const lastDay = new Date(jst.year, jst.month, 0).getDate();
+        const monthEnd = currentYM + '-' + String(lastDay).padStart(2, '0');
+        const currentMonthOnly = data.filter(function(item) {
+          const s = String(item.start_at).slice(0, 10);
+          const e = String(item.end_at).slice(0, 10);
+          return !(e < monthStart || s > monthEnd);
+        });
+        sessionStorage.setItem(cacheKey, JSON.stringify(currentMonthOnly));
+      } catch (e) {
+        console.warn('[calendar] sessionStorage へのキャッシュ保存失敗:', e);
+      }
+      buildScheduleMap(data);
+      const overlay = document.getElementById('calendarModalOverlay');
+      if (overlay && !overlay.classList.contains('hidden')) renderCalendar();
+      // アップロードページ表示中ならキャッシュ更新後に期限チェックを再実行
+      const uploadPage = document.getElementById('pageUpload');
+      if (uploadPage && !uploadPage.classList.contains('hidden')) {
+        checkUploadDeadline_();
+      }
+    })
+    .withFailureHandler(function(err) {
+      console.error('[calendar] fetchScheduleData failed:', err);
+      _scheduleLoaded = false; // 失敗時は再取得可能にする
+    })
+    .fetchScheduleData();
+}
+
+// カレンダーモーダル: 開閉制御（ページに依存しないためグローバルで登録）
+(function() {
+  const calOverlay = document.getElementById('calendarModalOverlay');
+  const btnOpen    = document.getElementById('btnCalendarOpen');
+  const btnClose   = document.getElementById('calendarModalClose');
+  const FOCUSABLE_SEL = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  let _calTrigger  = null; // モーダルを開いた要素（閉じ後にフォーカスを戻す）
+
+  function openCalendarModal() {
+    loadScheduleData_();
+    _calTrigger = document.activeElement;
+    calOverlay.classList.remove('hidden');
+    renderCalendar();
+    // フォーカスをモーダル内へ転送
+    const first = calOverlay.querySelector(FOCUSABLE_SEL);
+    if (first) first.focus();
+  }
+
+  function closeCalendarModal() {
+    calOverlay.classList.add('hidden');
+    // フォーカスをトリガー要素に戻す
+    if (_calTrigger && typeof _calTrigger.focus === 'function') _calTrigger.focus();
+    _calTrigger = null;
+  }
+
+  if (btnOpen) {
+    btnOpen.addEventListener('click', openCalendarModal);
+  }
+  if (btnClose) {
+    btnClose.addEventListener('click', closeCalendarModal);
+  }
+  if (calOverlay) {
+    calOverlay.addEventListener('click', function(e) {
+      if (e.target === calOverlay) closeCalendarModal();
+    });
+  }
+
+  // Escape キーで閉じる
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && calOverlay && !calOverlay.classList.contains('hidden')) {
+      e.stopPropagation();
+      closeCalendarModal();
+    }
+  });
+
+  // フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+  if (calOverlay) {
+    calOverlay.addEventListener('keydown', function(e) {
+      if (e.key !== 'Tab') return;
+      const focusable = Array.from(calOverlay.querySelectorAll(FOCUSABLE_SEL));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last  = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+  }
+
+  // 前月 / 翌月ナビゲーション（ページ非依存でグローバル登録）
+  // ※ ホーム未経由で詳細画面へ直接遷移してカレンダーを開いた場合でも動作させるため、
+  //   旧 initHomePage 内の登録をここ（カレンダーモーダル）へ移管している。
+  const btnPrev = document.getElementById('calPrev');
+  const btnNext = document.getElementById('calNext');
+  if (btnPrev) {
+    btnPrev.addEventListener('click', function() {
+      calMonth -= 1;
+      if (calMonth < 0) { calMonth = 11; calYear -= 1; }
+      renderCalendar();
+    });
+  }
+  if (btnNext) {
+    btnNext.addEventListener('click', function() {
+      calMonth += 1;
+      if (calMonth > 11) { calMonth = 0; calYear += 1; }
+      renderCalendar();
+    });
+  }
+})();
+// =============================================================================
+// Home page: スケジュールマップ構築
+// =============================================================================
+
+/**
+ * business_calendar の行を日付 → イベント配列のマップに変換してキャッシュ。
+ * start_at〜end_at の範囲を日毎に展開し、位置情報（start/middle/end/single）を付与する。
+ * @param {Array<{event_type:string, start_at:string, end_at:string, event_description:string, display_color_code:string}>} items
+ */
+let _rawScheduleItems = [];
+function buildScheduleMap(items) {
+  _rawScheduleItems = items || [];
+  scheduleMap = {};
+
+  // 各イベントに「レーン番号（縦位置）」を割り当てる。
+  // 期間が重なるイベント同士は別レーンに、重ならないイベントは同レーンを再利用する。
+  // これにより複数日にまたがる期間は同じレーン上で横一列のバーとして連続表示され、
+  // 重なった期間は縦に積まれて個別に視認できるようになる。
+  const laneEnds = []; // laneEnds[i] = レーン i に最後に置いたイベントの終了日(ms)
+  const laneByItem = new Map();
+  _rawScheduleItems
+    .map(function(item) {
+      return {
+        item:  item,
+        start: new Date(item.start_at).getTime(),
+        end:   new Date(item.end_at).getTime(),
+      };
+    })
+    // 開始日昇順 → 期間が長い順（長い期間を上のレーンに優先配置）
+    .sort(function(a, b) {
+      return a.start - b.start || (b.end - b.start) - (a.end - a.start);
+    })
+    .forEach(function(rec) {
+      let lane = laneEnds.findIndex(function(endMs) { return endMs < rec.start; });
+      if (lane === -1) { lane = laneEnds.length; }
+      laneEnds[lane] = rec.end;
+      laneByItem.set(rec.item, lane);
+    });
+
+  _rawScheduleItems.forEach(item => {
+    const start = new Date(item.start_at);
+    const end   = new Date(item.end_at);
+    const isSingle = (start.getTime() === end.getTime());
+    const lane = laneByItem.get(item) || 0;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const key = d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+      if (!scheduleMap[key]) scheduleMap[key] = [];
+      const pos = isSingle ? 'single'
+        : (d.getTime() === start.getTime()) ? 'start'
+        : (d.getTime() === end.getTime()) ? 'end'
+        : 'middle';
+      scheduleMap[key].push({
+        title: item.event_description,
+        color: item.display_color_code || '#ccc',
+        event_type: item.event_type,
+        pos: pos,
+        lane: lane,
+        endDate: new Date(item.end_at),
+      });
+    }
+  });
+}
+
+// =============================================================================
+// Home page: カレンダー描画
+// =============================================================================
+
+/**
+ * セル内の「日付番号の下に表示する期間バー」コンテナを生成する。
+ * イベントを lane（縦位置）ごとのスロットに配置し、空きレーンには透明な
+ * スペーサーを入れて全セルでレーン位置を揃える。これにより複数日にまたがる
+ * 期間は横方向に連続したバーとして表示され、重なった期間も縦に並んで判別できる。
+ * @param {Array<{color:string, pos:string, lane:number, title:string}>} events
+ * @param {number} maxLane 表示中の月で必要なレーンの最大インデックス
+ * @returns {HTMLElement} バーコンテナ要素
+ */
+function buildCellBars_(events, maxLane) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cal-cell__bars';
+
+  // lane => event の対応表（同一レーンに複数来た場合は最初のものを採用）
+  const byLane = {};
+  (events || []).forEach(function(ev) {
+    const lane = ev.lane || 0;
+    if (byLane[lane] === undefined) byLane[lane] = ev;
+  });
+
+  for (let lane = 0; lane <= maxLane; lane++) {
+    const bar = document.createElement('span');
+    const ev  = byLane[lane];
+    if (ev) {
+      bar.className = 'cal-bar cal-bar--' + ev.pos;
+      bar.style.background = ev.color;
+      bar.title = ev.title || '';
+    } else {
+      bar.className = 'cal-bar cal-bar--spacer';
+    }
+    wrap.appendChild(bar);
+  }
+  return wrap;
+}
+
+function renderCalendar() {
+  const label = document.getElementById('calMonthLabel');
+  const grid  = document.getElementById('calGrid');
+  if (!label || !grid) return;
+
+  // 月ラベル（右横のカレンダーアイコンで月選択パネル表示）
+  label.innerHTML = `<span class="cal-label__year">${calYear}年</span><span class="cal-label__month">${calMonth + 1}月</span>` +
+    `<button class="cal-month-toggle" id="calMonthToggle" aria-label="月選択"><i class="fa-regular fa-calendar"></i></button>`;
+  label.style.cursor = 'default';
+  label.onclick = null;
+  document.getElementById('calMonthToggle').addEventListener('click', function(e) {
+    e.stopPropagation();
+    toggleMonthPicker_();
+  });
+
+  grid.innerHTML  = '';
+
+  // 月選択パネル（既存なら再利用）
+  renderMonthPicker_();
+
+  // 月の初日の曜日（0=日, 6=土）
+  const firstDay  = new Date(calYear, calMonth, 1).getDay();
+  // 月の末日
+  const lastDate  = new Date(calYear, calMonth + 1, 0).getDate();
+  // 今日
+  const today     = new Date();
+  const isThisMonth = today.getFullYear() === calYear && today.getMonth() === calMonth;
+
+  // 空白セル（月初前）
+  for (let i = 0; i < firstDay; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'cal-cell cal-cell--empty';
+    grid.appendChild(blank);
+  }
+
+  // 表示中の月で必要なレーン数（期間バーの縦スロット数）を算出
+  let monthMaxLane = -1;
+  for (let d = 1; d <= lastDate; d++) {
+    const k = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    (scheduleMap[k] || []).forEach(function(ev) {
+      if ((ev.lane || 0) > monthMaxLane) monthMaxLane = ev.lane || 0;
+    });
+  }
+
+  // 日付セル
+  for (let d = 1; d <= lastDate; d++) {
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell';
+
+    const mm   = String(calMonth + 1).padStart(2, '0');
+    const dd   = String(d).padStart(2, '0');
+    const key  = `${calYear}-${mm}-${dd}`;
+
+    if (isThisMonth && d === today.getDate()) {
+      cell.classList.add('cal-cell--today');
+    }
+
+    // 日付番号
+    const num = document.createElement('span');
+    num.className   = 'cal-cell__num';
+    num.textContent = String(d);
+    cell.appendChild(num);
+
+    // スケジュール期間バー（日付番号の下に lane 順で表示）
+    const events = scheduleMap[key] || [];
+    if (events.length > 0) {
+      cell.classList.add('cal-cell--has-event');
+    }
+    // 全セルでレーン位置を揃えるため、イベントが無いセルもスペーサーで高さを確保
+    if (monthMaxLane >= 0) {
+      cell.appendChild(buildCellBars_(events, monthMaxLane));
+    }
+
+    grid.appendChild(cell);
+  }
+
+  // 凡例を描画
+  renderCalendarLegend_();
+}
+
+/**
+ * カレンダー下の凡例を描画する。
+ * _rawScheduleItems のうち表示中の月に期間が重なるイベントだけを
+ * 重複排除して色 + description の一覧で表示。
+ */
+function renderCalendarLegend_() {
+  const legendEl = document.getElementById('calLegend');
+  if (!legendEl) return;
+  legendEl.innerHTML = '';
+
+  // 表示中の月の範囲（YYYY-MM-DD 文字列で比較 ─ タイムゾーンずれ回避）
+  const mm = String(calMonth + 1).padStart(2, '0');
+  const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
+  const monthStartStr = calYear + '-' + mm + '-01';
+  const monthEndStr   = calYear + '-' + mm + '-' + String(lastDay).padStart(2, '0');
+
+  // 色 + description でユニークな凡例項目を抽出（表示中の月に重なるもののみ）
+  const seen = new Set();
+  const items = [];
+  _rawScheduleItems.forEach(function(item) {
+    // イベント期間が表示中の月と重なるか判定（文字列比較）
+    const evStart = String(item.start_at).slice(0, 10);
+    const evEnd   = String(item.end_at).slice(0, 10);
+    if (evEnd < monthStartStr || evStart > monthEndStr) return; // 月外 → スキップ
+
+    const key = (item.display_color_code || '#ccc') + '|' + (item.event_description || '');
+    if (!seen.has(key)) {
+      seen.add(key);
+      items.push({
+        color: item.display_color_code || '#ccc',
+        description: item.event_description || ''
+      });
+    }
+  });
+
+  items.forEach(function(item) {
+    const row = document.createElement('div');
+    row.className = 'cal-legend__item';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'cal-legend__swatch';
+    swatch.style.background = item.color;
+
+    const label = document.createElement('span');
+    label.className = 'cal-legend__label';
+    label.textContent = item.description;
+
+    row.appendChild(swatch);
+    row.appendChild(label);
+    legendEl.appendChild(row);
+  });
+}
+
+// 月選択パネル
+let _pickerYear = null; // 月選択パネルで表示中の年
+
+function renderMonthPicker_() {
+  const labelEl = document.getElementById('calMonthLabel');
+  if (!labelEl) return;
+  if (_pickerYear === null) _pickerYear = calYear;
+
+  let picker = document.getElementById('calMonthPicker');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'calMonthPicker';
+    picker.className = 'cal-month-picker hidden';
+    picker.addEventListener('click', function(e) { e.stopPropagation(); });
+    labelEl.appendChild(picker);
+  }
+  picker.innerHTML = '';
+
+  // 年ヘッダー（< 年 >）
+  const yearHeader = document.createElement('div');
+  yearHeader.className = 'cal-month-picker__year-header';
+  yearHeader.innerHTML =
+    '<button class="calendar-nav cal-picker-nav" id="pickerYearPrev">&lt;</button>' +
+    '<span class="cal-month-picker__year-label">' + _pickerYear + '年</span>' +
+    '<button class="calendar-nav cal-picker-nav" id="pickerYearNext">&gt;</button>';
+  picker.appendChild(yearHeader);
+
+  // 年ナビイベント
+  yearHeader.querySelector('#pickerYearPrev').addEventListener('click', function(e) {
+    e.stopPropagation();
+    _pickerYear--;
+    renderMonthPicker_();
+    picker.classList.remove('hidden');
+  });
+  yearHeader.querySelector('#pickerYearNext').addEventListener('click', function(e) {
+    e.stopPropagation();
+    _pickerYear++;
+    renderMonthPicker_();
+    picker.classList.remove('hidden');
+  });
+
+  // 月グリッド（4x3）
+  const monthGrid = document.createElement('div');
+  monthGrid.className = 'cal-month-picker__grid';
+  const today = new Date();
+  for (let m = 0; m < 12; m++) {
+    const btn = document.createElement('button');
+    const isSelected = (m === calMonth && _pickerYear === calYear);
+    const isCurrent  = (m === today.getMonth() && _pickerYear === today.getFullYear());
+    let cls = 'cal-month-picker__btn';
+    if (isSelected) cls += ' cal-month-picker__btn--active';
+    else if (isCurrent) cls += ' cal-month-picker__btn--current';
+    btn.className = cls;
+    btn.textContent = (m + 1) + '月';
+    btn.addEventListener('click', function() {
+      calYear = _pickerYear;
+      calMonth = m;
+      picker.classList.add('hidden');
+      renderCalendar();
+    });
+    monthGrid.appendChild(btn);
+  }
+  picker.appendChild(monthGrid);
+}
+
+function toggleMonthPicker_() {
+  const picker = document.getElementById('calMonthPicker');
+  if (picker) {
+    _pickerYear = calYear;
+    picker.classList.toggle('hidden');
+    if (!picker.classList.contains('hidden')) {
+      renderMonthPicker_();
+      // 外側クリック・Escで閉じる
+      setTimeout(function() {
+        document.addEventListener('click', _closePickerOnOutsideClick);
+        document.addEventListener('keydown', _closePickerOnEscape);
+      }, 0);
+    } else {
+      _removePickerListeners();
+    }
+  }
+}
+
+/** ピッカー関連リスナーを確実に解除する */
+function _removePickerListeners() {
+  document.removeEventListener('click', _closePickerOnOutsideClick);
+  document.removeEventListener('keydown', _closePickerOnEscape);
+}
+
+function _closePickerOnOutsideClick(e) {
+  const picker = document.getElementById('calMonthPicker');
+  if (!picker) {
+    // DOMから消えている場合もリスナーを解除
+    _removePickerListeners();
+    return;
+  }
+  if (!picker.contains(e.target)) {
+    picker.classList.add('hidden');
+    _removePickerListeners();
+  }
+}
+
+function _closePickerOnEscape(e) {
+  if (e.key !== 'Escape') return;
+  const picker = document.getElementById('calMonthPicker');
+  if (picker) {
+    picker.classList.add('hidden');
+  }
+  _removePickerListeners();
+}
+</script>

@@ -16,7 +16,8 @@ CSVアップロード画面は、卸事業者が新規請求データをCSVフ�
 | ファイル | 役割 |
 |---------|------|
 | `fe_page_csv_upload.html` | HTML テンプレート |
-| `fe_js.html` | アップロードロジック（`handleFile()`, `validateCsv()`, `renderErrors()` 等） |
+| `fe_js_upload.html` | アップロードロジック（`handleFile()`, `renderErrors()` 等） |
+| `fe_js_csv_common.html` | CSV 共通処理（`validateCsv()`, `parseCsvLine()`） |
 | `fe_css.html` | スタイル定義 |
 
 ---
@@ -167,7 +168,7 @@ stateDiagram-v2
 sequenceDiagram
     participant U as ユーザー
     participant DZ as ドロップゾーン
-    participant FE as FE (fe_js.html)
+    participant FE as FE (フロントエンド)
     participant SS as SessionStorage
 
     U->>DZ: ファイル選択 / D&D

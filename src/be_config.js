@@ -6,7 +6,7 @@
 //   GCP_PROJECT_ID         … BigQuery の GCP プロジェクト ID
 //   BQ_DATASET_ID          … BigQuery のデータセット ID（例: connect_db）
 //   BQ_LOCATION            … BigQuery のリージョン（例: asia-northeast1。未設定時は US フォールバック）
-//   LP_URL                 … ログアウト後のリダイレクト先 LP URL（例: https://connect-dev.usen-pay.com/）
+//   LP_URL                 … ログアウト後のリダイレクト先 LP URL（例: https://connect.dev.usen-pay.com/）
 //   ENV                    … 実行環境（development / production）。development のときヘッダー等に "(Dev)" を表示
 //
 // 設定方法（GASエディタ）:
@@ -67,7 +67,7 @@ function setupScriptProperties(forceOverwrite) {
     'DRIVE_ROOT_FOLDER_ID': '1rGvUwmPpkxTsYN2tRIo-UM4PnKAnx5Ro',  // 本番フォルダ ID に変更してください
     'GCP_PROJECT_ID':       'usenpay-connect-dev',
     'BQ_DATASET_ID':        'connect_db',
-    'LP_URL':               'https://connect-dev.usen-pay.com/',   // 本番 LP URL は別途設定
+    'LP_URL':               'https://connect.dev.usen-pay.com/',   // 本番 LP URL は別途設定
     'ENV':                  'development',
   });
   console.log('[setupScriptProperties] Script Properties を設定しました（ENV=development）。');
@@ -101,7 +101,7 @@ function overwriteGcpProjectId() {
 
 /** LP_URL を開発環境用の値に設定する */
 function overwriteLpUrl() {
-  overwriteScriptProperty_('LP_URL', 'https://connect-dev.usen-pay.com/');
+  overwriteScriptProperty_('LP_URL', 'https://connect.dev.usen-pay.com/');
 }
 
 /**

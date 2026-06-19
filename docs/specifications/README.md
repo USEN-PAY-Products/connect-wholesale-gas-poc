@@ -71,7 +71,13 @@ flowchart TD
 | `src/` | `fe_page_detail.html` | 詳細画面 HTML |
 | `src/` | `fe_page_error.html` | エラー画面 HTML |
 | `src/` | `fe_css.html` | 全画面共通 CSS |
-| `src/` | `fe_js.html` | 全画面共通 JavaScript（ルーター・各画面ロジック） |
+| `src/` | `fe_js_common.html` | 共通基盤（ルーター・トースト・ヘッダー/ログアウト・アカウント初期化） |
+| `src/` | `fe_js_csv_common.html` | CSV 共通処理（`validateCsv` / `parseCsvLine` / `getCsvFormatRules`） |
+| `src/` | `fe_js_calendar.html` | 請求スケジュールカレンダー（ホーム・詳細で共有） |
+| `src/` | `fe_js_home.html` | ホーム画面ロジック |
+| `src/` | `fe_js_upload.html` | CSVアップロード画面ロジック |
+| `src/` | `fe_js_confirm.html` | 確認画面ロジック |
+| `src/` | `fe_js_detail.html` | 詳細画面ロジック（再アップロードモーダル含む） |
 | `src/` | `be_main.js` | GAS エントリーポイント |
 | `src/` | `be_server.js` | アカウント情報取得 |
 | `src/` | `be_invoice.js` | 請求データ関連 API |

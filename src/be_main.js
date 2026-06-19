@@ -10,7 +10,7 @@
  * fe_index.html をテンプレートとして評価し、HTMLページを返す。
  *
  * 開発環境（ENV=development）のときだけタブタイトルとヘッダーのサービス名に
- * "(Dev)" を付与する（ヘッダー側の付与は fe_js.html が window.__APP_IS_DEV__ を参照）。
+ * "(Dev)" を付与する（ヘッダー側の付与は fe_js_common.html が window.__APP_IS_DEV__ を参照）。
  */
 function doGet(e) {
   // 環境判定は既存ヘルパー getConfig_() を再利用する。

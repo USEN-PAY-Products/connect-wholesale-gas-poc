@@ -27,7 +27,13 @@ shiire-poc-supplier/
     ├── be_invoice.js          # Back-end: 請求ドメイン（sendInvoiceData / fetchInvoices / fetchInvoiceDetail）
     ├── fe_index.html          # Front-end: SPA ルート HTML（GAS テンプレート）
     ├── fe_css.html            # Front-end: 共通スタイルシート（<style> タグ）
-    ├── fe_js.html             # Front-end: クライアント JS 全結合（<script> タグ）
+    ├── fe_js_common.html      # Front-end: 共通基盤（ルーター・トースト・ヘッダー/ログアウト・アカウント初期化）
+    ├── fe_js_csv_common.html  # Front-end: CSV 共通処理（validateCsv / parseCsvLine / getCsvFormatRules）
+    ├── fe_js_calendar.html    # Front-end: カレンダー（ホーム・詳細で共有）
+    ├── fe_js_home.html        # Front-end: ホーム画面ロジック
+    ├── fe_js_upload.html      # Front-end: CSVアップロード画面ロジック
+    ├── fe_js_confirm.html     # Front-end: 確認画面ロジック
+    ├── fe_js_detail.html      # Front-end: 詳細画面ロジック（再アップロードモーダル含む）
     ├── fe_part_header.html    # Front-end: 【パーツ】共通ヘッダー
     ├── fe_page_home.html      # Front-end: 【画面】ホーム
     ├── fe_page_csv_upload.html # Front-end: 【画面】CSV アップロード
@@ -76,7 +82,13 @@ claspは `rootDir: "./src"` を参照するため、`src/` 内のファイルの
 <?!= include('fe_css'); ?>
 <?!= include('fe_part_header'); ?>
 <?!= include('fe_page_home'); ?>
-<?!= include('fe_js'); ?>
+<?!= include('fe_js_common'); ?>
+<?!= include('fe_js_csv_common'); ?>
+<?!= include('fe_js_calendar'); ?>
+<?!= include('fe_js_home'); ?>
+<?!= include('fe_js_upload'); ?>
+<?!= include('fe_js_confirm'); ?>
+<?!= include('fe_js_detail'); ?>
 ```
 
 

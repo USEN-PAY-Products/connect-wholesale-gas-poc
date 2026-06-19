@@ -22,7 +22,13 @@ src/
 ├── db_bq_query.js           # DB: BQ 参照系クエリ（請求一覧・詳細）
 ├── fe_index.html            # Front-end: SPAのルートHTML（GASテンプレート）
 ├── fe_css.html              # Front-end: 共通スタイルシート（styleタグ）
-├── fe_js.html               # Front-end: クライアントJS全結合（scriptタグ）
+├── fe_js_common.html        # Front-end: 共通基盤（ルーター・トースト・ローディング・ヘッダー/ログアウト・アカウント初期化）
+├── fe_js_csv_common.html    # Front-end: CSV共通処理（validateCsv / parseCsvLine / getCsvFormatRules）
+├── fe_js_calendar.html      # Front-end: カレンダー（ホーム・詳細で共有）
+├── fe_js_home.html          # Front-end: 【画面】ホームのJSロジック
+├── fe_js_upload.html        # Front-end: 【画面】CSVアップロードのJSロジック
+├── fe_js_confirm.html       # Front-end: 【画面】確認画面のJSロジック
+├── fe_js_detail.html        # Front-end: 【画面】詳細画面のJSロジック（再アップロードモーダル含む）
 ├── fe_part_header.html      # Front-end: 【パーツ】共通ヘッダー
 ├── fe_page_home.html        # Front-end: 【画面】ホーム
 ├── fe_page_csv_upload.html  # Front-end: 【画面】CSVアップロード
@@ -67,6 +73,23 @@ function include(filename) {
 | `be_invoice.js` | 請求ドメインのロジック（sendInvoiceData, fetch系, モック） |
 | `be_xxx.js` | 新機能を追加する際は **機能名（ドメイン名）** を冠した新ファイルを作成する |
 
+### フロントエンドのファイル分割方針
+
+フロントエンドの JS は **画面（ページ）単位** で分割します。複数画面で共有する処理は共通ファイルに置きます。
+各 JS ファイルは `fe_index.html` から include して結合されます（それぞれ独自の `<script>` タグで囲むこと）。
+
+| ファイル | 責務 |
+|---|---|
+| `fe_js_common.html` | 全画面共通: ハッシュルーター・トースト・ローディング・`escapeHtml`・ヘッダー/ログアウト・アカウント情報取得（DOMContentLoaded 初期化） |
+| `fe_js_csv_common.html` | CSV 共通処理: `validateCsv` / `parseCsvLine` / `getCsvFormatRules` / エンコード変換（アップロード・詳細の両画面が利用） |
+| `fe_js_calendar.html` | 請求スケジュールカレンダー（ホーム・詳細で共有） |
+| `fe_js_home.html` | ホーム画面のロジック（請求履歴一覧） |
+| `fe_js_upload.html` | CSVアップロード画面のロジック |
+| `fe_js_confirm.html` | 確認画面のロジック |
+| `fe_js_detail.html` | 詳細画面のロジック（修正ファイル再アップロードモーダル含む） |
+
+> ⚠️ GAS は include した全 JS を1つのグローバルスコープに連結します。トップレベルの `const` / `let` をファイル間で重複宣言すると `Identifier already declared` で全停止するため、**同名のグローバル変数・関数は1ファイルにのみ定義**すること。複数画面から使う処理は共通ファイル（`fe_js_common.html` 等）へ集約します。
+
 ### ファイル追加ルール
 
 - **DBアクセス処理を追加する**: 既存の `db_` ファイルに追記する。新しいDBアクセス層が必要な場合は `db_yyy.js` を新規作成する。
@@ -74,7 +97,7 @@ function include(filename) {
 - **新しい画面を追加する**: `fe_page_xxx.html` を新規作成し、`fe_index.html` に include タグを追加する。
 - **新しいパーツを追加する**: `fe_part_xxx.html` を新規作成し、必要な箇所で include する。
 - **CSSを追加する**: `fe_css.html` の style ブロック内に追記する。
-- **JSを追加する**: `fe_js.html` の script ブロック内に追記する。JSが肥大化した場合は画面単位で `fe_js_xxx.html` に分割し、`fe_index.html` で include する。
+- **JSを追加する**: 対象の画面・責務に対応する `fe_js_xxx.html`（例: ホームなら `fe_js_home.html`、共通処理なら `fe_js_common.html`）の script ブロック内に追記する。新しい画面を追加した場合は `fe_js_xxx.html` を新規作成し、`fe_index.html` で include する。複数画面で共有する処理は `fe_js_common.html` / `fe_js_csv_common.html` / `fe_js_calendar.html` に置く。
 
 ---
 
