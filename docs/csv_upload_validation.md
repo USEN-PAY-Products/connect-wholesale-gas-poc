@@ -3,7 +3,7 @@
 ## 概要
 
 CSVアップロード画面（請求内容の登録）で実行されるバリデーションの一覧。  
-フロントエンド側は `fe_js.html` の `validateCsv()` 関数で実行される。
+フロントエンド側は `fe_js_csv_common.html` の `validateCsv()` 関数で実行される。
 
 ---
 
@@ -91,7 +91,7 @@ CSVアップロード画面（請求内容の登録）で実行されるバリ�
 
 ## 関連ファイル
 
-- `src/fe_js.html` — フロントエンドバリデーション（`validateCsv()`, `parseCsvLine()`）
+- `src/fe_js_csv_common.html` — フロントエンドバリデーション（`validateCsv()`, `parseCsvLine()`）
 - `src/fe_page_csv_upload.html` — アップロード画面 HTML
 - `src/be_csv_mapper.js` — バックエンドバリデーション・SQL生成
 

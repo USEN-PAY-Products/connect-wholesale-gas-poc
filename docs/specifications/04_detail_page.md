@@ -17,7 +17,9 @@
 | ファイル | 役割 |
 |---------|------|
 | `fe_page_detail.html` | HTML テンプレート |
-| `fe_js.html` | 描画ロジック・イベントハンドラ |
+| `fe_js_detail.html` | 描画ロジック・イベントハンドラ（再アップロードモーダル含む） |
+| `fe_js_csv_common.html` | CSV 共通処理（再アップロード時の `validateCsv()` 等） |
+| `fe_js_calendar.html` | 請求スケジュールカレンダー（ホームと共有） |
 | `fe_css.html` | スタイル定義 |
 | `be_invoice.js` | バックエンド API |
 | `db_bq_query.js` | BigQuery クエリ関数 |
@@ -168,7 +170,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant U as ユーザー
-    participant FE as FE (fe_js.html)
+    participant FE as FE (フロントエンド)
     participant BE as BE (be_invoice.js)
     participant BQ as BigQuery
 

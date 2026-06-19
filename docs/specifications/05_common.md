@@ -11,7 +11,13 @@
 | `fe_index.html` | エントリーポイント HTML（全画面を include） |
 | `fe_part_header.html` | 共通ヘッダー HTML |
 | `fe_css.html` | 全画面共通 CSS（3000行超） |
-| `fe_js.html` | ルーター・共通ユーティリティ・全画面 JS |
+| `fe_js_common.html` | ルーター・共通ユーティリティ・トースト・ヘッダー/ログアウト・アカウント初期化 |
+| `fe_js_csv_common.html` | CSV 共通処理（`validateCsv` / `parseCsvLine` / `getCsvFormatRules`） |
+| `fe_js_calendar.html` | 請求スケジュールカレンダー（ホーム・詳細で共有） |
+| `fe_js_home.html` | ホーム画面ロジック |
+| `fe_js_upload.html` | CSVアップロード画面ロジック |
+| `fe_js_confirm.html` | 確認画面ロジック |
+| `fe_js_detail.html` | 詳細画面ロジック（再アップロードモーダル含む） |
 | `fe_page_error.html` | エラー画面 HTML |
 | `be_main.js` | GAS エントリーポイント（`doGet`, `include`） |
 | `be_server.js` | アカウント認証（`getAccountInfo`）・ログアウト先URL取得（`getLogoutUrl`） |
@@ -43,7 +49,7 @@ flowchart TB
         INDEX["fe_index.html\nエントリーポイント"]
         HEADER["fe_part_header.html"]
         CSS["fe_css.html"]
-        JS["fe_js.html\nルーター + 全画面ロジック"]
+        JS["fe_js_*.html\nルーター + 各画面ロジック（7分割）"]
         HOME_HTML["fe_page_home.html"]
         UPLOAD_HTML["fe_page_csv_upload.html"]
         CONFIRM_HTML["fe_page_confirm.html"]

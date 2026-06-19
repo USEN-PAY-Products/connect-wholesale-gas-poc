@@ -16,7 +16,9 @@ Top画面は、卸事業者がログイン後最初に表示されるメイン�
 | ファイル | 役割 |
 |---------|------|
 | `fe_page_home.html` | HTML テンプレート |
-| `fe_js.html` | 描画ロジック（`initHomePage()`, `renderBillingHistory()` 等） |
+| `fe_js_home.html` | ホーム描画ロジック（`initHomePage()`, `renderBillingHistory()`） |
+| `fe_js_calendar.html` | 請求スケジュールカレンダー（`renderCalendar()` 等） |
+| `fe_js_common.html` | 共通基盤（ルーター・アカウント初期化・`loadScheduleData_()`） |
 | `fe_css.html` | スタイル定義 |
 | `be_invoice.js` | バックエンド API（`fetchInvoices()`, `fetchScheduleData()`） |
 | `db_bq_query.js` | BigQuery クエリ関数 |
@@ -92,7 +94,7 @@ block-beta
 ```mermaid
 sequenceDiagram
     participant U as ユーザー
-    participant FE as FE (fe_js.html)
+    participant FE as FE (フロントエンド)
     participant BE as BE (be_invoice.js)
     participant BQ as BigQuery
 
