@@ -170,9 +170,10 @@ function renderDetailSummary_(s) {
   const fmt = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
   const rawDate = s.created_at || s.wholesaler_invoice_date || '';
   const date = rawDate ? String(rawDate).replace(/-/g, '/').replace(/T/, ' ').replace(/\.\d+$/, '') : '―';
-  // 手数料率は小数点以下の桁数を丸めず、設定値をそのまま表示する（toFixed(1) だと第2位以下が切り捨てられる）
-  const feeRate = s.wholesaler_fee_rate != null
-    ? Number(s.wholesaler_fee_rate) + '%' : '―';
+  // 手数料率は BQ の NUMERIC をそのまま表示する。runQuery_() は cell.v を文字列で返すため、
+  // Number() 変換すると精度落ち（0.1→0.10000000000000002）や末専0消失（3.50→3.5）が起き得る。
+  const feeRate = (s.wholesaler_fee_rate != null && String(s.wholesaler_fee_rate) !== '')
+    ? String(s.wholesaler_fee_rate) + '%' : '―';
 
   const billingMonth = s.wholesaler_invoice_date
     ? String(s.wholesaler_invoice_date).replace(/-/g, '/').replace(/^(\d{4}\/\d{2}).*$/, '$1') : '―';

@@ -181,7 +181,7 @@ function decodeBuffer_(buffer) {
  *   - クォート内の改行・制御文字 → 半角スペースに変換（出力テキスト）
  *   - 明細備考列(invoice_detail_remark)の改行 → スペース変換のみ（エラーなし）
  *   - それ以外の列の改行 → スペース変換しつつ newlineErrors に収集（確認画面手前でブロック）
- *   - クォート外の改行 → レコード区切りとして保持
+ *   - クォート外の改行（CRLF/CR/LF/U+2028/U+2029/U+0085/VT/FF）→ \n に正規化してレコード区切り化
  *   - EOF でクォートが閉じない → パースエラーを収集
  *
  * 文字集合は FE/BE/BQ 全層で統一（CR/LF/U+2028/U+2029/U+0085/VT/FF）。TAB は意味あるフィールド内文字のため除外。
@@ -252,13 +252,16 @@ function sanitizeCsvQuotedNewlines_(csvText, columns) {
         atFieldStart = true;
         out.push(ch);
       } else if (ch === '\r' && csvText[i + 1] === '\n') {
-        out.push('\r\n'); // クォート外 CRLF → レコード区切り（保持）
+        out.push('\n'); // クォート外 CRLF → レコード区切り（\n に正規化）
         i++;
         rowNum++;
         colIndex = 0;
         atFieldStart = true;
       } else if (NEWLINE_RE.test(ch)) {
-        out.push(ch); // クォート外改行 → レコード区切り
+        // クォート外の改行・特殊行区切り（CR/LF/U+2028/U+2029/U+0085/VT/FF）→ \n に正規化。
+        // 後段 validateCsv()/removeEmptyLines_() は \r\n|\r|\n しか分割しないため、U+2028 等を
+        // そのまま残すとレコード区切りとして認識されず CSV 全体が1行扱いになりパースが壊れる。
+        out.push('\n');
         rowNum++;
         colIndex = 0;
         atFieldStart = true;

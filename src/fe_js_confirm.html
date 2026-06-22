@@ -537,7 +537,9 @@ function renderConfirmPage() {
   const wholesalerId     = sessionStorage.getItem('shiire_wholesaler_id')     || '';
   const wholesalerUserId = sessionStorage.getItem('shiire_wholesaler_user_id') || '';
   const wholesalerName   = sessionStorage.getItem('shiire_wholesaler_name')   || '';
-  const feeRate          = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
+  // 表示用は BQ NUMERIC の設定値をそのまま使う（Number() だと末専0消失・精度落ち）。計算用のみ Number 化。
+  const feeRateRaw       = sessionStorage.getItem('shiire_invoice_fee_rate') || '0';
+  const feeRate          = Number(feeRateRaw);
   const mappings         = getMerchantMappings();
 
   // customer_code → mall_code / merchant_name の変換マップ
@@ -584,7 +586,7 @@ function renderConfirmPage() {
   document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
   document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
   document.getElementById('summaryTax').textContent         = fmt(totalTax);
-  document.getElementById('summaryFeeRate').textContent     = feeRate;
+  document.getElementById('summaryFeeRate').textContent     = feeRateRaw;
   document.getElementById('summaryFee').textContent         = fmt(feeAmount);
   document.getElementById('summaryTransfer').textContent    = fmt(payAmount);
   document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
