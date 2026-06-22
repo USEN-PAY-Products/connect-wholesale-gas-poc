@@ -173,38 +173,130 @@ function decodeBuffer_(buffer) {
 // =============================================================================
 
 /**
- * ダブルクォートで囲まれたフィールド内の改行をスペースに置換する前処理。
- * RFC 4180 ではクォート内改行はフィールド値の一部だが、後段の split('\n') で
- * 行が壊れるため、事前にスペースへ正規化する。
+ * CSV のクォート内改行を処理しつつ、明細備考以外の列の改行をエラーとして検出する（列認識パーサ）。
  *
- * @param {string} csvText - CSV テキスト全体
- * @returns {string} クォート内改行をスペースに置換済みのテキスト
+ * parseCsvLine と同一の「フィールド先頭の " のみクォート開始」モデルを採用する。
+ * フィールド途中の "（例: 32"テレビ）はリテラル扱いとし、トグル方式の desync を構造的に回避する。
+ *
+ *   - クォート内の改行・制御文字 → 半角スペースに変換（出力テキスト）
+ *   - 明細備考列(invoice_detail_remark)の改行 → スペース変換のみ（エラーなし）
+ *   - それ以外の列の改行 → スペース変換しつつ newlineErrors に収集（確認画面手前でブロック）
+ *   - クォート外の改行 → レコード区切りとして保持
+ *   - EOF でクォートが閉じない → パースエラーを収集
+ *
+ * 文字集合は FE/BE/BQ 全層で統一（CR/LF/U+2028/U+2029/U+0085/VT/FF）。TAB は意味あるフィールド内文字のため除外。
+ *
+ * @param {string} csvText - 生 CSV テキスト
+ * @param {Array<{index:number, csv_header:string, system_column:string}>} columns - 列定義（getCsvFormatRules().columns または DEFAULT_CSV_COLUMNS_）
+ * @returns {{ text: string, newlineErrors: string[] }}
  */
-function stripQuotedNewlines(csvText) {
-  const buf = [];
+function sanitizeCsvQuotedNewlines_(csvText, columns) {
+  const NEWLINE_RE = /[\r\n\u2028\u2029\u0085\u000B\u000C]/;
+  const cols = columns || [];
+
+  // 備考列の絶対インデックスを逆引き（無ければ -1 = 全列の改行をエラー化）
+  let remarkIndex = -1;
+  const headerByIndex = {};
+  cols.forEach(function (col) {
+    if (col.system_column === 'invoice_detail_remark') remarkIndex = col.index;
+    headerByIndex[col.index] = col.csv_header;
+  });
+
+  const out = [];
+  const newlineErrors = [];
+  const seenErrorKeys = {};
   let inQuote = false;
+  let atFieldStart = true;
+  let colIndex = 0;
+  let rowNum = 1; // ヘッダーを1行目とする（Excel の行番号に一致）
+
+  const recordNewlineError = function () {
+    // 備考列の改行はスペース変換のみ（エラーにしない）
+    if (remarkIndex !== -1 && colIndex === remarkIndex) return;
+    const key = rowNum + ':' + colIndex;
+    if (seenErrorKeys[key]) return;
+    seenErrorKeys[key] = true;
+    const header = headerByIndex[colIndex];
+    const colLabel = header ? ('"' + header + '"') : ((colIndex + 1) + '\u5217\u76ee');
+    newlineErrors.push(rowNum + '\u884c\u76ee: ' + colLabel + ' \u306b\u6539\u884c\u3092\u542b\u3081\u308b\u3053\u3068\u306f\u3067\u304d\u307e\u305b\u3093\u3002\u6539\u884c\u3092\u524a\u9664\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+  };
+
   for (let i = 0; i < csvText.length; i++) {
     const ch = csvText[i];
-    if (ch === '"') {
-      if (inQuote && i + 1 < csvText.length && csvText[i + 1] === '"') {
-        // RFC 4180 エスケープ（""）— そのまま出力し状態を変えない
-        buf.push('""');
+    if (inQuote) {
+      if (ch === '"') {
+        if (csvText[i + 1] === '"') {
+          out.push('""'); // RFC 4180 エスケープ — そのまま出力し状態維持
+          i++;
+        } else {
+          inQuote = false;
+          out.push(ch);
+        }
+      } else if (ch === '\r' && csvText[i + 1] === '\n') {
+        out.push(' '); // クォート内 CRLF → スペース1つ
         i++;
+        recordNewlineError();
+      } else if (NEWLINE_RE.test(ch)) {
+        out.push(' '); // クォート内改行・制御文字 → スペース
+        recordNewlineError();
       } else {
-        inQuote = !inQuote;
-        buf.push(ch);
+        out.push(ch);
       }
-    } else if (inQuote && ch === '\r' && i + 1 < csvText.length && csvText[i + 1] === '\n') {
-      // CRLF → スペース 1 つに正規化
-      buf.push(' ');
-      i++;
-    } else if (inQuote && (ch === '\n' || ch === '\r')) {
-      buf.push(' ');
     } else {
-      buf.push(ch);
+      if (ch === '"' && atFieldStart) {
+        inQuote = true;
+        atFieldStart = false;
+        out.push(ch);
+      } else if (ch === ',') {
+        colIndex++;
+        atFieldStart = true;
+        out.push(ch);
+      } else if (ch === '\r' && csvText[i + 1] === '\n') {
+        out.push('\r\n'); // クォート外 CRLF → レコード区切り（保持）
+        i++;
+        rowNum++;
+        colIndex = 0;
+        atFieldStart = true;
+      } else if (NEWLINE_RE.test(ch)) {
+        out.push(ch); // クォート外改行 → レコード区切り
+        rowNum++;
+        colIndex = 0;
+        atFieldStart = true;
+      } else {
+        out.push(ch); // 通常文字（フィールド途中の " はリテラル）
+        atFieldStart = false;
+      }
     }
   }
-  return buf.join('');
+
+  if (inQuote) {
+    newlineErrors.push('CSV\u306e\u5f15\u7528\u7b26\uff08"\uff09\u304c\u9589\u3058\u3089\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u5f15\u7528\u7b26\u306e\u5bfe\u5fdc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+  }
+
+  return { text: out.join(''), newlineErrors: newlineErrors };
+}
+
+/**
+ * 文字列内の改行・制御文字を半角スペースに変換する（手入力値の BQ 構文エラー対策）。
+ * 文字集合は FE/BE/BQ 全層で統一（CR/LF/U+2028/U+2029/U+0085/VT/FF）。TAB は除外。
+ * @param {*} str
+ * @returns {string}
+ */
+function nl2space_(str) {
+  return String(str == null ? '' : str).replace(/[\r\n\u2028\u2029\u0085\u000B\u000C]+/g, ' ');
+}
+
+/**
+ * CSV テキストから完全な空行・空白のみの行を物理除去する（jagged row による Load Job 失敗対策）。
+ * クォート内改行がスペース化された後（sanitizeCsvQuotedNewlines_ の後段）に適用すること。
+ * @param {string} text
+ * @returns {string}
+ */
+function removeEmptyLines_(text) {
+  return String(text == null ? '' : text)
+    .split(/\r\n|\r|\n/)
+    .filter(function (line) { return line.trim() !== ''; })
+    .join('\n');
 }
 
 /**

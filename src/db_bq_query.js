@@ -200,6 +200,7 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     '  si.id AS store_invoice_id, ' +
     '  si.mall_code, ' +
     '  s.store_name, ' +
+    '  si.wholesaler_managed_store_name, ' +
     '  lm.customer_code, ' +
     '  si.invoice_number, ' +
     '  si.backoffice_review_status, ' +

@@ -170,8 +170,9 @@ function renderDetailSummary_(s) {
   const fmt = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
   const rawDate = s.created_at || s.wholesaler_invoice_date || '';
   const date = rawDate ? String(rawDate).replace(/-/g, '/').replace(/T/, ' ').replace(/\.\d+$/, '') : '―';
+  // 手数料率は小数点以下の桁数を丸めず、設定値をそのまま表示する（toFixed(1) だと第2位以下が切り捨てられる）
   const feeRate = s.wholesaler_fee_rate != null
-    ? Number(s.wholesaler_fee_rate).toFixed(1) + '%' : '―';
+    ? Number(s.wholesaler_fee_rate) + '%' : '―';
 
   const billingMonth = s.wholesaler_invoice_date
     ? String(s.wholesaler_invoice_date).replace(/-/g, '/').replace(/^(\d{4}\/\d{2}).*$/, '$1') : '―';
@@ -425,7 +426,7 @@ function buildDetailAccordion_(store, openByDefault) {
   const header = document.createElement('div');
   header.className = 'store-accordion__header';
   header.innerHTML =
-    '<span class="slh-col slh-col--name store-accordion__code">' + escapeHtml(store.store_name || store.mall_code) + '</span>' +
+    '<span class="slh-col slh-col--name store-accordion__code">' + escapeHtml(store.wholesaler_managed_store_name || store.store_name || store.mall_code) + '</span>' +
     '<span class="slh-col slh-col--mallcode">' + escapeHtml(customerCode || store.mall_code) + '</span>' +
     '<span class="slh-col slh-col--amount">'   + fmt(store.total_amount)             + '円</span>' +
     '<span class="slh-col slh-col--extax">'    + fmt(store.subtotal_amount)          + '円</span>' +
@@ -818,9 +819,15 @@ function renderDetailLines_(lines, container) {
       _currentReader = null;
 
       const buffer = e.target.result;
-      let text;
+      let text, newlineErrors;
       try {
-        text = stripQuotedNewlines(decodeBuffer_(buffer));
+        // 列認識パーサ（A-1）: 備考列の改行→スペース、それ以外の列の改行→エラー収集。
+        // getCsvFormatRules() が throw しうるため列取得も含めて try/catch する。
+        const rules   = getCsvFormatRules();
+        const columns = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
+        const sanitized = sanitizeCsvQuotedNewlines_(decodeBuffer_(buffer), columns);
+        text          = sanitized.text;
+        newlineErrors = sanitized.newlineErrors;
       } catch (err) {
         analyzingEl.classList.add('hidden');
         dropZoneEl.classList.remove('hidden');
@@ -838,6 +845,10 @@ function renderDetailLines_(lines, container) {
         dropZoneEl.classList.remove('hidden');
         alert(err.message || 'CSVの検証中にエラーが発生しました');
         return;
+      }
+      // 明細の他カラム改行エラー・引用符エラーを errors 先頭に合流（確認画面へ進めない）
+      if (newlineErrors && newlineErrors.length > 0) {
+        errors = newlineErrors.concat(errors);
       }
 
       // --- 追加バリデーション: 加盟店の網羅性チェック ---
@@ -863,7 +874,8 @@ function renderDetailLines_(lines, container) {
         });
         if (_isBulk) {
           // 一括アップロード: 要対応全加盟店の網羅性チェック
-          const returnedOnlySet = new Set((_detailReturnedOnlyMallCodes || []).map(String));
+          // 差し戻し・否認を問わず、CSVに含まれない要対応加盟店は「警告（アラート）」とし、
+          // 確認画面へ進めるようにする。含まれなかった加盟店はこの再請求では対象外（スキップ）。
           const actionRequiredCcSet = new Set();
           (_detailActionRequiredMallCodes || []).forEach(function (mallCode) {
             const cc = mallToCustomer[String(mallCode)];
@@ -872,13 +884,7 @@ function renderDetailLines_(lines, container) {
               if (!csvCustomerCodes[cc]) {
                 let storeName = '';
                 mappings.forEach(function (m) { if (String(m.mall_code) === String(mallCode)) storeName = m.store_name || ''; });
-                if (returnedOnlySet.has(String(mallCode))) {
-                  // RETURNED かつ invoice_status=null → 警告のみ
-                  bulkWarnings.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません。この加盟店の再請求は行われませんが、よろしいですか？');
-                } else {
-                  // 否認など → エラー
-                  errors.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません');
-                }
+                bulkWarnings.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません。この加盟店の再請求は行われませんが、よろしいですか？');
               }
             }
           });
@@ -906,7 +912,8 @@ function renderDetailLines_(lines, container) {
       // 検証成功時: グローバル変数にデータを保存（送信ハンドラが参照するため）
       if (errors.length === 0 && rows && rows.length > 0) {
         rawCsvBase64  = arrayBufferToBase64_(buffer);
-        utf8CsvBase64 = stringToBase64Utf8_(text);
+        // 空行・空白行は removeEmptyLines_ で除去してから送信する（D-1: jagged row 対策）。
+        utf8CsvBase64 = stringToBase64Utf8_(removeEmptyLines_(text));
         parsedData    = rows;
         try { sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows)); }
         catch (_e) { console.warn('[detailModal] parsedData の sessionStorage 保存に失敗:', _e); }
@@ -1003,7 +1010,7 @@ function renderDetailLines_(lines, container) {
         const remarks_ = {};
         document.querySelectorAll('.remarks-input[data-customer-code]').forEach(function (el) {
           const cc = el.dataset.customerCode || '';
-          if (cc && el.value) remarks_[cc] = el.value;
+          if (cc && el.value) remarks_[cc] = nl2space_(el.value);
         });
 
         // 否認行の handover を収集（空でも確認画面へ遷移OK）
@@ -1013,7 +1020,7 @@ function renderDetailLines_(lines, container) {
           const cc = el.dataset.customerCode || '';
           if (!cc) return;
           disputedCodes_.push(cc);
-          const val = (el.value || '').trim();
+          const val = nl2space_(el.value || '').trim();
           if (val) {
             handovers_[cc] = val;
           }
@@ -1311,7 +1318,7 @@ function renderDetailLines_(lines, container) {
     previewSubmit.addEventListener('click', function () {
     // 合意事項の必須チェック
     const handoverInput = document.getElementById('previewHandoverInput');
-    const handoverVal = handoverInput ? (handoverInput.value || '').trim() : '';
+    const handoverVal = handoverInput ? nl2space_(handoverInput.value || '').trim() : '';
     if (!handoverVal) {
       if (handoverInput) {
         handoverInput.classList.add('confirm-handover-input--error');
@@ -1383,7 +1390,7 @@ function renderDetailLines_(lines, container) {
     const mallCode  = accordion ? accordion.dataset.mallCode || '' : '';
     const cc = resolveCustomerCode_(mallCode, null);
     const remarks = {};
-    if (cc && remarksInput) remarks[cc] = remarksInput.value || '';
+    if (cc && remarksInput) remarks[cc] = nl2space_(remarksInput.value || '');
 
     showLoadingOverlay('登録中...');
     if (typeof google !== 'undefined' && google.script && google.script.run) {
@@ -1587,7 +1594,7 @@ function renderDetailLines_(lines, container) {
       // 否認の場合: wholesaler_handover テキストエリアの内容を取得
       const bodyEl4        = resubmitBtn.closest('.store-accordion__body');
       const handoverInput4 = bodyEl4 && bodyEl4.querySelector('.backoffice-remark__handover-input');
-      const wholesalerHandover4 = handoverInput4 ? (handoverInput4.value || '') : '';
+      const wholesalerHandover4 = handoverInput4 ? nl2space_(handoverInput4.value || '') : '';
       // 否認（handover入力欄がある）の場合、未入力ならエラー
       if (handoverInput4 && !wholesalerHandover4.trim()) {
         showToast('否認された請求を「変更なしで再申請」する場合は、〈加盟店との合意事項〉の項目を記入ください。', 'error', 8000);
@@ -1674,20 +1681,5 @@ function buildResubmitSummaryData_(rows, storeInvoiceId) {
   wt.paymentAmount = wt.totalAmount; // fee 計算は省略（POC）
 
   return { wholesalerTotal: wt, merchantTotals: merchantTotals };
-}
-
-/**
- * アコーディオンボディ内の備考inputから { customerCode: remarks } を収集する。
- * @param {HTMLElement} bodyEl
- * @returns {Object.<string, string>}
- */
-function buildResubmitRemarks_(bodyEl) {
-  const remarks = {};
-  if (!bodyEl) return remarks;
-  bodyEl.querySelectorAll('.remarks-input[data-customer-code]').forEach(function (el) {
-    const key = el.dataset.customerCode || '';
-    if (key) remarks[key] = el.value || '';
-  });
-  return remarks;
 }
 </script>

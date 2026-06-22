@@ -199,6 +199,7 @@ function collectSummaryData_() {
     const customerCode = card.dataset.cc || '';
     merchantTotals.push({
       customerCode,
+      managedStoreName: card.dataset.managedStoreName || '',
       totalAmount:    getField(card, 'totalAmount'),
       subtotalAmount: getField(card, 'subtotalAmount'),
       taxAmount:      getField(card, 'taxAmount'),
@@ -219,7 +220,7 @@ function collectSummaryData_() {
 function collectRemarks_() {
   const remarks = {};
   document.querySelectorAll('.remarks-input[data-customer-code]').forEach(ta => {
-    remarks[ta.dataset.customerCode] = ta.value || '';
+    remarks[ta.dataset.customerCode] = nl2space_(ta.value || '');
   });
   return remarks;
 }
@@ -231,7 +232,7 @@ function collectRemarks_() {
 function collectHandovers_() {
   const handovers = {};
   document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
-    handovers[ta.dataset.customerCode] = ta.value || '';
+    handovers[ta.dataset.customerCode] = nl2space_(ta.value || '');
   });
   return handovers;
 }
@@ -345,8 +346,12 @@ btnFinalSubmit.addEventListener('click', () => {
     // 確認画面の handover 入力欄から最新値を取得
     const handovers = collectHandovers_();
     // 否認店舗の handover 必須チェック
-    const missingCodes = _resubmitDisputedCodes.filter(function (cc) {
-      return !handovers[cc] || !handovers[cc].trim();
+    // 確認画面に実際に表示されている handover 欄のうち、未入力のものだけを対象にする。
+    // （CSVに無い否認店舗は欄が描画されないため、自然に対象外になる）
+    const missingCodes = [];
+    document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
+      const cc = ta.dataset.customerCode || '';
+      if (cc && (!handovers[cc] || !handovers[cc].trim())) missingCodes.push(cc);
     });
     if (missingCodes.length > 0) {
       // 未入力の handover textarea にエラー表示
@@ -685,6 +690,7 @@ function renderConfirmPage() {
     const card = document.createElement('div');
     card.className = 'store-accordion';
     card.dataset.cc = customerCode;
+    card.dataset.managedStoreName = displayName;
 
     const header = document.createElement('div');
     header.className = 'store-accordion__header';

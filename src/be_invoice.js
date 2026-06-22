@@ -299,7 +299,11 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     });
   });
 
-  const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+  // SQL 文字列リテラル用エスケープ（順序厳守: \→\\ → '→'' → 改行・制御文字→スペース。TAB 除外）。
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "''")
+    .replace(/[\r\n\u2028\u2029\u0085\u000B\u000C]+/g, ' ');
 
   const storeRef     = '`' + projectId + '.' + datasetId + '.store_invoices`';
   const linesRef     = '`' + projectId + '.' + datasetId + '.invoice_lines`';
@@ -312,8 +316,9 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     const mallCode  = esc(mallCodeMap[String(m.customerCode)] || '');
     const remark    = esc(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    const managedNameSql = m.managedStoreName ? "'" + esc(m.managedStoreName) + "'" : 'NULL';
     return (
-      "('" + childUuid + "', '" + invoiceUuid + "', " + wsId + ", '" + mallCode + "', " +
+      "('" + childUuid + "', '" + invoiceUuid + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
       Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
@@ -327,7 +332,7 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     '',
     '-- 子: store_invoices（フロントの summaryData.merchantTotals から VALUES 展開）',
     'INSERT INTO ' + storeRef,
-    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code, wholesaler_managed_store_name,',
     '   total_amount, subtotal_amount, tax_amount,',
     '   standard_tax_target_amount, standard_tax_amount,',
     '   reduced_tax_target_amount, reduced_tax_amount,',
@@ -545,7 +550,11 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
 
-  const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+  // SQL 文字列リテラル用エスケープ（順序厳守: \→\\ → '→'' → 改行・制御文字→スペース。TAB 除外）。
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "''")
+    .replace(/[\r\n\u2028\u2029\u0085\u000B\u000C]+/g, ' ');
 
   const storeRef     = '`' + projectId + '.' + datasetId + '.store_invoices`';
   const linesRef     = '`' + projectId + '.' + datasetId + '.invoice_lines`';
@@ -566,8 +575,9 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     const mallCode  = esc(mallCodeMap[String(m.customerCode)] || '');
     const remark    = esc(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    const managedNameSql = m.managedStoreName ? "'" + esc(m.managedStoreName) + "'" : 'NULL';
     return (
-      "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " +
+      "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
       Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
@@ -605,7 +615,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '',
     '-- 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef,
-    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code, wholesaler_managed_store_name,',
     '   total_amount, subtotal_amount, tax_amount,',
     '   standard_tax_target_amount, standard_tax_amount,',
     '   reduced_tax_target_amount, reduced_tax_amount,',
@@ -708,9 +718,11 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     const storeRows = fetchStoreInvoicesByParent_(parentInvoiceId, accountInfo.wholesaler_id);
     const customerToMall = {};
     const storeBasedMappings = [];
+    const managedNameByCustomer = {};
     storeRows.forEach(function (s) {
       if (s.customer_code && s.mall_code) {
         customerToMall[String(s.customer_code)] = String(s.mall_code);
+        managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
       }
     });
@@ -720,6 +732,10 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('対象加盟店のデータが含まれていません');
     }
+    // 既存DBの加盟店名を継承（フロント送信値に依存しない）
+    summaryData.merchantTotals.forEach(function (m) {
+      m.managedStoreName = managedNameByCustomer[String(m.customerCode)] || '';
+    });
     summaryData.wholesalerTotal = recalcWholesalerTotal_(summaryData.merchantTotals);
 
     const stagingSchema = buildStagingSchema_(accountInfo.csv_format_rules);
@@ -843,7 +859,11 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     throw new Error('処理中にエラーが発生しました。ページを再読み込みして再度お試しください。');
   }
 
-  const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+  // SQL 文字列リテラル用エスケープ（順序厳守: \→\\ → '→'' → 改行・制御文字→スペース。TAB 除外）。
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "''")
+    .replace(/[\r\n\u2028\u2029\u0085\u000B\u000C]+/g, ' ');
 
   const storeRef     = '`' + projectId + '.' + datasetId + '.store_invoices`';
   const linesRef     = '`' + projectId + '.' + datasetId + '.invoice_lines`';
@@ -862,8 +882,9 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     const handover  = handovers[String(m.customerCode)] || '';
     const handoverSql = handover ? "'" + esc(handover) + "'" : 'NULL';
+    const managedNameSql = m.managedStoreName ? "'" + esc(m.managedStoreName) + "'" : 'NULL';
     return (
-      "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " +
+      "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
       Math.round(Number(m.totalAmount))   + ', ' + Math.round(Number(m.subtotalAmount)) + ', ' + Math.round(Number(m.taxAmount))  + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
@@ -910,7 +931,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '',
     '-- ③ 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef,
-    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  (id, wholesaler_invoice_id, wholesaler_id, mall_code, wholesaler_managed_store_name,',
     '   total_amount, subtotal_amount, tax_amount,',
     '   standard_tax_target_amount, standard_tax_amount,',
     '   reduced_tax_target_amount, reduced_tax_amount,',
@@ -1009,9 +1030,11 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     const storeRows = fetchStoreInvoicesByParent_(parentInvoiceId, accountInfo.wholesaler_id);
     const customerToMall = {};
     const storeBasedMappings = [];
+    const managedNameByCustomer = {};
     storeRows.forEach(function (s) {
       if (s.customer_code && s.mall_code) {
         customerToMall[String(s.customer_code)] = String(s.mall_code);
+        managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
       }
     });
@@ -1022,6 +1045,10 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('要対応の加盟店データが含まれていません');
     }
+    // 既存DBの加盟店名を継承（フロント送信値に依存しない）
+    summaryData.merchantTotals.forEach(function (m) {
+      m.managedStoreName = managedNameByCustomer[String(m.customerCode)] || '';
+    });
 
     // ── BE防御: 否認(DISPUTED)店舗は handover（加盟店との合意内容）必須 ──
     const missingHandoverCodes = summaryData.merchantTotals.filter(function (m) {
@@ -1318,7 +1345,11 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
     const invRef    = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
 
-    const esc = (s) => String(s == null ? '' : s).replace(/'/g, "''");
+    // SQL 文字列リテラル用エスケープ（順序厳守: \→\\ → '→'' → 改行・制御文字→スペース。TAB 除外）。
+    const esc = (s) => String(s == null ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "''")
+      .replace(/[\r\n\u2028\u2029\u0085\u000B\u000C]+/g, ' ');
 
     // wholesaler_handover の更新:
     //   - 値が渡された場合（否認で入力あり）→ その値で更新

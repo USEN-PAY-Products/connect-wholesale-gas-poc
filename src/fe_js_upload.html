@@ -287,13 +287,20 @@ function handleFile(file) {
     _currentReader = null;
 
     const buffer = e.target.result;
-    const text   = stripQuotedNewlines(decodeBuffer_(buffer));
 
-    // validateCsv() 内で getCsvFormatRules() が throw する場合があるため try/catch する。
+    // 列認識パーサ（A-1）で「クォート内改行」を処理する。
+    //   - 備考列(invoice_detail_remark): スペースに変換
+    //   - それ以外の列: スペース変換しつつ改行エラーを収集 → 確認画面手前でブロック
+    // getCsvFormatRules() が throw する場合があるため validateCsv とまとめて try/catch する。
     // 未捕捉のまま例外が飛ぶと dropZone が is-analyzing のまま固まるため、
     // catch 時はスピナーを解除してユーザーに通知する。
-    let errors, rows;
+    let text, newlineErrors, errors, rows;
     try {
+      const rules   = getCsvFormatRules();
+      const columns = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
+      const sanitized = sanitizeCsvQuotedNewlines_(decodeBuffer_(buffer), columns);
+      text          = sanitized.text;
+      newlineErrors = sanitized.newlineErrors;
       ({ errors, rows } = validateCsv(text));
     } catch (err) {
       _currentReader = null;
@@ -301,6 +308,10 @@ function handleFile(file) {
       showToast(err.message || 'CSVの検証中にエラーが発生しました');
       resetDropZone();
       return;
+    }
+    // 明細の他カラム改行エラー・引用符エラーを errors 先頭に合流（確認画面へ進めない）
+    if (newlineErrors.length > 0) {
+      errors = newlineErrors.concat(errors);
     }
 
     // ── 当月重複チェック（sessionStorage キャッシュ参照）────────────────
@@ -336,8 +347,9 @@ function handleFile(file) {
       // 成功: Base64はメモリのみ保持（sessionStorageには保存しない・容量超過防止）
       rawCsvBase64  = arrayBufferToBase64_(buffer);
       // BQ Load Job は UTF-8 を前提とするため、decodeBuffer_() で変換済みの text を
-      // UTF-8 として再エンコードした Base64 を別途保持する
-      utf8CsvBase64 = stringToBase64Utf8_(text);
+      // UTF-8 として再エンコードした Base64 を別途保持する。
+      // 空行・空白行は removeEmptyLines_ で除去してから送信する（D-1: jagged row 対策）。
+      utf8CsvBase64 = stringToBase64Utf8_(removeEmptyLines_(text));
       parsedData    = rows;
       // parsedData のみ sessionStorage に保存（確認画面の表示用。リロード後は送信不可）
       try {
