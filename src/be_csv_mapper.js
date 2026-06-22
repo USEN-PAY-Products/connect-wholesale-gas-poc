@@ -516,7 +516,8 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
       default:
         if (sc === 'invoice_detail_remark') {
           // 明細備考（→ line_note）: クォート内改行・制御文字を半角スペースに変換して登録する。
-          // 文字集合は FE/BE/BQ 全層で統一（CR/LF/U+2028/U+2029/U+0085/VT/FF）。TAB は意味あるフィールド内文字のため除外。
+          // 文字集合（CR/LF/U+2028/U+2029/U+0085/VT/FF）は FE サニタイズ（sanitizeCsvQuotedNewlines_/nl2space_）と本クリーニングで統一。
+          // TAB は意味あるフィールド内文字のため除外。なお BE の stripQuotedNewlines_（税額再検証用）は CR/LF のみ＋トグル方式の別実装。
           castExpr = 'REGEXP_REPLACE(' + fieldRef + ", r'[\\r\\n\\x{2028}\\x{2029}\\x{0085}\\x{000B}\\x{000C}]+', ' ')";
         } else {
           castExpr = fieldRef;

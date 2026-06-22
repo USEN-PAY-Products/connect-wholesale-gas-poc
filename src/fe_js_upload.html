@@ -349,6 +349,8 @@ function handleFile(file) {
       // BQ Load Job は UTF-8 を前提とするため、decodeBuffer_() で変換済みの text を
       // UTF-8 として再エンコードした Base64 を別途保持する。
       // 空行・空白行は removeEmptyLines_ で除去してから送信する（D-1: jagged row 対策）。
+      // 注意: utf8CsvBase64（BQ 投入用）は空行除去済みのため、Drive 保存の rawCsvBase64（原本）とは
+      //       内容が一致しない。障害調査・監査で原本から再現する際は空行除去分の差分がある点に留意。
       utf8CsvBase64 = stringToBase64Utf8_(removeEmptyLines_(text));
       parsedData    = rows;
       // parsedData のみ sessionStorage に保存（確認画面の表示用。リロード後は送信不可）

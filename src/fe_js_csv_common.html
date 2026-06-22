@@ -184,7 +184,10 @@ function decodeBuffer_(buffer) {
  *   - クォート外の改行（CRLF/CR/LF/U+2028/U+2029/U+0085/VT/FF）→ \n に正規化してレコード区切り化
  *   - EOF でクォートが閉じない → パースエラーを収集
  *
- * 文字集合は FE/BE/BQ 全層で統一（CR/LF/U+2028/U+2029/U+0085/VT/FF）。TAB は意味あるフィールド内文字のため除外。
+ * 文字集合（CR/LF/U+2028/U+2029/U+0085/VT/FF）は FE サニタイズ（本関数・nl2space_）と
+ * BQ ロード時クリーニング（be_csv_mapper.js の REGEXP_REPLACE）で統一。TAB は意味あるフィールド内文字のため除外。
+ * 注: BE の税額再検証パーサ be_invoice.js:stripQuotedNewlines_ は CR/LF のみ＋トグル方式の別実装。
+ *     FE 側で U+2028 等は既に \n へ正規化済みのため、再検証時は CR/LF だけで足りる。
  *
  * @param {string} csvText - 生 CSV テキスト
  * @param {Array<{index:number, csv_header:string, system_column:string}>} columns - 列定義（getCsvFormatRules().columns または DEFAULT_CSV_COLUMNS_）
@@ -281,7 +284,8 @@ function sanitizeCsvQuotedNewlines_(csvText, columns) {
 
 /**
  * 文字列内の改行・制御文字を半角スペースに変換する（手入力値の BQ 構文エラー対策）。
- * 文字集合は FE/BE/BQ 全層で統一（CR/LF/U+2028/U+2029/U+0085/VT/FF）。TAB は除外。
+ * 文字集合（CR/LF/U+2028/U+2029/U+0085/VT/FF）は FE サニタイズ・BQ ロード時クリーニングで統一。TAB は除外。
+ * 注: BE の stripQuotedNewlines_（税額再検証用）は CR/LF のみ＋トグル方式の別実装。
  * @param {*} str
  * @returns {string}
  */
@@ -385,12 +389,24 @@ function validateCsv(csvText, options) {
     mappings.filter(m => m.is_active !== false).map(m => String(m.customer_code))
   );
 
-  // 改行コード統一・空行除去
-  const lines = csvText
+  // 改行コードを統一する。空行は実データから除外するが、エラーの行番号は
+  // 「元ファイル基準（Excel 行番号 = 空行も 1 行として数える）」で振る必要がある。
+  // sanitizeCsvQuotedNewlines_ が返す newlineErrors も同じ元ファイル基準で行番号を付けるため、
+  // 両者を結合表示したときに行番号がずれないよう、空行除外後の連番ではなく元の行位置を保持する。
+  const allLines = csvText
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
-    .split('\n')
-    .filter(line => line.trim() !== '');
+    .split('\n');
+
+  // lines: 空行を除いた実データ行 / lineNums[i]: lines[i] に対応する元ファイル行番号（1 始まり）
+  const lines = [];
+  const lineNums = [];
+  allLines.forEach(function (line, idx) {
+    if (line.trim() !== '') {
+      lines.push(line);
+      lineNums.push(idx + 1);
+    }
+  });
 
   // ── 空ファイルチェック（lines[0] が undefined になる前に弾く）──────────────
   if (lines.length === 0) {
@@ -422,10 +438,11 @@ function validateCsv(csvText, options) {
   }
 
   // ── データ行チェック ────────────────────────────────────────────────────────
+  // lines は空行除外済み。行番号は lineNums[i]（元ファイル基準 = Excel 行番号）を参照する。
   for (let i = 1; i < lines.length; i++) {
-    const rowNum  = i + 1;
-    // 空行（末尾改行等）はスキップ
-    if (lines[i].trim() === '') continue;
+    // 元ファイル基準（Excel 行番号）。sanitizeCsvQuotedNewlines_ の newlineErrors と
+    // 行番号基準を揃えるため、空行除外後の連番（i+1）ではなく元の行番号を使う。
+    const rowNum  = lineNums[i];
     const cols    = parseCsvLine(lines[i]);
     const rowErrors = [];
 

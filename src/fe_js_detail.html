@@ -914,6 +914,8 @@ function renderDetailLines_(lines, container) {
       if (errors.length === 0 && rows && rows.length > 0) {
         rawCsvBase64  = arrayBufferToBase64_(buffer);
         // 空行・空白行は removeEmptyLines_ で除去してから送信する（D-1: jagged row 対策）。
+        // 注意: utf8CsvBase64（BQ 投入用）は空行除去済みのため、Drive 保存の rawCsvBase64（原本）とは
+        //       内容が一致しない。障害調査・監査で原本から再現する際は空行除去分の差分がある点に留意。
         utf8CsvBase64 = stringToBase64Utf8_(removeEmptyLines_(text));
         parsedData    = rows;
         try { sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows)); }
