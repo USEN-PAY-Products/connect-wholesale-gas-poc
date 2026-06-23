@@ -529,6 +529,14 @@ window.addEventListener('hashchange', navigate);
   const btn = document.getElementById('btnBackToLogin');
   if (!btn) return;
 
+  const fallbackToLoginPage = function () {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      location.hash = '#home';
+    }
+  };
+
   btn.addEventListener('click', function () {
     // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
     Object.keys(sessionStorage).forEach(function (key) {
@@ -542,12 +550,16 @@ window.addEventListener('hashchange', navigate);
             window.top.location.href = result.data.url;
           } else {
             console.warn('[backToLogin] getLoginUrl: 想定外のレスポンス:', result);
+            fallbackToLoginPage();
           }
         })
         .withFailureHandler(function (err) {
           console.error('[backToLogin] getLoginUrl failed:', err);
+          fallbackToLoginPage();
         })
         .getLoginUrl();
+    } else {
+      fallbackToLoginPage();
     }
   });
 })();
