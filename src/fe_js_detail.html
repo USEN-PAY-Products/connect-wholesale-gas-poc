@@ -441,15 +441,19 @@ function buildDetailAccordion_(store, openByDefault) {
   const body = document.createElement('div');
   body.className = 'store-accordion__body';
 
-  // 差し戻し理由バナー
+  // USEN PAY社からのコメント（差戻し・読み取り専用）
+  // 否認差戻（RETURNED + DISPUTED）と同じ表示形式に揃える。
   if (isReturned && store.backoffice_handover) {
-    const reason = document.createElement('div');
-    reason.className = 'dsl-returned-reason';
-    reason.innerHTML =
-      '<i class="fa-solid fa-comment-dots"></i>' +
-      '<span class="dsl-returned-reason__label">差し戻しコメント：</span>' +
-      '<span class="dsl-returned-reason__text">' + escapeHtml(store.backoffice_handover) + '</span>';
-    body.appendChild(reason);
+    const payComment = document.createElement('div');
+    payComment.className = 'store-accordion__backoffice-remark';
+    payComment.innerHTML =
+      '<div class="backoffice-remark__disputed-left">' +
+        '<div class="backoffice-remark__disputed-handover">' +
+          '<span class="backoffice-remark__label">・ USEN PAY社<br>からのコメント</span>' +
+          '<textarea class="backoffice-remark__handover-input backoffice-remark__pay-comment" readonly>' + escapeHtml(store.backoffice_handover || '') + '</textarea>' +
+        '</div>' +
+      '</div>';
+    body.appendChild(payComment);
   }
 
   // 否認理由 + 加盟店との合意内容（否認のみ表示）
@@ -632,7 +636,7 @@ function renderDetailLines_(lines, container) {
       '<td class="num-td">' + fmt(line.unit_price) + '円</td>' +
       '<td class="num-td">' + fmt(line.quantity) + (line.quantity_unit ? ' ' + escapeHtml(line.quantity_unit) : '') + '</td>' +
       '<td class="num-td">' + fmt(line.line_amount_excluding_tax) + '円</td>' +
-      '<td class="num-td">' + fmt(line.line_tax_amount) + '円（' + taxRate + '%）</td>' +
+      '<td class="num-td tax-cell"><span class="tax-amount">' + fmt(line.line_tax_amount) + '円</span><span class="tax-rate">（' + taxRate + '%）</span></td>' +
       '<td>' + (line.line_note ? escapeHtml(line.line_note) : '—') + '</td>' +
     '</tr>';
   }).join('');

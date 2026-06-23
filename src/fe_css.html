@@ -557,6 +557,34 @@ button { cursor: pointer; font-family: inherit; }
   text-decoration: underline;
 }
 
+.error-page__footer {
+  border-top: 1px solid #EBEBEB;
+  padding: 14px 24px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.error-page__back-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #00A7B8;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+}
+
+.error-page__back-link:hover {
+  text-decoration: underline;
+}
+
+.error-page__back-link i {
+  font-size: 12px;
+}
+
 /* 成功状態 */
 .drop-zone.is-success {
   border-color: #2e7d32;
@@ -790,6 +818,44 @@ button { cursor: pointer; font-family: inherit; }
 #confirmCancelToUploadModal .modal.modal--warn {
   width: 505px;
   max-width: calc(100vw - 32px);
+}
+/* Upload back modal: caution (yellow) style */
+#uploadBackModal .modal.modal--warn {
+  width: 505px;
+  max-width: calc(100vw - 32px);
+  background: #FFF1EC;
+  border-color: #FFB499;
+}
+#uploadBackModal .modal.modal--warn .modal__title--warn,
+#uploadBackModal .modal.modal--warn .modal__title--warn i {
+  color: #FF7846;
+}
+#uploadBackModal .modal.modal--warn .modal__actions {
+  gap: 16px;
+}
+#uploadBackModal #uploadBackModalOk {
+  width: 212px;
+  height: 40px;
+  background: #00A7B8;
+  border: none;
+  color: #fff;
+  border-radius: 999px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#uploadBackModal #uploadBackModalOk:hover {
+  background: #008E9B;
+}
+#uploadBackModal #uploadBackModalCancel {
+  width: 212px;
+  height: 40px;
+  border-radius: 999px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .modal--warn .modal__close {
   position: absolute;
@@ -1499,6 +1565,19 @@ button { cursor: pointer; font-family: inherit; }
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* 消費税セル: 金額と税率（%）を別ブロックに分割し、
+   金額の右端・税率の左端をそれぞれ固定して行ごとのガタつきを防ぐ */
+.detail-table td.tax-cell .tax-amount {
+  display: inline-block;
+  text-align: right;
+}
+.detail-table td.tax-cell .tax-rate {
+  display: inline-block;
+  width: 52px;
+  margin-left: 2px;
+  text-align: left;
 }
 
 /* =====================================================

@@ -233,9 +233,9 @@ function showErrorPage_(type) {
   }
 
   // type === 'system'
-  if (banner)  banner.textContent  = 'システムエラーが発生しました。';
-  if (message) message.innerHTML   = 'アカウント情報の取得に失敗しました。<br>ページを再読み込みしてください。';
-  if (sub)     sub.textContent     = '問題が続く場合は、下記窓口までご連絡ください。';
+  if (banner)  banner.textContent  = 'ログインに使用されたアカウントの登録が見当たりません。';
+  if (message) message.innerHTML   = '本サイトへのログインにご使用された、Googleアカウントがサービスデータベース上に見当たりません。<br>ご登録時に設定いただいたアカウントで再度ログインしなおしてください。';
+  if (sub)     sub.textContent     = 'ご登録済みのログイン用Googleアカウントが不明の場合は、下記窓口までご連絡ください。';
 }
 
 
@@ -519,6 +519,35 @@ window.addEventListener('hashchange', navigate);
     } else {
       // GAS 環境外（ローカル開発時）
       window.top.location.href = FALLBACK_LOGOUT_URL;
+    }
+  });
+})();
+
+/** エラー画面「ログインページに戻る」ボタン → LP（ログインページ）へリダイレクト。
+ *  エラー画面はログイン前提のため、ログアウトトーストが出ない専用の getLoginUrl()（?logout=true なし・https 検証済み）を使用する。 */
+(function initBackToLogin() {
+  const btn = document.getElementById('btnBackToLogin');
+  if (!btn) return;
+
+  btn.addEventListener('click', function () {
+    // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
+    Object.keys(sessionStorage).forEach(function (key) {
+      if (key.startsWith('shiire_')) sessionStorage.removeItem(key);
+    });
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          if (result && result.data && result.data.url) {
+            window.top.location.href = result.data.url;
+          } else {
+            console.warn('[backToLogin] getLoginUrl: 想定外のレスポンス:', result);
+          }
+        })
+        .withFailureHandler(function (err) {
+          console.error('[backToLogin] getLoginUrl failed:', err);
+        })
+        .getLoginUrl();
     }
   });
 })();

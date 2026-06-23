@@ -864,7 +864,7 @@ function renderConfirmPage() {
         `<td class="num-td">${Number(row['unit_price'] || 0).toLocaleString('ja-JP')}円</td>` +
         `<td class="num-td">${Number(row['quantity'] || 0).toLocaleString('ja-JP')}</td>` +
         `<td class="num-td">${amtExTax.toLocaleString('ja-JP')}円</td>` +
-        `<td class="num-td">${taxAmount.toLocaleString('ja-JP')}円（${taxRate}%）</td>` +
+        `<td class="num-td tax-cell"><span class="tax-amount">${taxAmount.toLocaleString('ja-JP')}円</span><span class="tax-rate">（${taxRate}%）</span></td>` +
         `<td>${escapeHtml(String(row['invoice_detail_remark'] || '')) || '—'}</td>`;
       tbody.appendChild(tr);
     });
