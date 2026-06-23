@@ -514,7 +514,23 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
         break;
       case 'string':
       default:
-        castExpr = fieldRef;
+        if (sc === 'invoice_detail_remark') {
+          // 明細備考（→ line_note）: クォート内改行・制御文字を半角スペースに変換して登録する。
+          // 文字集合（CR/LF/U+2028/U+2029/U+0085/VT/FF）は FE サニタイズ（sanitizeCsvQuotedNewlines_/nl2space_）と本クリーニングで統一。
+          // TAB は意味あるフィールド内文字のため除外。なお BE の stripQuotedNewlines_（税額再検証用）は CR/LF のみ＋トグル方式の別実装。
+          castExpr = 'REGEXP_REPLACE(' + fieldRef + ", r'[\\r\\n\\x{2028}\\x{2029}\\x{0085}\\x{000B}\\x{000C}]+', ' ')";
+        } else {
+          castExpr = fieldRef;
+          // 備考以外の文字列カラム（item_name 等）に改行・制御文字が含まれる行は RAISE で登録拒否する。
+          // line_note のようなスペース変換は行わず、ユーザーに修正を促す（明細データの意図しない結合を防ぐ）。
+          validateCases.push({
+            countifExpr:
+              'COUNTIF(REGEXP_CONTAINS(' + fieldRef + ", r'[\\r\\n\\x{2028}\\x{2029}\\x{0085}\\x{000B}\\x{000C}]'))",
+            message:
+              '\u5217\u300c' + escSql_(col.csv_header) +
+              '\u300d(index:' + col.index + ') \u306b\u6539\u884c\u3092\u542b\u3081\u308b\u3053\u3068\u306f\u3067\u304d\u307e\u305b\u3093\u3002\u6539\u884c\u3092\u524a\u9664\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          });
+        }
         // 新形式 Staging は全列 STRING のため Load Job の NOT NULL チェックが利かない。
         // required:true の場合は空文字・NULL を RAISE で検知する。
         // date / integer と異なり CAST 変換がないため、シンプルに IS NULL OR = '' を検査する。
@@ -782,12 +798,14 @@ function buildMappedTransactionSql_(params) {
     const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    const managedNameSql = m.managedStoreName ? "'" + escSql_(m.managedStoreName) + "'" : 'NULL';
     return (
       '  (' +
       "'" + storeUuid                          + "', " +  // id
       "'" + escSql_(invoiceUuid)               + "', " +  // wholesaler_invoice_id
            wsId                                + ', '  +  // wholesaler_id
       "'" + mallCode                           + "', " +  // mall_code
+           managedNameSql                      + ', '  +  // wholesaler_managed_store_name
            Math.round(Number(m.totalAmount    || 0))       + ', '  +  // total_amount
            Math.round(Number(m.subtotalAmount || 0))       + ', '  +  // subtotal_amount
            Math.round(Number(m.taxAmount      || 0))       + ', '  +  // tax_amount
@@ -858,7 +876,7 @@ function buildMappedTransactionSql_(params) {
     '--    フロントの summaryData.merchantTotals から VALUES を展開',
     '-- =========================================================',
     'INSERT INTO ' + storeRef + ' (',
-    '  id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  id, wholesaler_invoice_id, wholesaler_id, mall_code, wholesaler_managed_store_name,',
     '  total_amount, subtotal_amount, tax_amount,',
     '  standard_tax_target_amount, standard_tax_amount,',
     '  reduced_tax_target_amount, reduced_tax_amount,',
@@ -996,8 +1014,9 @@ function buildMappedResubmitTransactionSql_(params) {
     const mallCode  = escSql_(mallCodeMap[String(m.customerCode)] || '');
     const remark    = escSql_(remarks[String(m.customerCode)] || '');
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
+    const managedNameSql = m.managedStoreName ? "'" + escSql_(m.managedStoreName) + "'" : 'NULL';
     return (
-      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " +
+      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
@@ -1066,7 +1085,7 @@ function buildMappedResubmitTransactionSql_(params) {
     '',
     '-- 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef + ' (',
-    '  id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  id, wholesaler_invoice_id, wholesaler_id, mall_code, wholesaler_managed_store_name,',
     '  total_amount, subtotal_amount, tax_amount,',
     '  standard_tax_target_amount, standard_tax_amount,',
     '  reduced_tax_target_amount, reduced_tax_amount,',
@@ -1175,8 +1194,9 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     const handover = _handovers[String(m.customerCode)] || '';
     const handoverSql = handover ? "'" + escSql_(handover) + "'" : 'NULL';
+    const managedNameSql = m.managedStoreName ? "'" + escSql_(m.managedStoreName) + "'" : 'NULL';
     return (
-      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " +
+      "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
@@ -1254,7 +1274,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     '',
     '-- ③ 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef + ' (',
-    '  id, wholesaler_invoice_id, wholesaler_id, mall_code,',
+    '  id, wholesaler_invoice_id, wholesaler_id, mall_code, wholesaler_managed_store_name,',
     '  total_amount, subtotal_amount, tax_amount,',
     '  standard_tax_target_amount, standard_tax_amount,',
     '  reduced_tax_target_amount, reduced_tax_amount,',
@@ -1299,15 +1319,24 @@ function buildMappedBulkResubmitTransactionSql_(params) {
 // =============================================================================
 
 /**
- * SQL 文字列内のシングルクォートを '' でエスケープする（SQL インジェクション対策）。
+ * SQL 文字列リテラルに安全に埋め込めるようエスケープする（SQL インジェクション・構文エラー対策）。
  * be_invoice.js の esc() と同等だが、本ファイル内の独立性を担保するため別途定義する。
+ *
+ * 処理順序（順序厳守）:
+ *   1. バックスラッシュを \\ にエスケープ（BQ は単一引用符リテラル内で \ をエスケープ文字として解釈するため）
+ *   2. シングルクォートを '' にエスケープ
+ *   3. 改行・制御文字（CR/LF/U+2028/U+2029/U+0085/VT/FF）を半角スペースに変換
+ *      （BQ の単一引用符リテラルは生の改行を含められず Unclosed string literal になるため。TAB は除外）
  *
  * @param {*} s - エスケープ対象の値（null/undefined は空文字に変換）
  * @returns {string}
  * @private
  */
 function escSql_(s) {
-  return String(s == null ? '' : s).replace(/'/g, "''");
+  return String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "''")
+    .replace(/[\r\n\u2028\u2029\u0085\u000B\u000C]+/g, ' ');
 }
 
 /**

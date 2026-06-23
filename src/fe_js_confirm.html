@@ -199,6 +199,7 @@ function collectSummaryData_() {
     const customerCode = card.dataset.cc || '';
     merchantTotals.push({
       customerCode,
+      managedStoreName: card.dataset.managedStoreName || '',
       totalAmount:    getField(card, 'totalAmount'),
       subtotalAmount: getField(card, 'subtotalAmount'),
       taxAmount:      getField(card, 'taxAmount'),
@@ -219,7 +220,7 @@ function collectSummaryData_() {
 function collectRemarks_() {
   const remarks = {};
   document.querySelectorAll('.remarks-input[data-customer-code]').forEach(ta => {
-    remarks[ta.dataset.customerCode] = ta.value || '';
+    remarks[ta.dataset.customerCode] = nl2space_(ta.value || '');
   });
   return remarks;
 }
@@ -231,7 +232,7 @@ function collectRemarks_() {
 function collectHandovers_() {
   const handovers = {};
   document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
-    handovers[ta.dataset.customerCode] = ta.value || '';
+    handovers[ta.dataset.customerCode] = nl2space_(ta.value || '');
   });
   return handovers;
 }
@@ -240,7 +241,7 @@ function collectHandovers_() {
 // Confirm page: Submit
 // =============================================================================
 
-// 確認ページ: 登録内容を送信するボタン
+// 確認ページ: 請求情報を登録するボタン
 btnFinalSubmit.addEventListener('click', () => {
   // 送信可能なデータが揃っているか念のため確認
   if (!parsedData || !rawCsvBase64 || !utf8CsvBase64) {
@@ -345,8 +346,12 @@ btnFinalSubmit.addEventListener('click', () => {
     // 確認画面の handover 入力欄から最新値を取得
     const handovers = collectHandovers_();
     // 否認店舗の handover 必須チェック
-    const missingCodes = _resubmitDisputedCodes.filter(function (cc) {
-      return !handovers[cc] || !handovers[cc].trim();
+    // 確認画面に実際に表示されている handover 欄のうち、未入力のものだけを対象にする。
+    // （CSVに無い否認店舗は欄が描画されないため、自然に対象外になる）
+    const missingCodes = [];
+    document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
+      const cc = ta.dataset.customerCode || '';
+      if (cc && (!handovers[cc] || !handovers[cc].trim())) missingCodes.push(cc);
     });
     if (missingCodes.length > 0) {
       // 未入力の handover textarea にエラー表示
@@ -532,7 +537,9 @@ function renderConfirmPage() {
   const wholesalerId     = sessionStorage.getItem('shiire_wholesaler_id')     || '';
   const wholesalerUserId = sessionStorage.getItem('shiire_wholesaler_user_id') || '';
   const wholesalerName   = sessionStorage.getItem('shiire_wholesaler_name')   || '';
-  const feeRate          = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
+  // 表示用は BQ NUMERIC の設定値をそのまま使う（Number() だと末専0消失・精度落ち）。計算用のみ Number 化。
+  const feeRateRaw       = sessionStorage.getItem('shiire_invoice_fee_rate') || '0';
+  const feeRate          = Number(feeRateRaw);
   const mappings         = getMerchantMappings();
 
   // customer_code → mall_code / merchant_name の変換マップ
@@ -579,7 +586,7 @@ function renderConfirmPage() {
   document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
   document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
   document.getElementById('summaryTax').textContent         = fmt(totalTax);
-  document.getElementById('summaryFeeRate').textContent     = feeRate;
+  document.getElementById('summaryFeeRate').textContent     = feeRateRaw;
   document.getElementById('summaryFee').textContent         = fmt(feeAmount);
   document.getElementById('summaryTransfer').textContent    = fmt(payAmount);
   document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
@@ -685,6 +692,7 @@ function renderConfirmPage() {
     const card = document.createElement('div');
     card.className = 'store-accordion';
     card.dataset.cc = customerCode;
+    card.dataset.managedStoreName = displayName;
 
     const header = document.createElement('div');
     header.className = 'store-accordion__header';

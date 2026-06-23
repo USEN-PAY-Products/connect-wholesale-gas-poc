@@ -63,6 +63,9 @@ function loadCsvToBq_(projectId, datasetId, stagingTableId, csvBytes, schema, lo
         skipLeadingRows:  1,
         writeDisposition: 'WRITE_TRUNCATE',
         encoding:         'UTF-8',
+        // クォート内の改行を許容する（フロントのパーサ取りこぼし・直接呼び出し時の最終防衛）。
+        // これがないとクォート内改行を含む 1 行で Load Job 全体が失敗する。
+        allowQuotedNewlines: true,
         schema:           schema || STAGING_SCHEMA_,
       },
     },
