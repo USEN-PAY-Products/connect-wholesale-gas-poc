@@ -23,30 +23,55 @@
 const FAVICON_LP_PATH_ = 'assets/images/logo.png';
 
 /**
+ * 値が公開HTTPSのURL（"https://" で始まる）かどうかを判定する。
+ *
+ * setFaviconUrl() は data URI を受け付けず例外になり、また http/data/javascript 等の
+ * 誤設定は意図しない外部参照（情報漏えい・トラッキング等）につながる。そのため
+ * ファビコン関連のURLは公開HTTPSのみ許可し、それ以外はスキップする。
+ *
+ * @param {*} url - 判定対象（文字列以外は false）
+ * @returns {boolean} 前後の空白を除いて "https://" で始まれば true
+ */
+function isHttpsUrl_(url) {
+  return typeof url === 'string' && /^https:\/\//i.test(url.trim());
+}
+
+/**
  * ブラウザのタブに表示するファビコン画像の公開URLを返す。
  *
  * 優先順位:
- *   1. Script Property "FAVICON_URL"（明示指定があれば最優先）
- *   2. LP_URL + '/assets/images/logo.png'（LPのロゴを流用。dev/prod 自動切替）
- *   3. ''（取得不可。doGet 側でファビコン設定をスキップ＝GASデフォルト表示）
+ *   1. Script Property "FAVICON_URL"（明示指定があり、かつ https のとき最優先）
+ *   2. LP_URL + '/assets/images/logo.png'（LP_URL が https のときのみ。dev/prod 自動切替）
+ *   3. ''（取得不可・不正値。doGet 側でファビコン設定をスキップ＝GASデフォルト表示）
  *
- * @returns {string} 公開HTTPS の画像URL。利用不可なら ''（空文字）
+ * 注意: FAVICON_URL / LP_URL とも https 以外（http/data/javascript 等）はスキップする。
+ *
+ * @returns {string} 公開HTTPS の画像URL。利用不可・不正値なら ''（空文字）
  */
 function getFaviconUrl_() {
-  // 1) 明示設定（FAVICON_URL）があれば最優先
+  // 1) 明示設定（FAVICON_URL）があれば最優先（https のみ許可）
   const explicit = PropertiesService.getScriptProperties().getProperty('FAVICON_URL');
-  if (explicit) return explicit;
+  if (explicit) {
+    if (isHttpsUrl_(explicit)) return explicit.trim();
+    // http/data/javascript 等の誤設定は setFaviconUrl 例外・意図しない外部参照に
+    // つながるためスキップし、LP_URL からの導出にフォールバックする。
+    console.warn('[getFaviconUrl_] FAVICON_URL が https ではないためスキップします: ' + explicit);
+  }
 
-  // 2) LP のロゴ画像を流用（ドメインは LP_URL に追従＝dev/prod 自動切替）
+  // 2) LP のロゴ画像を流用（ドメインは LP_URL に追従＝dev/prod 自動切替。https のみ許可）
   try {
     const lpUrl = getConfig_().lpUrl;
     if (lpUrl) {
-      return lpUrl.replace(/\/+$/, '') + '/' + FAVICON_LP_PATH_;
+      if (!isHttpsUrl_(lpUrl)) {
+        console.warn('[getFaviconUrl_] LP_URL が https ではないためファビコンをスキップします: ' + lpUrl);
+        return '';
+      }
+      return lpUrl.trim().replace(/\/+$/, '') + '/' + FAVICON_LP_PATH_;
     }
   } catch (err) {
     console.warn('[getFaviconUrl_] LP_URL 取得に失敗したためファビコンをスキップします: ' + err);
   }
 
-  // 3) 取得不可
+  // 3) 取得不可・不正値
   return '';
 }
