@@ -11,6 +11,14 @@ let _detailActionRequiredMallCodes = [];
 let _detailReturnedOnlyMallCodes = [];
 /** 詳細画面専用の mall_code → customer_code マップ（end 店舗も含む） */
 let _detailMallToCustomerMap = {};
+/**
+ * 取引終了（store_status='end'）の加盟店情報 [{mall_code, customer_code, store_name}]。再請求不可。
+ * 挙動はフローで異なる:
+ * - 個別再請求: 対象加盟店が end ならエラーでブロック（CSV の有無に関わらず不可）。
+ * - 一括再請求: 「要対応」かつ end の店舗が CSV に含まれている場合のみ警告し、今回の再請求から除外。
+ *   それ以外（要対応でない end 店舗 / CSV 未収載の end 店舗）は警告なしで要対応外としてサイレント除外。
+ */
+let _detailEndStores = [];
 /** 異議申立期間の終了日（OBJECTION_PERIOD の end_at）。期間終了後は「取下げをやめる」を無効化する */
 let _objectionEndAt = null;
 /** リロード完了後に表示するトーストメッセージ（取り下げ / 取り消し成功時） */
@@ -315,6 +323,17 @@ function renderDetailStoreList_(stores) {
     if (s.mall_code && s.customer_code) {
       _detailMallToCustomerMap[String(s.mall_code)] = String(s.customer_code);
     }
+  });
+
+  // 取引終了（store_status='end'）の加盟店を抽出（再請求不可の判定に使用）
+  _detailEndStores = stores.filter(function (s) {
+    return s.store_status === 'end' && s.mall_code;
+  }).map(function (s) {
+    return {
+      mall_code:     String(s.mall_code),
+      customer_code: String(s.customer_code || ''),
+      store_name:    s.store_name || '',
+    };
   });
 
   const colHeader =
@@ -806,7 +825,8 @@ function renderDetailLines_(lines, container) {
 
   function handleFile_(file) {
     if (!file.name.toLowerCase().endsWith('.csv')) {
-      alert('CSVファイルを選択してください');
+      // CSV以外のファイルは alert（標準ダイアログ）ではなくエラー/アラート一覧に表示する
+      showErrors_(['CSVファイル（.csv）を選択してください。']);
       return;
     }
     if (_analyzeTimer)  { clearTimeout(_analyzeTimer); _analyzeTimer = null; }
@@ -868,15 +888,32 @@ function renderDetailLines_(lines, container) {
           acctInfo = { merchant_mappings: mappingsJson ? JSON.parse(mappingsJson) : [] };
         } catch (_e) { acctInfo = { merchant_mappings: [] }; }
         const mappings = (acctInfo && acctInfo.merchant_mappings) || [];
-        // mall_code → customer_code の逆引きマップ
+        // mall_code → customer_code の逆引きマップ / mall_code → store_name 辞書（O(1) 参照用）
         const mallToCustomer = {};
+        const mallToStoreName = {};
         mappings.forEach(function (m) {
           if (m.mall_code && m.customer_code) mallToCustomer[String(m.mall_code)] = String(m.customer_code);
+          if (m.mall_code && m.store_name)    mallToStoreName[String(m.mall_code)] = m.store_name;
         });
         // 詳細画面専用マップをマージ（end 店舗も含む）
         Object.keys(_detailMallToCustomerMap || {}).forEach(function(mc) {
           mallToCustomer[mc] = _detailMallToCustomerMap[mc];
         });
+
+        // リレーション（マッピング）に存在する全 customer_code の集合（active + end の全店）。
+        // この集合に無い customer_code は「請求できない加盟店」としてブロックする。
+        const validCcSet = new Set(Object.keys(mallToCustomer).map(function (mc) { return mallToCustomer[mc]; }));
+        // 取引終了（end）店舗の customer_code 集合（再請求不可）
+        const endCcSet = new Set();
+        (_detailEndStores || []).forEach(function (s) { if (s.customer_code) endCcSet.add(String(s.customer_code)); });
+
+        // (A) リレーションに存在しない customer_code を検出 → 一括・個別ともブロック
+        Object.keys(csvCustomerCodes).forEach(function (cc) {
+          if (cc && !validCcSet.has(String(cc))) {
+            errors.push('顧客コード「' + cc + '」は請求可能な加盟店ではありません。CSVから該当の行を削除してください。');
+          }
+        });
+
         if (_isBulk) {
           // 一括アップロード: 要対応全加盟店の網羅性チェック
           // 差し戻し・否認を問わず、CSVに含まれない要対応加盟店は「警告（アラート）」とし、
@@ -884,21 +921,32 @@ function renderDetailLines_(lines, container) {
           const actionRequiredCcSet = new Set();
           (_detailActionRequiredMallCodes || []).forEach(function (mallCode) {
             const cc = mallToCustomer[String(mallCode)];
-            if (cc) {
-              actionRequiredCcSet.add(cc);
-              if (!csvCustomerCodes[cc]) {
-                let storeName = '';
-                mappings.forEach(function (m) { if (String(m.mall_code) === String(mallCode)) storeName = m.store_name || ''; });
-                bulkWarnings.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません。この加盟店の再請求は行われませんが、よろしいですか？');
+            if (!cc) return;
+            // 店舗名は事前構築した辞書から O(1) で取得（旧: mallCode ごとに mappings.forEach を回す入れ子ループ）
+            let storeName = mallToStoreName[String(mallCode)] || '';
+            // (2) end 店舗は再請求対象外。CSV に含まれていれば警告し、要対応集合には加えない（=スキップ）。
+            if (endCcSet.has(cc)) {
+              if (csvCustomerCodes[cc]) {
+                if (!storeName) {
+                  const endStore = (_detailEndStores || []).find(function (s) { return String(s.customer_code) === cc; });
+                  if (endStore) storeName = endStore.store_name || '';
+                }
+                bulkWarnings.push((storeName || ('顧客コード: ' + cc)) + 'は取引終了済みのため請求できません。今回の再請求には含まれません。');
               }
+              return;
+            }
+            actionRequiredCcSet.add(cc);
+            if (!csvCustomerCodes[cc]) {
+              bulkWarnings.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません。この加盟店の再請求は行われませんが、よろしいですか？');
             }
           });
-          // 一括アップロード: 要対応でない加盟店のデータをサイレントに除外
+          // 一括アップロード: 要対応でない加盟店（および end 店舗）のデータをサイレントに除外
           // （余分な加盟店を挿入すると is_latest=TRUE の行が重複するため、FEでフィルタ + BEでも防御）
           rows = rows.filter(function (row) {
             return actionRequiredCcSet.has(String(row.customer_code || ''));
           });
-          if (rows.length === 0) {
+          // 不正 customer_code のエラーが無い場合のみ「要対応0件」エラーを出す（エラーの二重表示を防ぐ）
+          if (errors.length === 0 && rows.length === 0) {
             errors.push('要対応の加盟店データがCSVに含まれていません');
           }
         } else if (_targetStoreInvoiceId) {
@@ -907,6 +955,10 @@ function renderDetailLines_(lines, container) {
             _targetActionsEl.closest('.store-accordion').dataset.mallCode : null;
           if (targetMallCode) {
             const targetCc = mallToCustomer[String(targetMallCode)];
+            // (2) 対象加盟店が取引終了（end）なら再請求不可 → ブロック
+            if (endCcSet.has(String(targetCc)) || (_detailEndStores || []).some(function (s) { return String(s.mall_code) === String(targetMallCode); })) {
+              errors.push('この加盟店は取引終了済みのため、再請求できません。');
+            }
             if (targetCc && !csvCustomerCodes[targetCc]) {
               errors.push('修正対象の加盟店（顧客コード: ' + targetCc + '）のデータがCSVに含まれていません');
             }
@@ -1398,6 +1450,13 @@ function renderDetailLines_(lines, container) {
     const cc = resolveCustomerCode_(mallCode, null);
     const remarks = {};
     if (cc && remarksInput) remarks[cc] = nl2space_(remarksInput.value || '');
+
+    // ── 金額桁数バリデーション（確認画面と同じ共通関数） ───────────────────────
+    const digitErrors = validateAmountDigits_(summaryData);
+    if (digitErrors.length > 0) {
+      alert('⚠ ' + digitErrors.join('\n'));
+      return;
+    }
 
     showLoadingOverlay('登録中...');
     if (typeof google !== 'undefined' && google.script && google.script.run) {

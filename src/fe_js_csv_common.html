@@ -1,5 +1,64 @@
 <script>
 /**
+ * 金額系カラムの整数部桁数上限（行単位チェック用）。
+ * DDL 正本 docs/plan/column_limits.csv の invoice_lines カラムの NUMERIC(p,3) 整数部桁数に準拠。
+ *   amount_ex_tax → line_amount_excluding_tax NUMERIC(15,3) → 整数部12桁
+ *   tax_amount    → line_tax_amount          NUMERIC(14,3) → 整数部11桁
+ *   unit_price    → unit_price               NUMERIC(11,3) → 整数部 8桁
+ *   quantity      → quantity                 NUMERIC(9,3)  → 整数部 6桁
+ * ※ 小数第3位までは decimal の正規表現で担保。本定数は「整数部の桁数」のみを見る。
+ */
+const AMOUNT_INT_DIGIT_LIMITS_ = {
+  amount_ex_tax: 12,
+  tax_amount:    11,
+  unit_price:     8,
+  quantity:       6,
+};
+
+/**
+ * 集計後金額の桁数上限（確認画面・個別プレビュー共通）。
+ * 加盟店単位 = store_invoices、卸全体 = wholesaler_invoices の NUMERIC 桁数に準拠。
+ */
+const AMOUNT_DIGIT_LIMITS_ = {
+  merchant: 999999999999,   // store_invoices total/subtotal NUMERIC(12)
+  tax:       99999999999,   // store_invoices tax_amount/standard/reduced NUMERIC(11)
+};
+
+/**
+ * 集計後の金額桁数バリデーション（DDL 制約ベース）。
+ * 確認画面の登録ボタンと個別プレビューの登録ボタンの両方から呼ぶ共通関数。
+ * 集計値（tax10/tax8 はユーザー編集可）は登録押下時にしか確定しないため、送信直前に呼ぶこと。
+ * @param {{ wholesalerTotal: Object, merchantTotals: Object[] }} summaryData
+ * @returns {string[]} エラー文言の配列（空なら違反なし）
+ */
+function validateAmountDigits_(summaryData) {
+  const errors = [];
+  if (!summaryData) return errors;
+
+  // 加盟店単位（store_invoices: 金額12桁 / 税11桁）
+  (summaryData.merchantTotals || []).forEach(function (m) {
+    const cc = m.customerCode;
+    if (Math.abs(m.totalAmount)    > AMOUNT_DIGIT_LIMITS_.merchant) errors.push('加盟店 ' + cc + ': 請求金額合計が上限（12桁）を超えています');
+    if (Math.abs(m.subtotalAmount) > AMOUNT_DIGIT_LIMITS_.merchant) errors.push('加盟店 ' + cc + ': 小計（税抜）が上限（12桁）を超えています');
+    if (Math.abs(m.taxAmount)      > AMOUNT_DIGIT_LIMITS_.tax)      errors.push('加盟店 ' + cc + ': 消費税合計が上限（11桁）を超えています');
+    if (Math.abs(m.tax10)          > AMOUNT_DIGIT_LIMITS_.tax)      errors.push('加盟店 ' + cc + ': 税内訳（10%）が上限（11桁）を超えています');
+    if (Math.abs(m.tax8)           > AMOUNT_DIGIT_LIMITS_.tax)      errors.push('加盟店 ' + cc + ': 税内訳（8%）が上限（11桁）を超えています');
+  });
+
+  // 卸全体（wholesaler_invoices: NUMERIC(25)。Number.MAX_SAFE_INTEGER を超えるため BigInt 比較）
+  const wt = summaryData.wholesalerTotal;
+  if (wt) {
+    const MAX_25 = BigInt('9999999999999999999999999');
+    const absBig = function (v) { const b = BigInt(Math.trunc(Number(v) || 0)); return b < 0n ? -b : b; };
+    if (absBig(wt.totalAmount)   > MAX_25) errors.push('請求金額合計（税込）が上限（25桁）を超えています');
+    if (absBig(wt.feeAmount)     > MAX_25) errors.push('手数料金額が上限（25桁）を超えています');
+    if (absBig(wt.paymentAmount) > MAX_25) errors.push('振込予定金額が上限（25桁）を超えています');
+  }
+
+  return errors;
+}
+
+/**
  * デフォルト卸向け固定9列の columns 定義。
  * csv_format_rules が null（csv_format_rules 未設定の卸）が使用する。
  * ⚠️ 列順・csv_header は db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
@@ -534,9 +593,15 @@ function validateCsv(csvText, options) {
             rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数で入力してください`);
           } else {
             const num = Number(val);
+            const digitLimit = AMOUNT_INT_DIGIT_LIMITS_[col.system_column];
+            // 整数部桁数は生文字列から数える（Number 経由だと 1e21 以上で指数表記になり桁数を誤るため）
+            const intDigits = val.trim().replace(/^-/, '').replace(/^0+(?=\d)/, '').length;
             // enumチェック
             if (col.enum && !col.enum.includes(num)) {
               rowErrors.push(`${rowNum}行目: "${col.csv_header}" は ${col.enum.join(' または ')} を入力してください`);
+            } else if (digitLimit && intDigits > digitLimit) {
+              // 桁数上限（DDL 準拠）。INT64 オーバーフローを BQ 送信前にブロックし、「半角数字」誤導を防ぐ。
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数部${digitLimit}桁以内で入力してください`);
             } else {
               rowObj[key] = num;
             }
@@ -547,8 +612,14 @@ function validateCsv(csvText, options) {
             rowErrors.push(`${rowNum}行目: "${col.csv_header}" は数値（小数第3位まで）で入力してください`);
           } else {
             const num = Number(val);
+            const digitLimit = AMOUNT_INT_DIGIT_LIMITS_[col.system_column];
+            // 整数部桁数は生文字列から数える（符号・小数点以降・先頭ゼロを除去）
+            const intDigits = val.trim().replace(/^-/, '').split('.')[0].replace(/^0+(?=\d)/, '').length;
             if (col.enum && !col.enum.includes(num)) {
               rowErrors.push(`${rowNum}行目: "${col.csv_header}" は ${col.enum.join(' または ')} を入力してください`);
+            } else if (digitLimit && intDigits > digitLimit) {
+              // 桁数上限（DDL 準拠・整数部のみ）。桁数オーバーを BQ 送信前にブロックする。
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数部${digitLimit}桁以内で入力してください`);
             } else {
               rowObj[key] = num;
             }

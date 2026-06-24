@@ -292,47 +292,8 @@ btnFinalSubmit.addEventListener('click', () => {
     return;
   }
 
-  // ── 金額桁数バリデーション（DDL制約に基づく） ──────────────────────────────
-  const validationErrors = [];
-
-  // 加盟店単位の金額チェック
-  summaryData.merchantTotals.forEach(m => {
-    const cc = m.customerCode;
-    // store_invoices: total_amount NUMERIC(12), subtotal_amount NUMERIC(12),
-    //                 tax_amount NUMERIC(11), standard_tax_amount NUMERIC(11),
-    //                 reduced_tax_amount NUMERIC(11), non_taxable_amount NUMERIC(12)
-    if (Math.abs(m.totalAmount) > 999999999999) {
-      validationErrors.push(`加盟店 ${cc}: 請求金額合計が上限（12桁）を超えています`);
-    }
-    if (Math.abs(m.subtotalAmount) > 999999999999) {
-      validationErrors.push(`加盟店 ${cc}: 小計（税抜）が上限（12桁）を超えています`);
-    }
-    if (Math.abs(m.taxAmount) > 99999999999) {
-      validationErrors.push(`加盟店 ${cc}: 消費税合計が上限（11桁）を超えています`);
-    }
-    if (Math.abs(m.tax10) > 99999999999) {
-      validationErrors.push(`加盟店 ${cc}: 税内訳（10%）が上限（11桁）を超えています`);
-    }
-    if (Math.abs(m.tax8) > 99999999999) {
-      validationErrors.push(`加盟店 ${cc}: 税内訳（8%）が上限（11桁）を超えています`);
-    }
-  });
-
-  // 卸全体の金額チェック（wholesaler_invoices: NUMERIC(25)）
-  // 25桁は Number.MAX_SAFE_INTEGER を超えるため BigInt で比較
-  const MAX_25 = BigInt('9999999999999999999999999');
-  const wt = summaryData.wholesalerTotal;
-  const abs = v => { const b = BigInt(Math.trunc(v)); return b < 0n ? -b : b; };
-  if (abs(wt.totalAmount) > MAX_25) {
-    validationErrors.push('請求金額合計（税込）が上限（25桁）を超えています');
-  }
-  if (abs(wt.feeAmount) > MAX_25) {
-    validationErrors.push('手数料金額が上限（25桁）を超えています');
-  }
-  if (abs(wt.paymentAmount) > MAX_25) {
-    validationErrors.push('振込予定金額が上限（25桁）を超えています');
-  }
-
+  // ── 金額桁数バリデーション（DDL制約に基づく / 共通関数） ─────────────────────
+  const validationErrors = validateAmountDigits_(summaryData);
   if (validationErrors.length > 0) {
     hideLoadingOverlay();
     resetSubmitButton();
