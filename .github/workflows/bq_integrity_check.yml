@@ -1,0 +1,87 @@
+name: BigQuery FK Integrity Check
+
+# =============================================================================
+# BigQuery 外部キー不整合検知バッチ (MYP-3761)
+#
+# - 日次（JST AM 3:30 / UTC 18:30）に自動実行
+# - 手動実行（workflow_dispatch）では all_records 入力で全件スキャンを選択可能
+# - Workload Identity Federation(OIDC) で Google Cloud に認証
+# - BigQuery の一時エラー対策として最大 3 回リトライ
+#
+# 必要な GitHub 設定:
+#   Secrets:
+#     - GCP_WORKLOAD_IDENTITY_PROVIDER : WIF プロバイダのリソース名
+#     - GCP_SERVICE_ACCOUNT            : 紐付けるサービスアカウントのメール
+#     - SLACK_WEBHOOK_URL              : Slack Incoming Webhook URL
+#   Variables（任意。未設定時はスクリプト側の既定値を使用）:
+#     - GCP_PROJECT_ID / BQ_DATASET_ID / BQ_LOCATION / LOOKER_STUDIO_URL / APP_ENV
+# =============================================================================
+
+on:
+  schedule:
+    # 毎日 UTC 18:30（日本時間 AM 3:30）に実行
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      all_records:
+        description: '全レコードをスキャン対象にするか（true で日付フィルター解除）'
+        type: boolean
+        required: false
+        default: false
+
+# Workload Identity Federation(OIDC) に必須の権限
+permissions:
+  id-token: write
+  contents: read
+
+# 同時実行を直列化（多重起動による二重通知を防止）
+concurrency:
+  group: bq-integrity-check
+  cancel-in-progress: false
+
+jobs:
+  integrity-check:
+    name: BQ 外部キー不整合チェック
+    runs-on: ubuntu-latest
+    environment: development
+    defaults:
+      run:
+        working-directory: tools/bq-integrity-check
+
+    steps:
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Node.js のセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 依存パッケージのインストール
+        run: npm install --no-audit --no-fund
+
+      - name: TypeScript ビルド
+        run: npm run build
+
+      - name: Google Cloud 認証 (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: 不整合チェック実行（最大 3 回リトライ）
+        uses: nick-fields/retry@v3
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          BQ_DATASET_ID: ${{ vars.BQ_DATASET_ID }}
+          BQ_LOCATION: ${{ vars.BQ_LOCATION }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          LOOKER_STUDIO_URL: ${{ vars.LOOKER_STUDIO_URL }}
+          ENV: ${{ vars.APP_ENV }}
+          # schedule 実行時は inputs が空文字となり、スクリプト側で false 扱いになる
+          ALL_RECORDS: ${{ inputs.all_records }}
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: cd tools/bq-integrity-check && node dist/checker.js
