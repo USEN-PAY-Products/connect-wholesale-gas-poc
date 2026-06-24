@@ -247,6 +247,47 @@ function validateTaxAdjustment_(csvText, summaryData, csvFormatRules, roundingMe
 }
 
 /**
+ * 集計後の金額桁数を DDL 制約に照らして検証するサーバーサイド防御。
+ * フロントの validateAmountDigits_（fe_js_csv_common.html）と同一ロジック。
+ * API 直叩きによる桁あふれ（BQ の NUMERIC 制約違反）を最終防御する。
+ *
+ * @param {Object} summaryData - { wholesalerTotal: {...}, merchantTotals: [...] }
+ * @throws {Error} 桁数上限を超える金額がある場合
+ */
+function validateAmountDigits_(summaryData) {
+  if (!summaryData) return;
+  const errors = [];
+
+  // 加盟店単位（store_invoices: 金額12桁 / 税11桁）
+  const MERCHANT_MAX = 999999999999;  // NUMERIC(12)
+  const TAX_MAX      = 99999999999;   // NUMERIC(11)
+  (summaryData.merchantTotals || []).forEach(function (m) {
+    const cc = String(m.customerCode || '');
+    if (Math.abs(Number(m.totalAmount    || 0)) > MERCHANT_MAX) errors.push('加盟店 ' + cc + ': 請求金額合計が上限（12桁）を超えています');
+    if (Math.abs(Number(m.subtotalAmount || 0)) > MERCHANT_MAX) errors.push('加盟店 ' + cc + ': 小計（税抜）が上限（12桁）を超えています');
+    if (Math.abs(Number(m.taxAmount      || 0)) > TAX_MAX)      errors.push('加盟店 ' + cc + ': 消費税合計が上限（11桁）を超えています');
+    if (Math.abs(Number(m.tax10          || 0)) > TAX_MAX)      errors.push('加盟店 ' + cc + ': 税内訳（10%）が上限（11桁）を超えています');
+    if (Math.abs(Number(m.tax8           || 0)) > TAX_MAX)      errors.push('加盟店 ' + cc + ': 税内訳（8%）が上限（11桁）を超えています');
+  });
+
+  // 卸全体（wholesaler_invoices: NUMERIC(25)。Number.MAX_SAFE_INTEGER を超えるため BigInt 比較）
+  const wt = summaryData.wholesalerTotal;
+  if (wt) {
+    const MAX_25 = BigInt('9999999999999999999999999');
+    const absBig = function (v) { const b = BigInt(Math.trunc(Number(v) || 0)); return b < BigInt(0) ? -b : b; };
+    if (absBig(wt.totalAmount)   > MAX_25) errors.push('請求金額合計（税込）が上限（25桁）を超えています');
+    if (absBig(wt.feeAmount)     > MAX_25) errors.push('手数料金額が上限（25桁）を超えています');
+    if (absBig(wt.paymentAmount) > MAX_25) errors.push('振込予定金額が上限（25桁）を超えています');
+  }
+
+  if (errors.length > 0) {
+    logError_('Invoice', 'validateAmountDigits_: ' + errors.join('; '));
+    throw new Error(errors[0]);
+  }
+  logInfo_('Invoice', 'validateAmountDigits_: OK');
+}
+
+/**
  * デフォルト9列フォーマット（csv_format_rules が null の卸）向け
  * BQ マルチステートメント・トランザクション SQL を組み立てる。
  * staging テーブルは STAGING_SCHEMA_（固定9列・名前付きカラム）前提で参照する。
@@ -776,6 +817,9 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     // ── 税額 ±1円バリデーション ────────────────────────────────────────────
     validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
 
+    // 金額桁数バリデーション（DDL制約ベースのサーバー側防御）
+    validateAmountDigits_(summaryData);
+
     const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
@@ -1117,6 +1161,9 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     // ── 税額 ±1円バリデーション ────────────────────────────────────────────
     validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
 
+    // 金額桁数バリデーション（DDL制約ベースのサーバー側防御）
+    validateAmountDigits_(summaryData);
+
     const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
@@ -1278,6 +1325,10 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
 
     // ── UUID 生成（全テーブルの結合キー）──────────────────────────────────
     const invoiceUuid = Utilities.getUuid();
+
+    // 金額桁数バリデーション（DDL制約ベースのサーバー側防御）
+    validateAmountDigits_(summaryData);
+
     // ⚠️ BQ テーブル名はハイフン不可 → アンダースコアに変換すること
     const stagingId   = 'staging_invoice_lines_' + invoiceUuid.replace(/-/g, '_');
 

@@ -11,7 +11,13 @@ let _detailActionRequiredMallCodes = [];
 let _detailReturnedOnlyMallCodes = [];
 /** 詳細画面専用の mall_code → customer_code マップ（end 店舗も含む） */
 let _detailMallToCustomerMap = {};
-/** 取引終了（store_status='end'）の加盟店情報 [{mall_code, customer_code, store_name}]（再請求不可。CSVに含まれていたら警告/エラー） */
+/**
+ * 取引終了（store_status='end'）の加盟店情報 [{mall_code, customer_code, store_name}]。再請求不可。
+ * 挙動はフローで異なる:
+ * - 個別再請求: 対象加盟店が end ならエラーでブロック（CSV の有無に関わらず不可）。
+ * - 一括再請求: 「要対応」かつ end の店舗が CSV に含まれている場合のみ警告し、今回の再請求から除外。
+ *   それ以外（要対応でない end 店舗 / CSV 未収載の end 店舗）は警告なしで要対応外としてサイレント除外。
+ */
 let _detailEndStores = [];
 /** 異議申立期間の終了日（OBJECTION_PERIOD の end_at）。期間終了後は「取下げをやめる」を無効化する */
 let _objectionEndAt = null;
@@ -1444,6 +1450,13 @@ function renderDetailLines_(lines, container) {
     const cc = resolveCustomerCode_(mallCode, null);
     const remarks = {};
     if (cc && remarksInput) remarks[cc] = nl2space_(remarksInput.value || '');
+
+    // ── 金額桁数バリデーション（確認画面と同じ共通関数） ───────────────────────
+    const digitErrors = validateAmountDigits_(summaryData);
+    if (digitErrors.length > 0) {
+      alert('⚠ ' + digitErrors.join('\n'));
+      return;
+    }
 
     showLoadingOverlay('登録中...');
     if (typeof google !== 'undefined' && google.script && google.script.run) {
