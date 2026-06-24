@@ -723,13 +723,31 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     const customerToMall = {};
     const storeBasedMappings = [];
     const managedNameByCustomer = {};
+    const endMallCodeSet = {}; // mall_code → true（取引終了店舗）
     storeRows.forEach(function (s) {
       if (s.customer_code && s.mall_code) {
         customerToMall[String(s.customer_code)] = String(s.mall_code);
         managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
       }
+      if (s.mall_code && s.store_status === 'end') {
+        endMallCodeSet[String(s.mall_code)] = true;
+      }
     });
+
+    // ── BE防御(1): 対象加盟店が取引終了（end）なら再請求不可 ──
+    if (endMallCodeSet[String(targetMallCode)]) {
+      throw new Error('この加盟店は取引終了済みのため、再請求できません。');
+    }
+
+    // ── BE防御(2): リレーションに存在しない customer_code を拒否（不正データの混入防止）──
+    const invalidCustomerCodes = summaryData.merchantTotals
+      .map(function (m) { return String(m.customerCode); })
+      .filter(function (cc) { return cc && !customerToMall[cc]; });
+    if (invalidCustomerCodes.length > 0) {
+      throw new Error('請求できない顧客コードが含まれています: ' + invalidCustomerCodes.join(', '));
+    }
+
     summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
       return customerToMall[String(m.customerCode)] === targetMallCode;
     });
@@ -1035,16 +1053,31 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     const customerToMall = {};
     const storeBasedMappings = [];
     const managedNameByCustomer = {};
+    const endMallCodeSet = {}; // mall_code → true（取引終了店舗）
     storeRows.forEach(function (s) {
       if (s.customer_code && s.mall_code) {
         customerToMall[String(s.customer_code)] = String(s.mall_code);
         managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
       }
+      if (s.mall_code && s.store_status === 'end') {
+        endMallCodeSet[String(s.mall_code)] = true;
+      }
     });
+
+    // ── BE防御: リレーションに存在しない customer_code を拒否（不正データの混入防止）──
+    const invalidCustomerCodes = summaryData.merchantTotals
+      .map(function (m) { return String(m.customerCode); })
+      .filter(function (cc) { return cc && !customerToMall[cc]; });
+    if (invalidCustomerCodes.length > 0) {
+      throw new Error('請求できない顧客コードが含まれています: ' + invalidCustomerCodes.join(', '));
+    }
+
+    // 要対応かつ取引終了(end)でない加盟店のみを残す。
+    // end 店舗は再請求対象外（FE で警告のうえ除外済み。API 直叩き対策として BE でも除外）。
     summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
       const mc = customerToMall[String(m.customerCode)] || '';
-      return eligibleMallCodes.has(mc);
+      return eligibleMallCodes.has(mc) && !endMallCodeSet[mc];
     });
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('要対応の加盟店データが含まれていません');

@@ -252,8 +252,9 @@ function handleFile(file) {
 
   // ── Step 2: ファイル形式チェック ──────────────────────────────────────────
   if (!file.name.toLowerCase().endsWith('.csv')) {
-    showToast('CSVファイルを選択してください');
-    resetDropZone();
+    // CSV以外のファイルはトースト（標準ダイアログ）ではなくエラー/アラート一覧に表示する
+    hideToast();
+    renderErrors(['CSVファイル（.csv）を選択してください。'], [], file.name, file.size);
     return;
   }
 
