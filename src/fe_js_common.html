@@ -389,6 +389,20 @@ function navigate() {
     btnCal.classList.toggle('hidden', targetId !== 'pageHome' && targetId !== 'pageDetail');
   }
 
+  // ヘッダーのアプリ名(ロゴ): エラー画面のみ押下不可、他画面は TOP へ遷移可能
+  const logoLink = document.getElementById('headerLogoLink');
+  if (logoLink) {
+    const isErrorPage = targetId === 'pageError';
+    logoLink.classList.toggle('is-disabled', isErrorPage);
+    if (isErrorPage) {
+      logoLink.setAttribute('aria-disabled', 'true');
+      logoLink.setAttribute('tabindex', '-1');
+    } else {
+      logoLink.removeAttribute('aria-disabled');
+      logoLink.removeAttribute('tabindex');
+    }
+  }
+
   if (targetId === 'pageHome') {
     initHomePage();
   }

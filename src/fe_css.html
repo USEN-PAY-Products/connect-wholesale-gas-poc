@@ -77,6 +77,14 @@ button { cursor: pointer; font-family: inherit; }
 .header-logo-link:hover {
   opacity: 0.8;
 }
+/* エラー画面ではアプリ名を押下不可にする */
+.header-logo-link.is-disabled {
+  cursor: default;
+  pointer-events: none;
+}
+.header-logo-link.is-disabled:hover {
+  opacity: 1;
+}
 
 .header-logo {
   font-size: 32px;
