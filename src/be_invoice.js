@@ -741,8 +741,9 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     }
 
     // ── BE防御(2): リレーションに存在しない customer_code を拒否（不正データの混入防止）──
+    // 空/未定義は String(... || '') で '' にし、後続の filter（cc &&）で除外する（'undefined' 文字列の混入防止）。
     const invalidCustomerCodes = summaryData.merchantTotals
-      .map(function (m) { return String(m.customerCode); })
+      .map(function (m) { return String(m.customerCode || ''); })
       .filter(function (cc) { return cc && !customerToMall[cc]; });
     if (invalidCustomerCodes.length > 0) {
       throw new Error('請求できない顧客コードが含まれています: ' + invalidCustomerCodes.join(', '));
@@ -1066,8 +1067,9 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     });
 
     // ── BE防御: リレーションに存在しない customer_code を拒否（不正データの混入防止）──
+    // 空/未定義は String(... || '') で '' にし、後続の filter（cc &&）で除外する（'undefined' 文字列の混入防止）。
     const invalidCustomerCodes = summaryData.merchantTotals
-      .map(function (m) { return String(m.customerCode); })
+      .map(function (m) { return String(m.customerCode || ''); })
       .filter(function (cc) { return cc && !customerToMall[cc]; });
     if (invalidCustomerCodes.length > 0) {
       throw new Error('請求できない顧客コードが含まれています: ' + invalidCustomerCodes.join(', '));

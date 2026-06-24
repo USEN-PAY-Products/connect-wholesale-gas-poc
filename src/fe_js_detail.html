@@ -882,10 +882,12 @@ function renderDetailLines_(lines, container) {
           acctInfo = { merchant_mappings: mappingsJson ? JSON.parse(mappingsJson) : [] };
         } catch (_e) { acctInfo = { merchant_mappings: [] }; }
         const mappings = (acctInfo && acctInfo.merchant_mappings) || [];
-        // mall_code → customer_code の逆引きマップ
+        // mall_code → customer_code の逆引きマップ / mall_code → store_name 辞書（O(1) 参照用）
         const mallToCustomer = {};
+        const mallToStoreName = {};
         mappings.forEach(function (m) {
           if (m.mall_code && m.customer_code) mallToCustomer[String(m.mall_code)] = String(m.customer_code);
+          if (m.mall_code && m.store_name)    mallToStoreName[String(m.mall_code)] = m.store_name;
         });
         // 詳細画面専用マップをマージ（end 店舗も含む）
         Object.keys(_detailMallToCustomerMap || {}).forEach(function(mc) {
@@ -914,8 +916,8 @@ function renderDetailLines_(lines, container) {
           (_detailActionRequiredMallCodes || []).forEach(function (mallCode) {
             const cc = mallToCustomer[String(mallCode)];
             if (!cc) return;
-            let storeName = '';
-            mappings.forEach(function (m) { if (String(m.mall_code) === String(mallCode)) storeName = m.store_name || ''; });
+            // 店舗名は事前構築した辞書から O(1) で取得（旧: mallCode ごとに mappings.forEach を回す入れ子ループ）
+            let storeName = mallToStoreName[String(mallCode)] || '';
             // (2) end 店舗は再請求対象外。CSV に含まれていれば警告し、要対応集合には加えない（=スキップ）。
             if (endCcSet.has(cc)) {
               if (csvCustomerCodes[cc]) {
