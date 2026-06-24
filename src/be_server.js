@@ -81,5 +81,31 @@ function getLogoutUrl() {
   }
 }
 
+/**
+ * ログインページ（LP）のURLを返す。
+ * ScriptProperties の LP_URL をそのまま返却する（logout=true は付与しない）。
+ * エラー画面の「ログインページに戻る」ボタンから google.script.run.getLoginUrl() で呼び出される。
+ * エラー画面はログイン前提なので、LP側で「ログアウトしました」トーストが出ないよう getLogoutUrl とは別関数にしている。
+ *
+ * @returns {{ status: 'success', data: { url: string } }}
+ */
+function getLoginUrl() {
+  try {
+    const { lpUrl } = getConfig_();
+    if (!lpUrl) {
+      throw new Error('ログインページURLが設定されていません。管理者にお問い合わせください。');
+    }
+    // セキュリティ: https スキームのみ許可（オープンリダイレクト / XSS 防止）
+    if (!/^https:\/\//i.test(lpUrl)) {
+      logError_('Auth', 'getLoginUrl: 不正なLP_URL スキーム: ' + lpUrl);
+      throw new Error('ログインページURLの設定が不正です。管理者にお問い合わせください。');
+    }
+    return success_({ url: lpUrl });
+  } catch (err) {
+    logError_('Auth', 'getLoginUrl', err);
+    throw new Error('ログインページへの遷移に失敗しました。ページを再読み込みしてください。');
+  }
+}
+
 // --- 請求登録・取得系の公開関数は be_invoice.js で定義 ---
 

@@ -510,6 +510,7 @@ const uploadBackModal      = document.getElementById('uploadBackModal');
 const btnUploadBack        = document.getElementById('btnUploadBack');
 const uploadBackModalClose = document.getElementById('uploadBackModalClose');
 const uploadBackModalOk    = document.getElementById('uploadBackModalOk');
+const uploadBackModalCancel = document.getElementById('uploadBackModalCancel');
 
 // 一覧に戻るボタン: ファイルがアップロード済みならモーダル表示、そうでなければそのまま戻る
 btnUploadBack.addEventListener('click', function () {
@@ -525,7 +526,12 @@ uploadBackModalClose.addEventListener('click', () => {
   uploadBackModal.classList.add('hidden');
 });
 
-// モーダル: 一覧に戻るボタン → データリセットしてホームへ
+// モーダル: キャンセルボタンで閉じる（この画面に留まる）
+uploadBackModalCancel.addEventListener('click', () => {
+  uploadBackModal.classList.add('hidden');
+});
+
+// モーダル: OKボタン → データリセットしてホームへ
 uploadBackModalOk.addEventListener('click', () => {
   uploadBackModal.classList.add('hidden');
   resetPage();

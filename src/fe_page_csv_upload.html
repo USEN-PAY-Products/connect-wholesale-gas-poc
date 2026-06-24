@@ -20,14 +20,13 @@
       <div class="modal modal--warn">
         <button class="modal__close" id="uploadBackModalClose" aria-label="閉じる">&times;</button>
         <h2 class="modal__title modal__title--warn" id="uploadBackModalTitle">
-          <i class="fa-solid fa-circle-exclamation"></i>
-          一覧に戻ると登録作業中のファイルは削除されますがよろしいですか？
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          登録情報が破棄されます
         </h2>
-        <p class="modal__message modal__message--warn" id="uploadBackModalDesc">アップロードされたファイルは、まだ登録が完了していません。一覧画面に戻ると、登録は完了されません。</p>
+        <p class="modal__message modal__message--warn" id="uploadBackModalDesc">この画面を離れると登録中の情報は破棄されますが、<br>よろしいですか？</p>
         <div class="modal__actions modal__actions--center">
-          <button class="btn btn-back modal__btn" id="uploadBackModalOk">
-            <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
-          </button>
+          <button type="button" class="btn btn-danger" id="uploadBackModalOk">OK</button>
+          <button type="button" class="btn btn-outline" id="uploadBackModalCancel">キャンセル</button>
         </div>
       </div>
     </div>

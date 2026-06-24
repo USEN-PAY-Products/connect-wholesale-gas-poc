@@ -25,10 +25,25 @@ function doGet(e) {
   const template = HtmlService.createTemplateFromFile('fe_index');
   template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
 
-  return template
+  const output = template
     .evaluate()
     .setTitle(isDev ? '仕入れコネクト(Dev)' : '仕入れコネクト')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+
+  // ファビコン設定（任意）。
+  // 注意: setFaviconUrl は data URI(base64) を受け付けず例外になるため、
+  //       公開HTTPS URL（ログイン不要で画像が直接返るもの）のみ指定する。
+  //       設定失敗で画面表示を止めないよう try/catch でガードする。
+  const faviconUrl = getFaviconUrl_();
+  if (faviconUrl) {
+    try {
+      output.setFaviconUrl(faviconUrl);
+    } catch (err) {
+      console.warn('[doGet] ファビコン設定に失敗したためスキップします: ' + err);
+    }
+  }
+
+  return output;
 }
 
 /**
