@@ -19,6 +19,11 @@
   - [x] `GCP_WORKLOAD_IDENTITY_PROVIDER`（`projects/922908723040/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider`）
   - [x] `GCP_SERVICE_ACCOUNT`（`connect-bq-dev@usenpay-connect-dev.iam.gserviceaccount.com`）
   - [x] `SLACK_WEBHOOK_URL`（開発用）
+- [x] BQ: `data_integrity_logs` テーブルを手動作成済み
+- [x] Looker Studio: `data_integrity_logs` をデータソースとして接続
+- [x] Looker Studio: ダッシュボード作成（日次トレンド / テーブル別内訳 / レコード一覧）
+- [x] GitHub Variables 登録（`development` Environment）
+  - [x] `LOOKER_STUDIO_URL`
 
 ---
 
@@ -34,8 +39,8 @@
   - [x] `roles/bigquery.dataEditor`（`data_integrity_logs` 作成・書込）付与済み
 - [x] **WIF と SA のバインディング**
   - [x] `attribute.repository = USEN-PAY-Products/connect-wholesale-gas-poc` 条件で紐付け完了
-- [ ] **ログテーブル**（任意）
-  - [ ] スクリプトが `CREATE TABLE IF NOT EXISTS` で自動作成するが、事前に手動作成しておくと初回のストリーミング挿入の伝播待ちを回避できる
+- [x] **ログテーブル**
+  - [x] `data_integrity_logs` を手動作成済み（初回ストリーミング挿入の伝播待ちを回避）
 
 ## 2. GitHub 設定（Environment: development）✅ 完了
 
@@ -47,7 +52,7 @@
   - [ ] `GCP_PROJECT_ID`（既定 `usenpay-connect-dev`）
   - [ ] `BQ_DATASET_ID`（既定 `connect_db`）
   - [ ] `BQ_LOCATION`（既定 `asia-northeast1`）
-  - [ ] `LOOKER_STUDIO_URL`
+  - [x] `LOOKER_STUDIO_URL`（登録済み）
   - [ ] `APP_ENV`（Slack 表示用ラベル。例 `development`）
 
 ## 3. Slack 設定 ✅ 完了
@@ -56,14 +61,14 @@
 - [x] Slack App で Incoming Webhook を作成し、URL を取得
 - [x] 取得した URL を GitHub Secret `SLACK_WEBHOOK_URL` に登録
 
-## 4. Looker Studio 設定
+## 4. Looker Studio 設定 ✅ 完了
 
-- [ ] `connect_db.data_integrity_logs` をデータソースとして接続
-- [ ] ダッシュボード作成
-  - [ ] 不整合件数の日次トレンド（`checked_at` 軸）
-  - [ ] 子テーブル / 親テーブル別の内訳
-  - [ ] 不整合レコード一覧（`child_id` で検索・絞り込み）
-- [ ] レポートの共有 URL を取得 → Variable `LOOKER_STUDIO_URL` に設定
+- [x] `connect_db.data_integrity_logs` をデータソースとして接続
+- [x] ダッシュボード作成
+  - [x] 不整合件数の日次トレンド（折れ線グラフ / `checked_at` 軸）
+  - [x] テーブル別内訳（縦棒グラフ / `child_table` 軸）
+  - [x] 不整合レコード一覧（表 / `checked_at` / `child_table` / `parent_table` / `fk_column` / `child_id`）
+- [x] レポートの共有 URL を取得 → Variable `LOOKER_STUDIO_URL` に設定済み
 
 ## 5. 動作確認 / テスト
 

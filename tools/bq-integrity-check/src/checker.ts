@@ -161,20 +161,33 @@ WHERE p.id IS NULL;`,
     },
 
     // ---- T004: wholesaler_merchants → wholesalers / store ---------------
+    // 注: 複数FK同時欠損に備え UNION ALL で FK ごとに1行ずつ記録する
     {
       id: 'T004',
       childTable: 'wholesaler_merchants',
       detectSql: `
+-- FK1: wholesaler_id → wholesalers
 SELECT
   'wholesaler_merchants' AS child_table,
-  CASE WHEN w.id IS NULL THEN 'wholesalers' ELSE 'store' END AS parent_table,
-  CASE WHEN w.id IS NULL THEN 'wholesaler_id' ELSE 'mall_code' END AS fk_column,
+  'wholesalers' AS parent_table,
+  'wholesaler_id' AS fk_column,
   CAST(t.id AS STRING) AS child_id,
   TIMESTAMP(t.registration_at) AS child_record_created_at
 FROM ${fq('wholesaler_merchants')} t
 LEFT JOIN ${fq('wholesalers')} w ON t.wholesaler_id = w.id
+WHERE w.id IS NULL
+  AND (@all_records OR t.registration_at = ${YESTERDAY})
+UNION ALL
+-- FK2: mall_code → store
+SELECT
+  'wholesaler_merchants' AS child_table,
+  'store' AS parent_table,
+  'mall_code' AS fk_column,
+  CAST(t.id AS STRING) AS child_id,
+  TIMESTAMP(t.registration_at) AS child_record_created_at
+FROM ${fq('wholesaler_merchants')} t
 LEFT JOIN ${fq('store')} s ON t.mall_code = s.mall_code
-WHERE (w.id IS NULL OR s.mall_code IS NULL)
+WHERE s.mall_code IS NULL
   AND (@all_records OR t.registration_at = ${YESTERDAY})`,
       investigateSql: `SELECT t.*
 FROM ${fq('wholesaler_merchants')} t
@@ -184,20 +197,33 @@ WHERE w.id IS NULL OR s.mall_code IS NULL;`,
     },
 
     // ---- T005: wholesaler_invoices → wholesaler_user / wholesalers ------
+    // 注: 複数FK同時欠損に備え UNION ALL で FK ごとに1行ずつ記録する
     {
       id: 'T005',
       childTable: 'wholesaler_invoices',
       detectSql: `
+-- FK1: wholesaler_user_id → wholesaler_user
 SELECT
   'wholesaler_invoices' AS child_table,
-  CASE WHEN wu.id IS NULL THEN 'wholesaler_user' ELSE 'wholesalers' END AS parent_table,
-  CASE WHEN wu.id IS NULL THEN 'wholesaler_user_id' ELSE 'wholesaler_id' END AS fk_column,
+  'wholesaler_user' AS parent_table,
+  'wholesaler_user_id' AS fk_column,
   CAST(t.id AS STRING) AS child_id,
   TIMESTAMP(t.wholesaler_invoice_date) AS child_record_created_at
 FROM ${fq('wholesaler_invoices')} t
 LEFT JOIN ${fq('wholesaler_user')} wu ON t.wholesaler_user_id = wu.id
+WHERE wu.id IS NULL
+  AND (@all_records OR t.wholesaler_invoice_date = ${YESTERDAY})
+UNION ALL
+-- FK2: wholesaler_id → wholesalers
+SELECT
+  'wholesaler_invoices' AS child_table,
+  'wholesalers' AS parent_table,
+  'wholesaler_id' AS fk_column,
+  CAST(t.id AS STRING) AS child_id,
+  TIMESTAMP(t.wholesaler_invoice_date) AS child_record_created_at
+FROM ${fq('wholesaler_invoices')} t
 LEFT JOIN ${fq('wholesalers')} w ON t.wholesaler_id = w.id
-WHERE (wu.id IS NULL OR w.id IS NULL)
+WHERE w.id IS NULL
   AND (@all_records OR t.wholesaler_invoice_date = ${YESTERDAY})`,
       investigateSql: `SELECT t.*
 FROM ${fq('wholesaler_invoices')} t
@@ -208,39 +234,59 @@ WHERE wu.id IS NULL OR w.id IS NULL;`,
 
     // ---- T007: store_invoices → wholesaler_invoices / wholesalers /
     //            invoice_numbers(Nullable) / store -------------------------
-    // 注: invoice_number_id は Nullable。値が NULL の場合は正常（未採番）なので、
+    // 注: invoice_number_id は Nullable。値が NULL の場合は正常（未採番）なので
     //     親欠損とみなすのは「invoice_number_id が NOT NULL なのに親が無い」場合のみ。
+    //     複数FK同時欠損に備え UNION ALL で FK ごとに1行ずつ記録する。
     {
       id: 'T007',
       childTable: 'store_invoices',
       detectSql: `
+-- FK1: wholesaler_invoice_id → wholesaler_invoices
 SELECT
   'store_invoices' AS child_table,
-  CASE
-    WHEN wi.id IS NULL THEN 'wholesaler_invoices'
-    WHEN w.id IS NULL THEN 'wholesalers'
-    WHEN t.invoice_number_id IS NOT NULL AND inum.id IS NULL THEN 'invoice_numbers'
-    ELSE 'store'
-  END AS parent_table,
-  CASE
-    WHEN wi.id IS NULL THEN 'wholesaler_invoice_id'
-    WHEN w.id IS NULL THEN 'wholesaler_id'
-    WHEN t.invoice_number_id IS NOT NULL AND inum.id IS NULL THEN 'invoice_number_id'
-    ELSE 'mall_code'
-  END AS fk_column,
+  'wholesaler_invoices' AS parent_table,
+  'wholesaler_invoice_id' AS fk_column,
   CAST(t.id AS STRING) AS child_id,
   t.created_at AS child_record_created_at
 FROM ${fq('store_invoices')} t
 LEFT JOIN ${fq('wholesaler_invoices')} wi ON t.wholesaler_invoice_id = wi.id
+WHERE wi.id IS NULL
+  AND (@all_records OR DATE(t.created_at, 'Asia/Tokyo') = ${YESTERDAY})
+UNION ALL
+-- FK2: wholesaler_id → wholesalers
+SELECT
+  'store_invoices' AS child_table,
+  'wholesalers' AS parent_table,
+  'wholesaler_id' AS fk_column,
+  CAST(t.id AS STRING) AS child_id,
+  t.created_at AS child_record_created_at
+FROM ${fq('store_invoices')} t
 LEFT JOIN ${fq('wholesalers')} w ON t.wholesaler_id = w.id
+WHERE w.id IS NULL
+  AND (@all_records OR DATE(t.created_at, 'Asia/Tokyo') = ${YESTERDAY})
+UNION ALL
+-- FK3: invoice_number_id → invoice_numbers (Nullable: 値がある場合のみチェック)
+SELECT
+  'store_invoices' AS child_table,
+  'invoice_numbers' AS parent_table,
+  'invoice_number_id' AS fk_column,
+  CAST(t.id AS STRING) AS child_id,
+  t.created_at AS child_record_created_at
+FROM ${fq('store_invoices')} t
 LEFT JOIN ${fq('invoice_numbers')} inum ON t.invoice_number_id = inum.id
+WHERE t.invoice_number_id IS NOT NULL AND inum.id IS NULL
+  AND (@all_records OR DATE(t.created_at, 'Asia/Tokyo') = ${YESTERDAY})
+UNION ALL
+-- FK4: mall_code → store
+SELECT
+  'store_invoices' AS child_table,
+  'store' AS parent_table,
+  'mall_code' AS fk_column,
+  CAST(t.id AS STRING) AS child_id,
+  t.created_at AS child_record_created_at
+FROM ${fq('store_invoices')} t
 LEFT JOIN ${fq('store')} s ON t.mall_code = s.mall_code
-WHERE (
-    wi.id IS NULL
-    OR w.id IS NULL
-    OR (t.invoice_number_id IS NOT NULL AND inum.id IS NULL)
-    OR s.mall_code IS NULL
-  )
+WHERE s.mall_code IS NULL
   AND (@all_records OR DATE(t.created_at, 'Asia/Tokyo') = ${YESTERDAY})`,
       investigateSql: `SELECT t.*
 FROM ${fq('store_invoices')} t
@@ -305,7 +351,7 @@ async function ensureLogTable(): Promise<void> {
   child_table STRING NOT NULL OPTIONS(description="不整合が発生した子テーブル名"),
   parent_table STRING NOT NULL OPTIONS(description="欠損している親テーブル名"),
   fk_column STRING NOT NULL OPTIONS(description="対象の外部キーカラム名"),
-  child_id STRING NOT NULL OPTIONS(description="不整合レコードのID (PRIMARY KEY)"),
+  child_id STRING NOT NULL OPTIONS(description="不整合が発生した子テーブル側のレコードID"),
   child_record_created_at TIMESTAMP OPTIONS(description="不整合レコード自体の作成日時")
 )
 PARTITION BY DATE(checked_at)
