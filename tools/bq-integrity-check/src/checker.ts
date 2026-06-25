@@ -524,7 +524,13 @@ function buildSlackBlocks(
   return blocks;
 }
 
-/** Slack Incoming Webhook へ通知を送信する */
+/**
+ * Slack Incoming Webhook へ通知を送信する（best-effort）。
+ *
+ * Slack 側の一時エラーでリトライされた場合に、既に INSERT 済みの
+ * data_integrity_logs が重複登録されるのを防ぐため、
+ * 通知失敗はバッチ全体の失敗扱いにせず、エラー内容をログ出力して終了する。
+ */
 async function sendSlackNotification(blocks: unknown[]): Promise<void> {
   if (!SLACK_WEBHOOK_URL) {
     console.warn(
@@ -533,15 +539,24 @@ async function sendSlackNotification(blocks: unknown[]): Promise<void> {
     return;
   }
 
-  await axios.post(
-    SLACK_WEBHOOK_URL,
-    {
-      text: '🔴 BigQuery データ不整合を検知しました',
-      blocks,
-    },
-    { headers: { 'Content-Type': 'application/json' }, timeout: 15000 },
-  );
-  console.log('[sendSlackNotification] Slack へ通知を送信しました。');
+  try {
+    await axios.post(
+      SLACK_WEBHOOK_URL,
+      {
+        text: '🔴 BigQuery データ不整合を検知しました',
+        blocks,
+      },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 15000 },
+    );
+    console.log('[sendSlackNotification] Slack へ通知を送信しました。');
+  } catch (err) {
+    // 通知失敗は best-effort。バッチ全体を失敗扱いにせずログのみ出力する。
+    // （throw すると GHA のリトライにより data_integrity_logs が重複 INSERT されるため）
+    console.error(
+      '[sendSlackNotification] Slack 通知に失敗しました（バッチは正常終了）:',
+      err,
+    );
+  }
 }
 
 // ===== メイン ===========================================================
@@ -584,7 +599,7 @@ async function main(): Promise<void> {
   // 4. ログテーブルへ INSERT（Looker Studio のデータソース）
   await insertLogs(allViolations, checkedAt);
 
-  // 5. Slack 通知
+  // 5. Slack 通知（best-effort: 失敗してもバッチは成功終了する）
   const blocks = buildSlackBlocks(results, checkedAt, totalCount);
   await sendSlackNotification(blocks);
 

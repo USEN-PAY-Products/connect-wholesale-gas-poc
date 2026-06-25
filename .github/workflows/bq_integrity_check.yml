@@ -58,7 +58,7 @@ jobs:
           node-version: '20'
 
       - name: 依存パッケージのインストール
-        run: npm install --no-audit --no-fund
+        run: npm ci
 
       - name: TypeScript ビルド
         run: npm run build
