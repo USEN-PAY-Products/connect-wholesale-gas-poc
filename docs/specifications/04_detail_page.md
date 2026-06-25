@@ -129,7 +129,7 @@ block-beta
   end
 ```
 
-### アコーディオンの動作
+> 📌 ヘッダーの加盟店名は `wholesaler_managed_store_name`（登録時にスナップショットした卸管理加盟店名）→ `store_name`（`store` マスタ）→ `mall_code` の優先順位で表示する。再請求時は BE が既存 DB の `wholesaler_managed_store_name` を継承するため、加盟店名は登録時から変わらない。
 
 | ステータス | 初期状態 | 追加表示要素 | CSSクラス |
 |-----------|---------|------------|----------|
@@ -273,12 +273,12 @@ flowchart TD
     VALIDATE -->|NG| ERROR["エラー表示\n→ 再選択可能"]
     VALIDATE -->|OK| SELECTED["ファイル情報表示\n+ ボタン活性化"]
     SELECTED --> BTN_CONFIRM["「確認画面へ進む」押下"]
-    BTN_CONFIRM --> COLLECT["備考・合意事項を収集"]
-    COLLECT --> CHECK{"否認加盟店の\n合意事項\n入力済み?"}
-    CHECK -->|未入力あり| ALERT["alert エラー"]
-    CHECK -->|OK| SAVE_CTX["再送信コンテキスト保存"]
+    BTN_CONFIRM --> COLLECT["備考・合意事項を収集\n（handover は空でも遷移可）"]
+    COLLECT --> SAVE_CTX["再送信コンテキスト保存"]
     SAVE_CTX --> CONFIRM["確認画面 (#confirm) へ遷移"]
-    CONFIRM --> REGISTER["誓約チェック + 送信"]
+    CONFIRM --> HANDOVER{"表示中の否認加盟店\n合意内容 入力済み?"}
+    HANDOVER -->|未入力あり| ALERT["送信ブロック\n（確認画面でエラー表示）"]
+    HANDOVER -->|OK| REGISTER["誓約チェック + 送信"]
     REGISTER --> BULK_BE["bulkResubmitInvoiceData()"]
     BULK_BE -->|成功| DETAIL["詳細画面にリダイレクト"]
 ```
@@ -490,7 +490,7 @@ stateDiagram-v2
       wholesaler_invoice_id: "uuid",
       wholesaler_invoice_date: "2026-03-01",            // 請求月 (表示は YYYY/MM)
       created_at: "2026/03/15 10:30:00",                 // 登録日時
-      wholesaler_fee_rate: 3.0,                           // 手数料率
+      wholesaler_fee_rate: "3.0",                         // 手数料率（BQ NUMERIC の生値文字列をそのまま表示。Number() 変換による精度落ち・末尾0消失を避ける）
       invoice_fee_amount: 5000,                           // 手数料額
       payment_amount: 165000,                             // 振込予定金額
       handover_matter: "...",                              // USEN PAY社コメント
@@ -508,6 +508,7 @@ stateDiagram-v2
         store_invoice_id: "uuid",
         mall_code: "M001",
         store_name: "テスト加盟店1",
+        wholesaler_managed_store_name: "テスト加盟店1",    // 卸管理加盟店名（登録時スナップショット。表示優先: managed → store_name → mall_code）
         customer_code: "C001",                            // 顧客コード（mall_code→customer_code 変換用）
         total_amount: 50000,
         subtotal_amount: 45000,
@@ -555,24 +556,34 @@ stateDiagram-v2
 | チェック項目 | エラー/警告 | 内容 |
 |-------------|-----------|------|
 | ファイル拡張子 | エラー | `.csv` のみ許可 |
+| クォート内改行・制御文字 | エラー/スペース変換 | `sanitizeCsvQuotedNewlines_()` で処理。備考列はスペース変換のみ、それ以外の列の改行はエラー（[02_csv_upload_page.md](02_csv_upload_page.md) §4.3 / [05_common.md](05_common.md) §11.3） |
 | ヘッダー行 | エラー | 必須カラムの存在確認 |
 | データ行 | エラー | 数値・日付フォーマット等 |
-| 要対応加盟店の網羅性 | エラー/警告 | CSVに要対応の `mall_code` が含まれているか |
+| 要対応加盟店の網羅性 | 警告（アラート） | CSV に含まれない要対応加盟店（差戻し・否認問わず）は警告のみ。確認画面へ進め、その加盟店は今回の再請求では対象外（スキップ） |
+| 加盟店コードの有効性（リレーション） | エラー | CSV の `customer_code` が卸のマッピング（取引先＝active + end の全店）に存在しない場合はブロック（一括・個別共通）。MYP-3960 |
+| 取引終了（end）加盟店 | 警告 / エラー | `store_status='end'` の加盟店は再請求不可。**一括は警告（スキップ）**・**個別はエラー（ブロック）**。FE・BE 両層で検証。MYP-3960 |
 
 ### 9.2 個別リアップロード時の追加チェック
 
 | チェック項目 | タイミング | 内容 |
 |-------------|-----------|------|
-| 対象外加盟店チェック | プレビュー描画時 | CSVに対象加盟店以外が含まれている場合エラー |
+| 加盟店コードの有効性（リレーション） | バリデーション時 | マッピングに存在しない `customer_code` がCSVに含まれる場合エラー（ブロック）。MYP-3960 |
+| 取引終了（end）加盟店 | バリデーション時 | 対象加盟店が `store_status='end'` の場合はエラー（再請求不可）。MYP-3960 |
+| 対象外加盟店チェック | プレビュー描画時 | CSVに対象加盟店のデータが含まれていない場合エラー（対象店以外のリレーション内加盟店はサイレント除外） |
 | 合意事項 必須 | 「登録する」押下時 | 否認の場合、合意事項が空なら alert |
 
 ### 9.3 一括アップロード時の追加チェック
 
 | チェック項目 | タイミング | 内容 |
 |-------------|-----------|------|
-| 否認加盟店の合意事項 | 「確認画面へ進む」押下時 | 全否認加盟店の入力チェック |
-| RETURNED+null 加盟店 | バリデーション時 | 警告のみ（エラーにしない） |
-| RETURNED+DISPUTED 加盟店 | バリデーション時 | エラー |
+| 加盟店コードの有効性（リレーション） | バリデーション時 | マッピングに存在しない `customer_code` がCSVに含まれる場合はエラー（ブロック）。MYP-3960 |
+| 取引終了（end）加盟店 | バリデーション時 | end 店舗が CSV に含まれる場合は**警告のうえ再請求対象外（スキップ）**。確認画面へは進める。MYP-3960 |
+| 要対応加盟店の網羅性（差戻し・否認問わず） | バリデーション時 | CSV に含まれない要対応加盟店は**警告（アラート）のみ**。確認画面へ進め、その加盟店は今回の再請求では対象外（スキップ） |
+| 否認加盟店の合意事項 | 確認画面（#confirm）送信時 | 確認画面に表示されている否認加盟店の handover 必須チェック（[03_confirm_page.md](03_confirm_page.md) §6.4）。「確認画面へ進む」時点では空でも遷移可 |
+
+> 📌 以前は「否認（RETURNED+DISPUTED）加盟店が CSV に含まれない場合はエラー」だったが、現在は差戻し・否認を問わず**警告（スキップ可）に統一**。含まれなかった加盟店はこの再請求では対象外となる。
+>
+> 📌 **MYP-3960**: ①CSV にマッピング外（リレーションに存在しない）`customer_code` が含まれる場合は一括・個別ともエラー（ブロック）。②`store_status='end'` の加盟店は再請求不可（**仕様変更**：以前は end 店舗も再請求可だった）。一括は警告のうえスキップ、個別はエラー。検証は FE（[fe_js_detail.html](../../src/fe_js_detail.html) `handleFile_`）と BE（[be_invoice.js](../../src/be_invoice.js) `resubmitInvoiceData` / `bulkResubmitInvoiceData`）の両層で実施。
 
 ---
 
@@ -584,7 +595,7 @@ stateDiagram-v2
 |--------|------|------|
 | `_detailCurrentInvoiceId` | `string\|null` | 表示中の `wholesaler_invoice_id`（再描画スキップ判定） |
 | `_detailActionRequiredMallCodes` | `string[]` | 要対応の `mall_code` 一覧（バリデーション用） |
-| `_detailReturnedOnlyMallCodes` | `string[]` | RETURNED のみの `mall_code`（CSV未含有時は警告のみ） |
+| `_detailReturnedOnlyMallCodes` | `string[]` | RETURNED かつ `invoice_status=null` の `mall_code`。**網羅性チェックの緩和（差戻し・否認を問わず警告化）に伴い、現在はエラー/警告の分岐には使用しない**（算出のみ保持） |
 | `_detailMallToCustomerMap` | `Object` | 詳細画面専用の `mall_code` → `customer_code` マップ（`end` 店舗も含む） |
 | `_isResubmitConfirm` | `boolean` | 一括再送信モードで確認画面を表示するフラグ |
 | `_resubmitParentInvoiceId` | `string\|null` | 一括再送信時の親請求ID |
@@ -672,7 +683,7 @@ stateDiagram-v2
 | 関数 | 対象テーブル | 概要 |
 |------|------------|------|
 | `fetchInvoiceDetailSummary_` | `wholesaler_invoices` LEFT JOIN `business_calendar` | 親請求 + `objection_end_at` を取得 |
-| `fetchStoreInvoicesByParent_` | `store_invoices` JOIN `store` + `customer_code` スカラーサブクエリ | 加盟店別請求一覧（`is_latest=TRUE`） |
+| `fetchStoreInvoicesByParent_` | `store_invoices` JOIN `store` + `customer_code` スカラーサブクエリ | 加盟店別請求一覧（`is_latest=TRUE`）。`wholesaler_managed_store_name` も取得し、再請求時の加盟店名継承に使用 |
 | `fetchInvoiceLinesByStore_` | `invoice_lines` JOIN `store_invoices` | 明細行（最大1000行） |
 | `fetchStoreInvoiceForWithdraw_` | `store_invoices` | 取下げ/取消しの事前バリデーション |
 | `fetchObjectionPeriodEndDate_` | `business_calendar` | 異議申立期間の `end_at` 取得 |

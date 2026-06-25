@@ -65,7 +65,7 @@ block-beta
     block:submitArea["最終確認・送信"]
       columns 1
       oath["☑ 私は入力データが正確であることを誓約し..."]
-      submit["登録内容を送信する"]
+      submit["請求情報を登録する"]
     end
     block:bottomAction["下部ボタン"]
       backBottom["← 一覧に戻る"]
@@ -94,7 +94,7 @@ block-beta
 |------|-----|-------------|
 | 請求月 | `summaryBillingMonth` | 現在日時から `YYYY年M月` を生成 |
 | 登録日時 | `summaryRegisteredAt` | 現在日時から `YYYY/MM/DD HH:MM` を生成 |
-| 手数料率 | `summaryFeeRate` | SessionStorage `shiire_invoice_fee_rate` |
+| 手数料率 | `summaryFeeRate` | SessionStorage `shiire_invoice_fee_rate`（**生値の文字列をそのまま表示**。`Number()` 変換による末尾0消失・精度落ちを避ける。計算には Number 化した値を使用） |
 | 手数料額 | `summaryFee` | `Math.floor(合計税込 × 手数料率 / 100)` |
 | 振込予定金額 | `summaryTransfer` | `合計税込 − 手数料額` |
 | USEN PAY社コメント | `confirmHandoverText` | 再送信モード時のみ表示（readonly textarea） |
@@ -142,6 +142,18 @@ block-beta
     end
   end
 ```
+
+#### 加盟店表示名（卸管理加盟店名 `wholesaler_managed_store_name`）
+
+各加盟店アコーディオンのヘッダーに表示する加盟店名（`displayName`）は、以下の優先順位で確定し、カードの `data-managed-store-name` に保持する。
+
+1. CSV に `merchant_name` 列がある（カスタムフォーマット）→ CSV の値
+2. CSV に `merchant_name` 列がない（デフォルトフォーマット）→ `merchant_mappings` を `customer_code` で検索（`store_name`）
+3. どちらも取得できない場合 → `customer_code` をそのまま表示
+
+`collectSummaryData_()` がこの値を `managedStoreName` として収集し、`sendInvoiceData()` へ送信する。BE は `store_invoices.wholesaler_managed_store_name` に保存し、詳細画面の加盟店名表示に使用する（登録時点の名称をスナップショットとして固定）。
+
+> 📌 一括再送信モードでは、フロント送信値ではなく**既存 DB の `wholesaler_managed_store_name` を BE が継承**する（加盟店名の意図しない変化を防ぐ）。
 
 ### 3.4 消費税の手動編集（税内訳 10% / 8%）
 
@@ -209,9 +221,11 @@ sequenceDiagram
     U->>FE: ☑ 誓約チェック ON
     FE->>FE: btnFinalSubmit.disabled = false
 
-    U->>FE: 「登録内容を送信する」クリック
+    U->>FE: 「請求情報を登録する」クリック
     FE->>FE: collectSummaryData_()
+    Note over FE: 加盟店ごとに managedStoreName<br/>（data-managed-store-name）も収集
     FE->>FE: collectRemarks_()
+    Note over FE: 備考は nl2space_ で改行→スペースに正規化
     FE->>FE: 金額桁数バリデーション
     FE->>FE: setSubmitLoading() + showLoadingOverlay()
 
@@ -251,7 +265,7 @@ sequenceDiagram
     participant BQ as BigQuery
     participant GD as Google Drive
 
-    U->>FE: 「登録内容を送信する」クリック
+    U->>FE: 「請求情報を登録する」クリック
     FE->>FE: collectSummaryData_() + collectRemarks_()
     FE->>FE: _resubmitRemarks / _resubmitHandovers をマージ
 
@@ -297,7 +311,7 @@ sequenceDiagram
 
 ### 6.4 再送信モード: 合意内容（handover）必須チェック
 
-一括再送信モードでは、否認加盟店（`_resubmitDisputedCodes`）の「【必須】加盟店との合意内容」（`confirm-handover-input`）が未入力の場合は送信をブロックする。
+一括再送信モードでは、確認画面に**実際に表示されている**「【必須】加盟店との合意内容」（`confirm-handover-input`）のうち未入力のものがある場合に送信をブロックする。CSV に含まれない否認加盟店は handover 欄が描画されないため、自然に必須チェックの対象外になる（`_resubmitDisputedCodes` 全体ではなく、描画済みの欄を走査して判定する）。
 
 | チェック | 挙動 |
 |---------|------|
@@ -395,6 +409,7 @@ sequenceDiagram
 | 引数 | 生CSVのBase64, UTF-8 CSVのBase64, 金額サマリー, 備考マップ |
 | 処理 | CSV保存 → BQ Load → トランザクション → Staging削除 |
 | トランザクション | `wholesaler_invoices` INSERT + `store_invoices` INSERT + `invoice_lines` INSERT |
+| 加盟店名 | `store_invoices.wholesaler_managed_store_name` に `summaryData.merchantTotals[].managedStoreName` を保存 |
 | IDOR保護 | サーバー側で `wholesaler_id` を確定（引数から渡さない） |
 
 ### 10.2 `bulkResubmitInvoiceData(rawCsv, utf8Csv, summaryData, remarks, parentId, handovers)`
@@ -403,3 +418,4 @@ sequenceDiagram
 |------|------|
 | 追加引数 | `parentInvoiceId`, `handovers`（合意事項マップ） |
 | 処理 | 新 `store_invoices` INSERT + 旧 `is_latest = FALSE` + `wholesaler_invoices` 金額差額更新 |
+| 加盟店名 | `wholesaler_managed_store_name` は**既存 DB 値を継承**（`fetchStoreInvoicesByParent_` で取得し、フロント送信値で上書きしない） |

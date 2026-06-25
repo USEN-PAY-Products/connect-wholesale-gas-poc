@@ -17,7 +17,7 @@ CSVアップロード画面は、卸事業者が新規請求データをCSVフ�
 |---------|------|
 | `fe_page_csv_upload.html` | HTML テンプレート |
 | `fe_js_upload.html` | アップロードロジック（`handleFile()`, `renderErrors()` 等） |
-| `fe_js_csv_common.html` | CSV 共通処理（`validateCsv()`, `parseCsvLine()`） |
+| `fe_js_csv_common.html` | CSV 共通処理（`sanitizeCsvQuotedNewlines_()`, `validateCsv()`, `parseCsvLine()`, `nl2space_()`, `removeEmptyLines_()`） |
 | `fe_css.html` | スタイル定義 |
 
 ---
@@ -184,23 +184,25 @@ sequenceDiagram
     FE->>FE: decodeBuffer_(arrayBuffer)
     Note over FE: UTF-8 → 失敗時 Shift_JIS<br/>で文字列化
 
-    FE->>FE: stripQuotedNewlines(text)
-    Note over FE: クォート内の改行をスペースに正規化<br/>（RFC 4180 エスケープ "" は保持）
-
-    FE->>FE: rawCsvBase64 = Base64(元バイト列)
-    FE->>FE: utf8CsvBase64 = Base64(UTF-8テキスト)
+    FE->>FE: getCsvFormatRules() → columns
+    FE->>FE: sanitizeCsvQuotedNewlines_(text, columns)
+    Note over FE: 列認識パーサ。クォート内改行→スペース<br/>備考列以外の改行→ newlineErrors に収集<br/>クォート未閉鎖→ パースエラー（§4.3 参照）
 
     FE->>FE: validateCsv(text)
-    Note over FE: ヘッダー検証<br/>データ行検証<br/>（詳細は §5 参照）
+    Note over FE: ヘッダー検証 / データ行検証（§5 参照）<br/>加盟店網羅性チェック（アラート）
 
-    alt バリデーションエラーあり
+    FE->>FE: errors = newlineErrors.concat(errors)
+    FE->>FE: 当月重複チェック（sessionStorageキャッシュ）
+
+    alt エラーあり（改行混入 / 引用符 / バリデーション / 当月重複）
         FE->>FE: renderErrors(errors, warnings, fileName)
         FE-->>U: エラー一覧表示 + ボタンdisabled
-    else バリデーション成功
+    else エラーなし
+        FE->>FE: rawCsvBase64 = Base64(元バイト列)
+        FE->>FE: utf8CsvBase64 = Base64(removeEmptyLines_(text))
+        Note over FE: BQ投入用は空行除去済み<br/>（原本 rawCsvBase64 とは不一致）
         FE->>FE: parsedData = パース結果
         FE->>SS: sessionStorage.setItem('shiire_parsedData', ...)
-        FE->>FE: 当月重複チェック
-        FE->>FE: 加盟店網羅性チェック
         FE->>FE: renderErrors(errors, warnings, fileName)
         FE-->>U: ファイル情報表示 + ボタン有効化
     end
@@ -215,11 +217,50 @@ flowchart TD
     C -->|Yes| D["UTF-8 テキストとして使用"]
     C -->|No| E["Shift_JIS デコード試行"]
     E --> F["UTF-8 変換テキストとして使用"]
-    D --> G["rawCsvBase64 = Base64(元バイト列)"]
-    F --> G
-    G --> H["utf8CsvBase64 = Base64(UTF-8テキスト)"]
-    H --> I["validateCsv(text)"]
+    D --> S["sanitizeCsvQuotedNewlines_(text, columns)"]
+    F --> S
+    S --> V["validateCsv(text)"]
+    V --> G["rawCsvBase64 = Base64(元バイト列)"]
+    G --> H["utf8CsvBase64 = Base64(removeEmptyLines_(text))"]
 ```
+
+### 4.3 CSVクォート内改行・制御文字のサニタイズ
+
+`decodeBuffer_()` で文字列化した CSV は、`validateCsv()` に渡す前に `sanitizeCsvQuotedNewlines_(text, columns)`（`fe_js_csv_common.html`）で改行・制御文字を正規化する。`columns` は `getCsvFormatRules().columns`（未設定時は `DEFAULT_CSV_COLUMNS_`）。
+
+#### sanitizeCsvQuotedNewlines_(csvText, columns)
+
+`parseCsvLine` と同じ「フィールド先頭の `"` のみクォート開始」モデルの**列認識パーサ**。フィールド途中の `"`（例: `32"テレビ`）はリテラル扱いとし、トグル方式の desync を構造的に回避する。
+
+| 対象 | 挙動 |
+|------|------|
+| クォート内の改行・制御文字 | 半角スペースに変換 |
+| 明細備考列（`invoice_detail_remark`）の改行 | スペース変換のみ（エラーにしない） |
+| 備考以外の列の改行 | スペース変換しつつ `newlineErrors` に収集（確認画面手前でブロック） |
+| クォート外の改行（CRLF / CR / LF / U+2028 / U+2029 / U+0085 / VT / FF） | `\n` に正規化してレコード区切り化 |
+| EOF でクォート未閉鎖 | `newlineErrors` にパースエラーを追加 |
+
+- 戻り値は `{ text, newlineErrors }`。`text` を `validateCsv()` に渡し、`newlineErrors` は `validateCsv()` の `errors` 先頭に合流する（1件でもあれば確認画面へ進めない）。
+- 文字集合（CR / LF / U+2028 / U+2029 / U+0085 / VT / FF）は FE サニタイズ（本関数・`nl2space_`）と BQ ロード時クリーニング（`be_csv_mapper.js` の `REGEXP_REPLACE`）で統一。**TAB は意味あるフィールド内文字のため除外**。
+
+#### newlineErrors のメッセージ
+
+| 種別 | メッセージ |
+|------|-----------|
+| 備考以外の列に改行混入 | `N行目: "列名" に改行を含めることはできません。改行を削除してください。`（列名が取れない場合は `M列目`） |
+| 引用符未閉鎖 | `CSVの引用符（"）が閉じられていません。引用符の対応を確認してください。` |
+
+> 📌 行番号は **元ファイル基準（Excel の行番号 = 空行も1行として数える）**。`validateCsv()` の行レベルエラーも同じ基準（`lineNums[]`）で行番号を振るため、両者を結合表示しても行番号がずれない。
+
+#### nl2space_(str)
+
+手入力値（加盟店別請求書備考・加盟店との合意内容）に含まれる改行・制御文字を半角スペースに変換するユーティリティ。確認画面・詳細モーダルの `collectRemarks_()` / `collectHandovers_()` 等で、BE 送信前に適用する（BQ の単一引用符リテラルの構文エラー対策）。
+
+#### removeEmptyLines_(text)
+
+完全な空行・空白のみの行を物理除去する（jagged row による Load Job 失敗対策）。BQ 投入用の `utf8CsvBase64` に適用する。
+
+> ⚠️ `utf8CsvBase64`（BQ 投入用）は空行除去済みのため、Drive 保存の `rawCsvBase64`（原本）とは内容が一致しない。障害調査・監査で原本から再現する際は空行除去分の差分がある点に留意。
 
 ---
 
@@ -229,7 +270,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START["validateCsv(text)"] --> FORMAT{"csv_format_rules\n取得"}
+    SAN["sanitizeCsvQuotedNewlines_()\n（§4.3・改行サニタイズ＋newlineErrors）"] --> START["validateCsv(text)"]
+    START --> FORMAT{"csv_format_rules\n取得"}
     FORMAT -->|null| DEFAULT["DEFAULT_CSV_COLUMNS_\n（デフォルト9列）"]
     FORMAT -->|有り| CUSTOM["csv_format_rules.columns\n（動的マッピング）"]
 
@@ -328,8 +370,8 @@ flowchart TD
 
 | 変数名 | 型 | 用途 |
 |--------|------|------|
-| `rawCsvBase64` | `string\|null` | 生CSV（Shift-JIS等）の Base64。BE送信用 |
-| `utf8CsvBase64` | `string\|null` | UTF-8変換CSVの Base64。BQ Load Job用 |
+| `rawCsvBase64` | `string\|null` | 生CSV（Shift-JIS等）の Base64。Drive 保存・BE送信用（原本） |
+| `utf8CsvBase64` | `string\|null` | UTF-8変換 + `removeEmptyLines_()` で空行除去した CSV の Base64。BQ Load Job用（原本とは不一致） |
 | `parsedData` | `Array\|null` | CSVパース結果の行配列 |
 | `_analyzeTimer` | `number\|null` | 最低分析表示時間タイマーID |
 | `_currentReader` | `FileReader\|null` | 実行中のFileReaderインスタンス |

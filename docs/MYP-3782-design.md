@@ -111,7 +111,7 @@ sequenceDiagram
   Note over Confirm: ★ 否認店舗のみ handover 編集欄を表示（新規）<br/>初期値: _resubmitHandovers から引き継ぎ
 
   User->>Confirm: handover を編集（任意）
-  User->>Confirm: 「登録内容を送信する」ボタン押下
+  User->>Confirm: 「請求情報を登録する」ボタン押下
 
   Note over Confirm: ★ collectHandovers_()（新規）<br/>DOMから最新値を収集
 
@@ -449,7 +449,7 @@ const newTax8  = Math.trunc(Number(tax8Input.value)  || 0);
 | 1 | 否認レコードの一括CSV再アップロードで、handover 未入力のまま「このファイルを使用する」を押す | ブロックされずに確認画面に遷移する |
 | 2 | 確認画面で否認店舗の handover 欄に詳細画面の入力値が表示されている | 入力済みの値が引き継がれている |
 | 3 | 確認画面で handover を編集できる | textarea が編集可能 |
-| 4 | 確認画面で handover 未入力のまま「登録内容を送信する」を押す | alert で警告が表示され、送信されない |
+| 4 | 確認画面で handover 未入力のまま「請求情報を登録する」を押す | alert で警告が表示され、送信されない |
 | 5 | 確認画面で全否認店舗の handover を入力して送信する | 正常に `bulkResubmitInvoiceData` が実行される |
 | 6 | 通常の新規アップロードフロー | 影響なし（handover 欄は表示されない） |
 | 7 | 個別CSV再アップロード（モーダル） | 既存の必須チェックが維持されている |

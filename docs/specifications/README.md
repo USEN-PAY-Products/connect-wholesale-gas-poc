@@ -40,7 +40,7 @@ flowchart TD
     UPLOAD -->|確認画面へ進む| CONFIRM["確認画面\n#confirm"]
     UPLOAD -->|一覧に戻る| HOME
 
-    CONFIRM -->|登録内容を送信する| HOME
+    CONFIRM -->|請求情報を登録する| HOME
     CONFIRM -->|一覧に戻る| HOME
     CONFIRM -->|キャンセル| UPLOAD
 
@@ -72,7 +72,7 @@ flowchart TD
 | `src/` | `fe_page_error.html` | エラー画面 HTML |
 | `src/` | `fe_css.html` | 全画面共通 CSS |
 | `src/` | `fe_js_common.html` | 共通基盤（ルーター・トースト・ヘッダー/ログアウト・アカウント初期化） |
-| `src/` | `fe_js_csv_common.html` | CSV 共通処理（`validateCsv` / `parseCsvLine` / `getCsvFormatRules`） |
+| `src/` | `fe_js_csv_common.html` | CSV 共通処理（`sanitizeCsvQuotedNewlines_` / `validateCsv` / `parseCsvLine` / `getCsvFormatRules` / `nl2space_` / `removeEmptyLines_`） |
 | `src/` | `fe_js_calendar.html` | 請求スケジュールカレンダー（ホーム・詳細で共有） |
 | `src/` | `fe_js_home.html` | ホーム画面ロジック |
 | `src/` | `fe_js_upload.html` | CSVアップロード画面ロジック |

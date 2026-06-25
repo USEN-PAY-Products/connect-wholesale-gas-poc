@@ -12,7 +12,7 @@
 | `fe_part_header.html` | 共通ヘッダー HTML |
 | `fe_css.html` | 全画面共通 CSS（3000行超） |
 | `fe_js_common.html` | ルーター・共通ユーティリティ・トースト・ヘッダー/ログアウト・アカウント初期化 |
-| `fe_js_csv_common.html` | CSV 共通処理（`validateCsv` / `parseCsvLine` / `getCsvFormatRules`） |
+| `fe_js_csv_common.html` | CSV 共通処理（`sanitizeCsvQuotedNewlines_` / `validateCsv` / `parseCsvLine` / `getCsvFormatRules` / `nl2space_` / `removeEmptyLines_`） |
 | `fe_js_calendar.html` | 請求スケジュールカレンダー（ホーム・詳細で共有） |
 | `fe_js_home.html` | ホーム画面ロジック |
 | `fe_js_upload.html` | CSVアップロード画面ロジック |
@@ -20,7 +20,7 @@
 | `fe_js_detail.html` | 詳細画面ロジック（再アップロードモーダル含む） |
 | `fe_page_error.html` | エラー画面 HTML |
 | `be_main.js` | GAS エントリーポイント（`doGet`, `include`） |
-| `be_server.js` | アカウント認証（`getAccountInfo`）・ログアウト先URL取得（`getLogoutUrl`） |
+| `be_server.js` | アカウント認証（`getAccountInfo`）・ログアウト先URL取得（`getLogoutUrl`）・ログインページURL取得（`getLoginUrl`） |
 | `be_config.js` | 環境設定（Script Properties） |
 | `be_utils.js` | 共通ユーティリティ |
 
@@ -35,7 +35,7 @@ flowchart TB
     subgraph GAS ["Google Apps Script"]
         direction TB
         MAIN["be_main.js\ndoGet() / include()"]
-        SERVER["be_server.js\ngetAccountInfo()\ngetLogoutUrl()"]
+        SERVER["be_server.js\ngetAccountInfo()\ngetLogoutUrl()\ngetLoginUrl()"]
         INVOICE["be_invoice.js\n請求CRUD API"]
         MAPPER["be_csv_mapper.js\nCSV動的マッピング"]
         CONFIG["be_config.js\n環境設定"]
@@ -173,7 +173,7 @@ block-beta
 
 | 要素 | ID | 仕様 |
 |------|-----|------|
-| ロゴ | - | 「仕入れコネクト」→ `#home` へのリンク |
+| ロゴ（アプリ名リンク） | `headerLogoLink` / `headerServiceName` | 「仕入れコネクト」→ `#home` へのリンク。**エラー画面（`#error`）でのみ押下不可**（`navigate()` が `is-disabled` + `aria-disabled="true"` + `tabindex="-1"` を付与）。開発環境（`window.__APP_IS_DEV__ === true`）ではサービス名末尾に `(Dev)` を付与（`applyDevServiceNameLabel_`） |
 | produced by | - | 「produced by USEN PAY」（`#B9BEC3`） |
 | 請求スケジュール | `btnCalendarOpen` | カレンダーモーダルを開くボタン。Top画面・詳細画面でのみ表示 |
 | 卸事業者名トリガー | `headerStoreTrigger` | ビルSVGアイコン + `headerWholesalerName` + ▼アイコン。クリックでログアウトドロップダウンを開閉（`aria-haspopup` / `aria-expanded`） |
@@ -391,20 +391,37 @@ block-beta
   columns 1
   block:errorPage["エラー画面 (#error)"]
     columns 1
-    banner["⚠ バナーテキスト"]
-    message["本文メッセージ"]
-    sub["補足テキスト"]
-    contact["卸コネクトサポート窓口\n080-1234-1234"]
+    banner["⚠ バナーテキスト（errorPageBannerText）"]
+    message["本文メッセージ（errorPageMessage）"]
+    sub["補足テキスト（errorPageSub）"]
+    contact["「卸コネクトサポート窓口」\nusenpay-connect-ope@usen-pay.co.jp（mailto リンク）"]
+    backToLogin["ログインページに戻る →（btnBackToLogin）"]
   end
 ```
 
+> 📌 エラー画面ではヘッダーのアプリ名（`headerLogoLink`）が押下不可になる（`navigate()` が `#error` のとき `is-disabled` を付与）。ログインできていない状態で `#home` に遷移させないための制御。
+
 ### 9.2 エラー種別
 
-| 種別 | バナー | メッセージ |
-|------|--------|-----------|
-| `unauthorized` | 「ログインに使用されたアカウントの登録が見当たりません。」 | 登録済みアカウントでの再ログインを案内 |
-| `system` | 「システムエラーが発生しました。」 | 「アカウント情報の取得に失敗しました。ページを再読み込みしてください。」 |
-| `env` | 「環境エラー」 | 「この画面はGAS Webアプリとして実行してください。」 |
+`showErrorPage_(type)`（`fe_js_common.html`）がバナー／本文／補足を切り替える。`unauthorized` は HTML の既定文言をそのまま使用し、`system` も**同じ「アカウント未登録」文言を表示する**（取得失敗の技術的詳細はコンソールログに出力し、画面では共通の案内に集約する）。
+
+| 種別 | 発生条件 | バナー | メッセージ |
+|------|---------|--------|-----------|
+| `unauthorized` | `getAccountInfo()` が `UNAUTHORIZED:` で失敗 | 「ログインに使用されたアカウントの登録が見当たりません。」 | 「本サイトへのログインにご使用された、Googleアカウントがサービスデータベース上に見当たりません。ご登録時に設定いただいたアカウントで再度ログインしなおしてください。」 |
+| `system` | `getAccountInfo()` が上記以外で失敗 | （`unauthorized` と同一の文言） | （`unauthorized` と同一の文言） |
+| `env` | GAS 環境外（`google.script.run` 不在） | 「環境エラー」 | 「この画面はGAS Webアプリとして実行してください。」 |
+
+### 9.3 「ログインページに戻る」ボタン（`btnBackToLogin`）
+
+エラー画面フッターのボタン。押下すると `shiire_` プレフィックスの SessionStorage を削除し、`getLoginUrl()` で取得した LP（ログインページ）へ `window.top.location` で遷移する。
+
+| 項目 | 内容 |
+|------|------|
+| FE処理 | `shiire_` プレフィックスの SessionStorage キーのみ削除 → `getLoginUrl()` 呼び出し |
+| BE API | `getLoginUrl()` → `{ status: 'success', data: { url } }`。`LP_URL` を**そのまま**返す（`?logout=true` は付与しない） |
+| ログアウトとの違い | エラー画面はログイン前提のため、LP 側で「ログアウトしました」トーストが出ないよう `getLogoutUrl()`（§6.3）とは別関数 `getLoginUrl()` を使用する |
+| セキュリティ | `LP_URL` が `https://` で始まらない場合はエラー |
+| フォールバック | API失敗・GAS環境外は `window.history.back()`（履歴がなければ `#home`） |
 
 ---
 
@@ -471,6 +488,50 @@ flowchart TD
   ]
 }
 ```
+
+### 11.3 CSVクォート内改行・制御文字のサニタイズ（FE）
+
+CSV 文字列は `validateCsv()` に渡す前に `sanitizeCsvQuotedNewlines_(text, columns)` で正規化する（アップロード画面・詳細再アップロードモーダルで共通）。
+
+| 関数 | 役割 |
+|------|------|
+| `sanitizeCsvQuotedNewlines_(text, columns)` | 列認識パーサ。クォート内改行→スペース、備考列（`invoice_detail_remark`）以外の列の改行→ `newlineErrors` 収集、クォート外改行（CRLF/CR/LF/U+2028/U+2029/U+0085/VT/FF）→ `\n` 正規化、クォート未閉鎖→パースエラー。戻り値 `{ text, newlineErrors }` |
+| `nl2space_(str)` | 手入力値（備考・合意内容）の改行・制御文字を半角スペースに変換 |
+| `removeEmptyLines_(text)` | 空行・空白のみ行を物理除去（jagged row 対策）。BQ 投入用 `utf8CsvBase64` に適用 |
+
+- 文字集合（CR/LF/U+2028/U+2029/U+0085/VT/FF）は FE サニタイズと BQ ロード時クリーニングで統一。**TAB は除外**。
+- 行番号は元ファイル基準（Excel 行番号 = 空行も１行として数える）。
+- 詳細は [02_csv_upload_page.md](02_csv_upload_page.md) §4.3 を参照。
+
+### 11.4 CSV→BQ 登録時の SQL サニタイズ（BE）
+
+BE では BigQuery の単一引用符リテラルに安全に埋め込むため、`escSql_()`（`be_csv_mapper.js`）/ 各 `esc()`（`be_invoice.js`）で**順序厳守**のエスケープを行う。
+
+1. バックスラッシュ `\` → `\\`（BQ は単一引用符リテラル内で `\` をエスケープ文字として解釈するため）
+2. シングルクォート `'` → `''`
+3. 改行・制御文字（CR/LF/U+2028/U+2029/U+0085/VT/FF）→ 半角スペース（TAB は除外）
+
+加えて、`buildInvoiceLinesSelectSql_()` の列マッピングで：
+
+| 列 | 挙動 |
+|----|------|
+| 明細備考（`invoice_detail_remark` → `line_note`） | `REGEXP_REPLACE` で改行・制御文字を半角スペースに変換して登録 |
+| 備考以外の文字列列（`item_name` 等） | 改行を含む行は `COUNTIF` + `RAISE` で登録拒否（`列「…」(index:N) に改行を含めることはできません。`） |
+
+> 📌 BQ Load Job は `allowQuotedNewlines: true`（`loadCsvToBq_`）を指定し、フロントのパーサ取りこぼし・直接呼び出し時の最終防衛とする（クォート内改行を含む１行で Load Job 全体が失敗するのを防ぐ）。
+> 📌 BE の `stripQuotedNewlines_`（`be_invoice.js`・税額再検証用）は CR/LF のみ＋トグル方式の別実装。FE 側で U+2028 等は既に `\n` へ正規化済みのため、再検証では CR/LF だけで足りる。
+
+### 11.5 卸管理加盟店名（`wholesaler_managed_store_name`）
+
+加盟店の表示名を登録時点でスナップショットし、`store_invoices.wholesaler_managed_store_name` に保存する。
+
+| タイミング | 値の決定 |
+|-----------|---------|
+| 新規登録 | 確認画面の `displayName`（CSV `merchant_name` → `merchant_mappings.store_name` → `customer_code`）を `managedStoreName` として送信し保存 |
+| 個別／一括再請求 | フロント送信値に依存せず、**既存 DB の `wholesaler_managed_store_name` を BE が継承**（`fetchStoreInvoicesByParent_` で取得） |
+| 詳細画面表示 | `wholesaler_managed_store_name` → `store_name` → `mall_code` の優先順位で表示 |
+
+詳細は [03_confirm_page.md](03_confirm_page.md) §3.3 / [04_detail_page.md](04_detail_page.md) §4 を参照。
 
 ---
 

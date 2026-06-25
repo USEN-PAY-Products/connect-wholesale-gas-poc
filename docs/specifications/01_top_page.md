@@ -157,8 +157,8 @@ flowchart LR
     IHP -->|google.script.run| FS
     FI --> WI
     FS --> BC
-    WI -->|invoices[]| RBH
-    BC -->|scheduleData[]| RC
+    WI -->|"invoices[]"| RBH
+    BC -->|"scheduleData[]"| RC
     RBH --> SS
 ```
 
@@ -306,7 +306,7 @@ flowchart TD
 | エラーケース | 挙動 |
 |-------------|------|
 | `getAccountInfo()` 失敗（UNAUTHORIZED） | `#error` 画面に遷移（アカウント未登録メッセージ） |
-| `getAccountInfo()` 失敗（システムエラー） | `#error` 画面に遷移（再読み込みメッセージ） |
+| `getAccountInfo()` 失敗（システムエラー） | `#error` 画面に遷移（`system`。バナー・本文はアカウント未登録時と同一の案内を表示） |
 | `fetchInvoices()` 失敗 | 空の請求履歴を表示（UIが空白にならないよう `renderBillingHistory([])` を呼ぶ） |
 | `fetchScheduleData()` 失敗 | `_scheduleLoaded = false` にして再取得可能にする |
 | GAS環境外での実行 | `#error` 画面に遷移（環境エラーメッセージ） |
