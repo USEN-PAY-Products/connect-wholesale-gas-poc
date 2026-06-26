@@ -1,0 +1,27 @@
+{
+  "name": "bq-integrity-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BigQuery 外部キー不整合検知・Slack/Looker Studio 通知バッチ (MYP-3761)",
+  "main": "dist/checker.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/checker.js",
+    "check": "ts-node src/checker.ts",
+    "check:all": "ts-node src/checker.ts --all-records",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^7.9.1",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}
