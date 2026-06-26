@@ -730,6 +730,10 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
  * @returns {{ status: 'success', data: Object }}
  */
 function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover) {
+  // finally から参照するため try 外で先行宣言（staging の後始末に使用）
+  let stagingId = null;
+  let projectId = null;
+  let datasetId = null;
   try {
     const accountInfo = getServerAccountInfo_();
     logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
@@ -820,10 +824,10 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     // 金額桁数バリデーション（DDL制約ベースのサーバー側防御）
     validateAmountDigits_(summaryData);
 
-    const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
+    stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
-    const projectId = config.gcpProjectId;
-    const datasetId = config.bqDatasetId;
+    projectId = config.gcpProjectId;
+    datasetId = config.bqDatasetId;
     const location  = config.bqLocation;
     const now       = new Date();
 
@@ -868,18 +872,22 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     Logger.log('[BQ] resubmit SQL:\n' + sql);
     runTransactionSql_(projectId, sql);
 
-    // staging DROP
-    try {
-      dropStagingTable_(projectId, datasetId, stagingId);
-    } catch (dropErr) {
-      logError_('Invoice', 'resubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
-    }
-
     logInfo_('Invoice', 'resubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
   } catch (err) {
     logError_('Invoice', 'resubmitInvoiceData', err);
     throw err;
+  } finally {
+    // staging テーブルを DROP（成功・失敗にかかわらず実行）。
+    // 自分が作った staging のみを後始末する（早期 throw で stagingId 未代入のときはスキップ）。
+    // DROP 失敗はフロントに伝播させない（DB 登録の成否とは独立）。
+    if (stagingId) {
+      try {
+        dropStagingTable_(projectId, datasetId, stagingId);
+      } catch (dropErr) {
+        logError_('Invoice', 'resubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
+      }
+    }
   }
 }
 
@@ -1066,6 +1074,10 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
  * @returns {{ status: 'success', data: Object }}
  */
 function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers) {
+  // finally から参照するため try 外で先行宣言（staging の後始末に使用）
+  let stagingId = null;
+  let projectId = null;
+  let datasetId = null;
   try {
     const accountInfo = getServerAccountInfo_();
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
@@ -1164,10 +1176,10 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     // 金額桁数バリデーション（DDL制約ベースのサーバー側防御）
     validateAmountDigits_(summaryData);
 
-    const stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
+    stagingId = 'staging_invoice_lines_' + Utilities.getUuid().replace(/-/g, '_');
     const config    = getConfig_();
-    const projectId = config.gcpProjectId;
-    const datasetId = config.bqDatasetId;
+    projectId = config.gcpProjectId;
+    datasetId = config.bqDatasetId;
     const location  = config.bqLocation;
     const now       = new Date();
 
@@ -1213,18 +1225,22 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     Logger.log('[BQ] bulk_resubmit SQL:\n' + sql);
     runTransactionSql_(projectId, sql);
 
-    // staging DROP
-    try {
-      dropStagingTable_(projectId, datasetId, stagingId);
-    } catch (dropErr) {
-      logError_('Invoice', 'bulkResubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
-    }
-
     logInfo_('Invoice', 'bulkResubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
   } catch (err) {
     logError_('Invoice', 'bulkResubmitInvoiceData', err);
     throw err;
+  } finally {
+    // staging テーブルを DROP（成功・失敗にかかわらず実行）。
+    // 自分が作った staging のみを後始末する（早期 throw で stagingId 未代入のときはスキップ）。
+    // DROP 失敗はフロントに伝播させない（DB 登録の成否とは独立）。
+    if (stagingId) {
+      try {
+        dropStagingTable_(projectId, datasetId, stagingId);
+      } catch (dropErr) {
+        logError_('Invoice', 'bulkResubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
+      }
+    }
   }
 }
 
@@ -1260,6 +1276,10 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  */
 function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
   const totalStart = Date.now();
+  // finally から参照するため try 外で先行宣言（staging の後始末に使用）
+  let stagingId = null;
+  let projectId = null;
+  let datasetId = null;
   try {
     // ── サーバー側から卸情報を取得（改ざん不可）──────────────────────────
     const accountInfo = getServerAccountInfo_();
@@ -1330,11 +1350,11 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     validateAmountDigits_(summaryData);
 
     // ⚠️ BQ テーブル名はハイフン不可 → アンダースコアに変換すること
-    const stagingId   = 'staging_invoice_lines_' + invoiceUuid.replace(/-/g, '_');
+    stagingId = 'staging_invoice_lines_' + invoiceUuid.replace(/-/g, '_');
 
     const config    = getConfig_();
-    const projectId = config.gcpProjectId;
-    const datasetId = config.bqDatasetId;
+    projectId = config.gcpProjectId;
+    datasetId = config.bqDatasetId;
     const location  = config.bqLocation;
     const now       = new Date();
 
@@ -1383,21 +1403,24 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     runTransactionSql_(projectId, sql);
     logInfo_('Invoice', 'sendInvoiceData トランザクション完了: ' + (Date.now() - txStart) + 'ms');
 
-    // ── ⑥ staging テーブルを DROP（TRANSACTION 外）─────────────────────
-    // DROP 失敗はフロントにエラーを返さない（DB への登録は完了しているため）
-    const dropStart = Date.now();
-    try {
-      dropStagingTable_(projectId, datasetId, stagingId);
-      logInfo_('Invoice', 'sendInvoiceData staging DROP完了: ' + (Date.now() - dropStart) + 'ms');
-    } catch (dropErr) {
-      logError_('Invoice', 'sendInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
-    }
-
     logInfo_('Invoice', 'sendInvoiceData 完了: invoiceUuid=' + invoiceUuid + ', total=' + (Date.now() - totalStart) + 'ms');
     return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
   } catch (err) {
     logError_('Invoice', 'sendInvoiceData', err);
     throw err;
+  } finally {
+    // staging テーブルを DROP（成功・失敗にかかわらず実行）。
+    // 自分が作った staging のみを後始末する（早期 throw で stagingId 未代入のときはスキップ）。
+    // DROP 失敗はフロントに伝播させない（DB 登録の成否とは独立）。
+    if (stagingId) {
+      const dropStart = Date.now();
+      try {
+        dropStagingTable_(projectId, datasetId, stagingId);
+        logInfo_('Invoice', 'sendInvoiceData staging DROP完了: ' + (Date.now() - dropStart) + 'ms');
+      } catch (dropErr) {
+        logError_('Invoice', 'sendInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
+      }
+    }
   }
 }
 

@@ -534,11 +534,15 @@ function fetchStoreInvoiceMallCode_(storeInvoiceId, wholesalerId, parentInvoiceI
  */
 function runQuery_(projectId, sql, params) {
   const queryStart = Date.now();
+  // データセットは asia-northeast1（東京）にあるため location を明示する。
+  // 未指定だと getQueryResults がデフォルト US でジョブを探し「Not found: Job」になる。
+  const location = getConfig_().bqLocation;
   const request = {
     query:           sql,
     useLegacySql:    false,
     timeoutMs:       10000, // 1回あたり10秒待機（jobComplete=false なら繰り返す）
     queryParameters: params || [],
+    location:        location,
   };
 
   // ── ① ジョブ投入 ─────────────────────────────────────────────────────────
@@ -558,7 +562,7 @@ function runQuery_(projectId, sql, params) {
   for (let poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
     Logger.log('[BQ] クエリ実行中... ポーリング ' + (poll + 1) + '/' + MAX_POLL);
     Utilities.sleep(2000); // 2秒待機してから再取得
-    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000, location: location });
     if (response.errors && response.errors.length > 0) {
       throw new Error('[BQ] クエリエラー（ポーリング中）: ' + JSON.stringify(response.errors));
     }
@@ -575,7 +579,7 @@ function runQuery_(projectId, sql, params) {
 
   while (pageToken) {
     Logger.log('[BQ] 追加ページ取得中... 取得済み行数: ' + allBqRows.length);
-    const nextPage = BigQuery.Jobs.getQueryResults(projectId, jobId, { pageToken: pageToken });
+    const nextPage = BigQuery.Jobs.getQueryResults(projectId, jobId, { pageToken: pageToken, location: location });
     if (nextPage.errors && nextPage.errors.length > 0) {
       throw new Error('[BQ] ページング中エラー: ' + JSON.stringify(nextPage.errors));
     }
