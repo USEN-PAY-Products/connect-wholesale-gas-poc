@@ -534,7 +534,7 @@ function fetchStoreInvoiceMallCode_(storeInvoiceId, wholesalerId, parentInvoiceI
  */
 function runQuery_(projectId, sql, params) {
   const queryStart = Date.now();
-  // データセットは asia-northeast1（東京）にあるため location を明示する。
+  // location はデータセットのリージョンと一致させる必要がある（BQ_LOCATION スクリプトプロパティで設定）。
   // 未指定だと getQueryResults がデフォルト US でジョブを探し「Not found: Job」になる。
   const location = getConfig_().bqLocation;
   const request = {

@@ -538,7 +538,7 @@ function buildDetailAccordion_(store, openByDefault) {
     body.appendChild(withdrawnRow);
   }
 
-  // 確認中・承認済み・未検収（normalグループ）: 合意内容（読取専用・グレー背景）
+  // 確認中・承認済み・未検収（normalグループ）: 合意内容（読取専用）
   // wholesaler_handover が登録済みの行のみ表示
   if (!isReturned && !isDisputed && !isWithdrawn && store.wholesaler_handover) {
     const handoverRow = document.createElement('div');

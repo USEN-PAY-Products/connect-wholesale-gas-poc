@@ -881,7 +881,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     // staging テーブルを DROP（成功・失敗にかかわらず実行）。
     // 自分が作った staging のみを後始末する（早期 throw で stagingId 未代入のときはスキップ）。
     // DROP 失敗はフロントに伝播させない（DB 登録の成否とは独立）。
-    if (stagingId) {
+    if (stagingId && projectId && datasetId) {
       try {
         dropStagingTable_(projectId, datasetId, stagingId);
       } catch (dropErr) {
@@ -1234,7 +1234,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     // staging テーブルを DROP（成功・失敗にかかわらず実行）。
     // 自分が作った staging のみを後始末する（早期 throw で stagingId 未代入のときはスキップ）。
     // DROP 失敗はフロントに伝播させない（DB 登録の成否とは独立）。
-    if (stagingId) {
+    if (stagingId && projectId && datasetId) {
       try {
         dropStagingTable_(projectId, datasetId, stagingId);
       } catch (dropErr) {
@@ -1412,7 +1412,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
     // staging テーブルを DROP（成功・失敗にかかわらず実行）。
     // 自分が作った staging のみを後始末する（早期 throw で stagingId 未代入のときはスキップ）。
     // DROP 失敗はフロントに伝播させない（DB 登録の成否とは独立）。
-    if (stagingId) {
+    if (stagingId && projectId && datasetId) {
       const dropStart = Date.now();
       try {
         dropStagingTable_(projectId, datasetId, stagingId);

@@ -129,7 +129,7 @@ function waitForLoadJob_(projectId, jobId, location) {
  */
 function runTransactionSql_(projectId, sql) {
   Logger.log('[BQ] トランザクション SQL 実行開始');
-  // データセットは asia-northeast1（東京）にあるため location を明示する。
+  // location はデータセットのリージョンと一致させる必要がある（BQ_LOCATION スクリプトプロパティで設定）。
   // 未指定だと getQueryResults がデフォルト US でジョブを探し「Not found: Job」になる。
   const location = getConfig_().bqLocation;
   const request = {
@@ -178,7 +178,7 @@ function dropStagingTable_(projectId, datasetId, stagingTableId) {
   const sql     = 'DROP TABLE IF EXISTS ' + fullRef;
 
   Logger.log('[BQ] staging テーブルを DROP: ' + stagingTableId);
-  // データセットは asia-northeast1（東京）にあるため location を明示する。
+  // location はデータセットのリージョンと一致させる必要がある（BQ_LOCATION スクリプトプロパティで設定）。
   // 未指定だと getQueryResults がデフォルト US でジョブを探し「Not found: Job」になる。
   const location = getConfig_().bqLocation;
   const request = {
