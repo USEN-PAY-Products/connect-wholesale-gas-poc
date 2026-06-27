@@ -538,6 +538,21 @@ function buildDetailAccordion_(store, openByDefault) {
     body.appendChild(withdrawnRow);
   }
 
+  // 確認中・承認済み・未検収（normalグループ）: 合意内容（読取専用）
+  // wholesaler_handover が登録済みの行のみ表示
+  if (!isReturned && !isDisputed && !isWithdrawn && store.wholesaler_handover) {
+    const handoverRow = document.createElement('div');
+    handoverRow.className = 'store-accordion__backoffice-remark';
+    handoverRow.innerHTML =
+      '<div class="backoffice-remark__disputed-left">' +
+        '<div class="backoffice-remark__disputed-handover">' +
+          '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
+          '<div class="backoffice-remark__handover-readonly">' + escapeHtml(store.wholesaler_handover || '') + '</div>' +
+        '</div>' +
+      '</div>';
+    body.appendChild(handoverRow);
+  }
+
   // 備考エリア（常時表示）
   const remarksDiv = document.createElement('div');
   remarksDiv.className = 'store-accordion__remarks';
@@ -683,6 +698,7 @@ function renderDetailLines_(lines, container) {
   let _currentReader        = null;
 
   const modal         = document.getElementById('detailUploadModal');
+  const modalTitle     = modal && modal.querySelector('.detail-upload-modal__title');
   const overlay       = modal && modal.querySelector('.detail-upload-modal__overlay');
   const dropZoneEl    = document.getElementById('detailUploadDropZone');
   const fileInput     = document.getElementById('detailUploadFileInput');
@@ -702,6 +718,12 @@ function renderDetailLines_(lines, container) {
     _targetActionsEl      = actionsEl;
     _isBulk               = !!isBulk;
     resetModalState_();
+    // モーダルタイトルを用途に応じて切り替え
+    if (modalTitle) {
+      modalTitle.textContent = _isBulk
+        ? '請求CSVファイルの再登録（CSV一括アップロード）'
+        : '請求CSVファイルの再登録（否認→再請求）';
+    }
     // 個別リアップロード時は「確認画面へ進む」フッターを非表示
     if (!_isBulk && modalFooter) modalFooter.classList.add('hidden');
     modal.classList.remove('hidden');

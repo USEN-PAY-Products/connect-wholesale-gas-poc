@@ -129,10 +129,14 @@ function waitForLoadJob_(projectId, jobId, location) {
  */
 function runTransactionSql_(projectId, sql) {
   Logger.log('[BQ] トランザクション SQL 実行開始');
+  // location はデータセットのリージョンと一致させる必要がある（BQ_LOCATION スクリプトプロパティで設定）。
+  // 未指定だと getQueryResults がデフォルト US でジョブを探し「Not found: Job」になる。
+  const location = getConfig_().bqLocation;
   const request = {
     query:        sql,
     useLegacySql: false,
     timeoutMs:    10000,
+    location:     location,
   };
 
   let response = BigQuery.Jobs.query(request, projectId);
@@ -147,7 +151,7 @@ function runTransactionSql_(projectId, sql) {
   for (let poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
     Logger.log('[BQ] トランザクション実行中... ポーリング ' + (poll + 1) + '/' + MAX_POLL);
     Utilities.sleep(2000);
-    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000, location: location });
     if (response.errors && response.errors.length > 0) {
       throw new Error('[BQ] トランザクションエラー（ポーリング中）: ' + JSON.stringify(response.errors));
     }
@@ -174,10 +178,14 @@ function dropStagingTable_(projectId, datasetId, stagingTableId) {
   const sql     = 'DROP TABLE IF EXISTS ' + fullRef;
 
   Logger.log('[BQ] staging テーブルを DROP: ' + stagingTableId);
+  // location はデータセットのリージョンと一致させる必要がある（BQ_LOCATION スクリプトプロパティで設定）。
+  // 未指定だと getQueryResults がデフォルト US でジョブを探し「Not found: Job」になる。
+  const location = getConfig_().bqLocation;
   const request = {
     query:        sql,
     useLegacySql: false,
     timeoutMs:    10000,
+    location:     location,
   };
 
   let response = BigQuery.Jobs.query(request, projectId);
@@ -195,7 +203,7 @@ function dropStagingTable_(projectId, datasetId, stagingTableId) {
   for (let poll = 0; !response.jobComplete && poll < MAX_POLL; poll++) {
     Logger.log('[BQ] staging DROP 実行中... ポーリング ' + (poll + 1) + '/' + MAX_POLL);
     Utilities.sleep(2000);
-    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000 });
+    response = BigQuery.Jobs.getQueryResults(projectId, jobId, { timeoutMs: 10000, location: location });
     if (response.errors && response.errors.length > 0) {
       throw new Error(
         '[BQ] staging テーブルの DROP に失敗しました（ポーリング中、テーブル名: ' + stagingTableId +
