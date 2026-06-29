@@ -16,8 +16,6 @@
   <!-- サーバーが判定した実行環境フラグをフロントへ公開（development のときのみ true） -->
   <script>
     window.__APP_IS_DEV__ = ('<?= isDev ?>' === 'true');
-    // LP から渡されたセッショントークン（外部アカウント認証用。未指定時は空）
-    window.__SESSION_TOKEN__ = '<?= sessionToken ?>';
   </script>
 </head>
 <body>

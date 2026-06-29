@@ -25,17 +25,6 @@ function doGet(e) {
   const template = HtmlService.createTemplateFromFile('fe_index');
   template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
 
-  // LP から ?token= で渡されたセッショントークンをフロントへ渡す（外部アカウント認証用）。
-  // トークンは英数字・アンダースコア・ハイフンのみ許可し XSS を防ぐ。未指定時は空（組織内は Session フォールバック）。
-  let sessionToken = '';
-  try {
-    const raw = (e && e.parameter && e.parameter.token) || '';
-    if (/^[A-Za-z0-9_-]{1,128}$/.test(raw)) sessionToken = raw;
-  } catch (err) {
-    console.warn('[doGet] token の取得に失敗したためスキップします: ' + err);
-  }
-  template.sessionToken = sessionToken; // fe_index.html で window.__SESSION_TOKEN__ として公開
-
   const output = template
     .evaluate()
     .setTitle(isDev ? '仕入れコネクト(Dev)' : '仕入れコネクト')

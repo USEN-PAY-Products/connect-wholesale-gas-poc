@@ -94,26 +94,27 @@ function jstNow_() {
 
 /**
  * セッショントークンを取得する。
- * LP から ?token= で渡され、doGet が window.__SESSION_TOKEN__ へ注入する。
- * 初回は sessionStorage に保存し、以降はそこから読む（全 google.script.run に付与）。
- * 保存後は URL から token クエリを除去してアドレスバーへの漏洩を防ぐ。
+ * LP から #token=xxx フラグメントで渡される（URLクエリと異なりサーバログに残らない）。
+ * 初回はフラグメントから抽出し sessionStorage に保存、以降はそこから読む（全 google.script.run に付与）。
+ * 保存後はフラグメントから token を除去しアドレスバーへの漏洩を防ぐ。
  * @returns {string} セッショントークン（組織内アカウントは空で OK）
  */
 function getSessionToken_() {
   try {
     const t = sessionStorage.getItem('shiire_session_token');
     if (t) return t;
-    if (typeof window !== 'undefined' && window.__SESSION_TOKEN__) {
-      sessionStorage.setItem('shiire_session_token', window.__SESSION_TOKEN__);
-      // URL から token クエリを削除（アドレスバー/ログへの漏洩防止）
+    // フラグメントから抽出: #token=xxx または #home&token=xxx 等
+    const hash = (typeof window !== 'undefined' && window.location.hash) || '';
+    const match = hash.match(/[#&]token=([A-Za-z0-9_-]{1,128})/);
+    if (match) {
+      const token = match[1];
+      sessionStorage.setItem('shiire_session_token', token);
+      // フラグメントから token を除去（アドレスバー漏洩防止）
       try {
-        const url = new URL(window.location.href);
-        if (url.searchParams.has('token')) {
-          url.searchParams.delete('token');
-          window.history.replaceState(null, '', url.pathname + url.search + url.hash);
-        }
+        const cleaned = hash.replace(/[#&]token=[A-Za-z0-9_-]+/, '') || '#home';
+        window.location.hash = cleaned.startsWith('#') ? cleaned : '#' + cleaned;
       } catch (_) { /* GAS iframe 内等で失敗しても無視 */ }
-      return window.__SESSION_TOKEN__;
+      return token;
     }
   } catch (e) { /* sessionStorage 不可でも組織内は Session フォールバックで動く */ }
   return '';
