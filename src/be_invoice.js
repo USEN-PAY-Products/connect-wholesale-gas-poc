@@ -1779,7 +1779,7 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken)
 
 /**
  * ログインユーザーの請求一覧を BQ から取得して返す。
- * wholesaler_id はサーバー側で getServerAccountInfo_(sessionToken) から確定する。
+ * wholesaler_id はサーバー側で getServerAccountInfo_('', sessionToken) から確定する。
  * 他卸データ取得を防ぐため wholesaler_id はフロントから受け取らず認証結果だけを使う。
  *
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）

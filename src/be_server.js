@@ -23,7 +23,10 @@
  */
 function getServerAccountInfo_(email, sessionToken) {
   if (!email && sessionToken) {
-    email = CacheService.getScriptCache().get('shiire_session:' + sessionToken) || '';
+    // サーバー側でも形式/長さを検証（不正値は無視して Session フォールバック）
+    if (typeof sessionToken === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(sessionToken)) {
+      email = CacheService.getScriptCache().get('shiire_session:' + sessionToken) || '';
+    }
   }
   if (!email) {
     email = Session.getActiveUser().getEmail();
