@@ -25,6 +25,17 @@ function doGet(e) {
   const template = HtmlService.createTemplateFromFile('fe_index');
   template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
 
+  // LP から ?token= で渡されたセッショントークンをフロントへ渡す（外部アカウント認証用）。
+  // トークンは英数字・ハイフンのみ許可し XSS を防ぐ。未指定時は空（組織内は Session フォールバック）。
+  let sessionToken = '';
+  try {
+    const raw = (e && e.parameter && e.parameter.token) || '';
+    if (/^[A-Za-z0-9_-]{1,128}$/.test(raw)) sessionToken = raw;
+  } catch (err) {
+    console.warn('[doGet] token の取得に失敗したためスキップします: ' + err);
+  }
+  template.sessionToken = sessionToken; // fe_index.html で window.__SESSION_TOKEN__ として公開
+
   const output = template
     .evaluate()
     .setTitle(isDev ? '仕入れコネクト(Dev)' : '仕入れコネクト')
@@ -44,6 +55,50 @@ function doGet(e) {
   }
 
   return output;
+}
+
+/**
+ * 外部（LP）からの POST ログインエンドポイント。
+ * フロントから Google ID トークンを text/plain で受け取り、tokeninfo API で検証して
+ * メールを抽出→aud 照合→BQ 照合→セッショントークンを Cache に保存して返す。
+ * CORS 回避のため返却は ContentService(JSON)。
+ * @param {GoogleAppsScript.Events.DoPost} e
+ * @returns {GoogleAppsScript.Content.TextOutput} JSON
+ */
+function doPost(e) {
+  try {
+    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    const idToken = body.token;
+    if (!idToken) throw new Error('token がありません');
+
+    const { oauthClientId } = getConfig_();
+    if (!oauthClientId) throw new Error('OAUTH_CLIENT_ID が未設定です');
+
+    const resp = UrlFetchApp.fetch(
+      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
+      { muteHttpExceptions: true });
+    if (resp.getResponseCode() !== 200) throw new Error('token検証失敗');
+    const info = JSON.parse(resp.getContentText());
+    if (info.aud !== oauthClientId) throw new Error('aud mismatch');
+    if (info.email_verified !== 'true' && info.email_verified !== true) throw new Error('email未検証');
+    const email = info.email;
+    if (!email) throw new Error('emailなし');
+
+    const accountInfo = getServerAccountInfo_(email);
+    const sessionToken = Utilities.getUuid().replace(/-/g, '');
+    CacheService.getScriptCache().put('shiire_session:' + sessionToken, email, 21600); // 6h
+    logInfo_('Auth', 'doPost認証成功: wholesaler_id=' + accountInfo.wholesaler_id);
+    return jsonOutput_({ status: 'success', sessionToken: sessionToken, data: accountInfo });
+  } catch (err) {
+    logError_('Auth', 'doPost', err);
+    return jsonOutput_({ status: 'fail', message: 'このアカウントは登録されていません。' });
+  }
+}
+
+/** JSON を ContentService で返すヘルパー。 */
+function jsonOutput_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**

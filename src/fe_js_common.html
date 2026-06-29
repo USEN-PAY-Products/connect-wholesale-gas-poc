@@ -93,6 +93,24 @@ function jstNow_() {
 // =============================================================================
 
 /**
+ * セッショントークンを取得する。
+ * LP から ?token= で渡され、doGet が window.__SESSION_TOKEN__ へ注入する。
+ * 初回は sessionStorage に保存し、以降はそこから読む（全 google.script.run に付与）。
+ * @returns {string} セッショントークン（組織内アカウントは空で OK）
+ */
+function getSessionToken_() {
+  try {
+    var t = sessionStorage.getItem('shiire_session_token');
+    if (t) return t;
+    if (typeof window !== 'undefined' && window.__SESSION_TOKEN__) {
+      sessionStorage.setItem('shiire_session_token', window.__SESSION_TOKEN__);
+      return window.__SESSION_TOKEN__;
+    }
+  } catch (e) { /* sessionStorage 不可でも組織内は Session フォールバックで動く */ }
+  return '';
+}
+
+/**
  * アカウント情報APIのレスポンスを SessionStorage に保存する。
  * @param {Object} data - getAccountInfo() のレスポンス data フィールド
  */
@@ -179,6 +197,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const msg = String(err.message || err);
         if (msg.startsWith('UNAUTHORIZED:')) {
           showErrorPage_('unauthorized');
+        } else if (msg.startsWith('NOT_REGISTERED:')) {
+          showErrorPage_('system');
         } else {
           showErrorPage_('system');
         }
@@ -186,7 +206,7 @@ document.addEventListener('DOMContentLoaded', function () {
         hideLoadingOverlay();
         navigate(); // エラー時もルーティングは実行する
       })
-      .getAccountInfo();
+      .getAccountInfo(getSessionToken_());
   } else {
     // GAS 環境外での実行は非対応
     console.error('[account] google.script.run が利用できません。GAS Webアプリとして実行してください。');

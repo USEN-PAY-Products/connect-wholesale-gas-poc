@@ -729,13 +729,13 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容
  * @returns {{ status: 'success', data: Object }}
  */
-function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover) {
+function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover, sessionToken) {
   // finally から参照するため try 外で先行宣言（staging の後始末に使用）
   let stagingId = null;
   let projectId = null;
   let datasetId = null;
   try {
-    const accountInfo = getServerAccountInfo_();
+    const accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
 
     if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -1073,13 +1073,13 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
  * @returns {{ status: 'success', data: Object }}
  */
-function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers) {
+function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers, sessionToken) {
   // finally から参照するため try 外で先行宣言（staging の後始末に使用）
   let stagingId = null;
   let projectId = null;
   let datasetId = null;
   try {
-    const accountInfo = getServerAccountInfo_();
+    const accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
 
     if (!rawCsvBase64)     throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -1274,7 +1274,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  * @returns {{ status: 'success', data: { csv_url: string, invoice_uuid: string } }}
  * @throws {Error} Drive 操作または BQ 書き込み失敗時
  */
-function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
+function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sessionToken) {
   const totalStart = Date.now();
   // finally から参照するため try 外で先行宣言（staging の後始末に使用）
   let stagingId = null;
@@ -1282,7 +1282,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
   let datasetId = null;
   try {
     // ── サーバー側から卸情報を取得（改ざん不可）──────────────────────────
-    const accountInfo = getServerAccountInfo_();
+    const accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', merchantTotals_count=' + (summaryData && summaryData.merchantTotals ? summaryData.merchantTotals.length : 0));
     const mappings    = accountInfo.merchant_mappings || [];
 
@@ -1439,9 +1439,9 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks) {
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容（差し戻しの場合はnull）
  * @returns {{ status: 'success', data: Object }}
  */
-function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover) {
+function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, sessionToken) {
   try {
-    const accountInfo  = getServerAccountInfo_();
+    const accountInfo  = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'resubmitWithoutChanges 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
@@ -1508,9 +1508,9 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
-function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
+function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
   try {
-    const accountInfo  = getServerAccountInfo_();
+    const accountInfo  = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'withdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
@@ -1636,9 +1636,9 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
-function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
+function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
   try {
-    const accountInfo  = getServerAccountInfo_();
+    const accountInfo  = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
@@ -1778,9 +1778,9 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId) {
  *
  * @returns {{ status: 'success', data: Array<Object> }}
  */
-function fetchInvoices() {
+function fetchInvoices(sessionToken) {
   try {
-    const accountInfo  = getServerAccountInfo_();
+    const accountInfo  = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'fetchInvoices 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
     const wholesalerId = accountInfo.wholesaler_id;
     const result = fetchInvoicesByWholesaler_(wholesalerId);
@@ -1805,10 +1805,10 @@ function fetchInvoices() {
  * @param {string} invoiceId - 取得対象の卸インボイスID
  * @returns {{ status: 'success', data: { summary: Object, stores: Array<Object> } | null }}
  */
-function fetchInvoiceDetail(invoiceId) {
+function fetchInvoiceDetail(invoiceId, sessionToken) {
   try {
     if (!invoiceId) throw new Error('invoiceId が指定されていません');
-    const accountInfo  = getServerAccountInfo_(); // ログインユーザーの権限検証
+    const accountInfo  = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
     logInfo_('Invoice', 'fetchInvoiceDetail 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', invoiceId=' + invoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
     const summary = fetchInvoiceDetailSummary_(invoiceId, wholesalerId);
@@ -1832,10 +1832,10 @@ function fetchInvoiceDetail(invoiceId) {
  * @param {string} storeInvoiceId - 加盟店インボイスID（store_invoices.id）
  * @returns {{ status: 'success', data: Array<Object> }}
  */
-function getInvoiceLinesByStore(storeInvoiceId) {
+function getInvoiceLinesByStore(storeInvoiceId, sessionToken) {
   try {
     if (!storeInvoiceId) throw new Error('storeInvoiceId が指定されていません');
-    const accountInfo  = getServerAccountInfo_(); // ログインユーザーの権限検証
+    const accountInfo  = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
     logInfo_('Invoice', 'getInvoiceLinesByStore 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
     const result = fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId);
@@ -1856,9 +1856,9 @@ function getInvoiceLinesByStore(storeInvoiceId) {
  * サーバー側で wholesaler_id を確定するため、フロントからの引数は不要。
  * @returns {{ status: 'success', data: Array }}
  */
-function fetchScheduleData() {
+function fetchScheduleData(sessionToken) {
   try {
-    const accountInfo  = getServerAccountInfo_();
+    const accountInfo  = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'fetchScheduleData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
     const wholesalerId = accountInfo.wholesaler_id;
     const rows = fetchBusinessCalendar_(wholesalerId);

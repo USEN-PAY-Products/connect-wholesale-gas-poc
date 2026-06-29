@@ -38,7 +38,7 @@ function initHomePage() {
         hideLoadingOverlay();
         renderBillingHistory([]); // 失敗時も空リストを描画しUIが空白にならないようにする
       })
-      .fetchInvoices();
+      .fetchInvoices(getSessionToken_());
   } else {
     // GAS 環境外での実行は非対応
     console.error('[home] google.script.run が利用できません。GAS Webアプリとして実行してください。');

@@ -8,6 +8,7 @@
 //   BQ_LOCATION            … BigQuery のリージョン（例: asia-northeast1。未設定時は US フォールバック）
 //   LP_URL                 … ログアウト後のリダイレクト先 LP URL（例: https://connect.dev.usen-pay.com/）
 //   ENV                    … 実行環境（development / production）。development のときヘッダー等に "(Dev)" を表示
+//   OAUTH_CLIENT_ID        … 外部ログイン用 OAuth クライアントID（IDトークンの aud 検証に使用。例: xxxx.apps.googleusercontent.com）
 //
 // 設定方法（GASエディタ）:
 //   プロジェクトの設定 → スクリプト プロパティ → プロパティを追加
@@ -21,12 +22,13 @@ function getConfig_() {
   const bqLocation    = props.getProperty('BQ_LOCATION') || 'US';
   const lpUrl         = props.getProperty('LP_URL') || '';
   const env           = props.getProperty('ENV') || '';
+  const oauthClientId = props.getProperty('OAUTH_CLIENT_ID') || '';
 
   if (!driveFolderId) throw new Error('Script Property "DRIVE_ROOT_FOLDER_ID" が未設定です');
   if (!gcpProjectId)  throw new Error('Script Property "GCP_PROJECT_ID" が未設定です');
   if (!bqDatasetId)   throw new Error('Script Property "BQ_DATASET_ID" が未設定です');
 
-  return { driveFolderId, gcpProjectId, bqDatasetId, bqLocation, lpUrl, env };
+  return { driveFolderId, gcpProjectId, bqDatasetId, bqLocation, lpUrl, env, oauthClientId };
 }
 
 // =============================================================================
@@ -69,6 +71,7 @@ function setupScriptProperties(forceOverwrite) {
     'BQ_DATASET_ID':        'connect_db',
     'LP_URL':               'https://connect.dev.usen-pay.com/',   // 本番 LP URL は別途設定
     'ENV':                  'development',
+    'OAUTH_CLIENT_ID':      '',                                    // GCP で発行した OAuth クライアントID を設定
   });
   console.log('[setupScriptProperties] Script Properties を設定しました（ENV=development）。');
 }

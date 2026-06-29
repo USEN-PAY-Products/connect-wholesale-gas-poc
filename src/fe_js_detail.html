@@ -68,7 +68,7 @@ function initDetailPage(invoiceId) {
         console.error('[detail] fetchInvoiceDetail failed:', err);
         renderDetailError_('データの取得中にエラーが発生しました: ' + String(err.message || err));
       })
-      .fetchInvoiceDetail(invoiceId);
+      .fetchInvoiceDetail(invoiceId, getSessionToken_());
   } else {
     hideLoadingOverlay();
     renderDetailError_('GAS 環境外での実行は非対応です。');
@@ -642,7 +642,7 @@ function loadDetailInvoiceLines_(storeInvoiceId, container) {
         container.innerHTML =
           '<div class="dsl-lines-error"><i class="fa-solid fa-circle-exclamation"></i> 明細の取得に失敗しました。</div>';
       })
-      .getInvoiceLinesByStore(storeInvoiceId);
+      .getInvoiceLinesByStore(storeInvoiceId, getSessionToken_());
   } else {
     container.innerHTML = '<div class="dsl-lines-error">GAS 環境外での実行は非対応です。</div>';
   }
@@ -1499,7 +1499,7 @@ function renderDetailLines_(lines, container) {
           alert('登録に失敗しました: ' + (err.message || err));
         })
         .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks,
-                             parentInvoiceId, storeInvoiceId, handoverVal);
+                             parentInvoiceId, storeInvoiceId, handoverVal, getSessionToken_());
     } else {
       console.warn('[modal-reupload-submit] google.script.run が利用できません（モック）');
       setTimeout(function () {
@@ -1592,7 +1592,7 @@ function renderDetailLines_(lines, container) {
             }
             withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
           })
-          .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
+          .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, getSessionToken_());
       } else {
         alert('サーバーとの接続が確立できません。ページを再読み込みしてください。');
         if (actionsEl3) {
@@ -1662,7 +1662,7 @@ function renderDetailLines_(lines, container) {
             undoWithdrawBtn.disabled = false;
             undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
           })
-          .undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId);
+          .undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, getSessionToken_());
       } else {
         alert('サーバーとの接続が確立できません。ページを再読み込みしてください。');
         undoWithdrawBtn.disabled = false;
@@ -1704,7 +1704,7 @@ function renderDetailLines_(lines, container) {
             hideLoadingOverlay();
             alert('再請求に失敗しました: ' + (err.message || err));
           })
-          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null);
+          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null, getSessionToken_());
       } else {
         console.warn('[resubmitWithoutChanges] google.script.run が利用できません（モック）');
         setTimeout(function () {

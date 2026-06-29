@@ -10,14 +10,22 @@
 
 /**
  * BQ からアカウント情報を取得する内部ヘルパー。
- * ログイン中の GAS ユーザーのメールアドレスをキーに wholesaler_user を起点に JOIN。
- * 対応ユーザーがない・削除済み・卸が非アクティブな場合は UNAUTHORIZED エラーをthrowする。
+ * メールアドレスをキーに wholesaler_user を起点に JOIN。
+ * メールの取得優先順: 引数 email > sessionToken の Cache 逆引き > Session.getActiveUser()（組織内フォールバック）。
+ * 対応ユーザーがない・削除済みの場合は UNAUTHORIZED エラーをthrowする。
  *
+ * @param {string} [email] - 認証済みメール。doPost の tokeninfo 検証後に渡される。
+ * @param {string} [sessionToken] - セッショントークン。Cache から email を逆引きする。
  * @returns {Object} アカウント情報オブジェクト
  * @throws {Error} BQ クエリ失敗時、または対応ユーザーが見つからない場合
  */
-function getServerAccountInfo_() {
-  const email = Session.getActiveUser().getEmail();
+function getServerAccountInfo_(email, sessionToken) {
+  if (!email && sessionToken) {
+    email = CacheService.getScriptCache().get('shiire_session:' + sessionToken) || '';
+  }
+  if (!email) {
+    email = Session.getActiveUser().getEmail();
+  }
   if (!email) {
     logError_('Auth', '認証失敗: メールアドレスを取得できませんでした');
     throw new Error('UNAUTHORIZED: ログイン情報の取得に失敗しました。再度ログインしてください。');
@@ -26,7 +34,7 @@ function getServerAccountInfo_() {
   const accountInfo = fetchAccountInfoByEmail_(email);
   if (!accountInfo) {
     logError_('Auth', '認証失敗: アカウント情報が見つかりません');
-    throw new Error('UNAUTHORIZED: アカウント情報が見つかりませんでした。管理者にお問い合わせください。');
+    throw new Error('NOT_REGISTERED: このアカウントは登録されていません。管理者にお問い合わせください。');
   }
 
   logInfo_('Auth', '認証成功: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
@@ -35,15 +43,17 @@ function getServerAccountInfo_() {
 
 /**
  * フロントエンドの DOMContentLoaded 時に google.script.run 経由で呼ばれる公開関数。
+ * @param {string} [sessionToken] - LP ログイン時に発行されたセッショントークン。
  * @returns {{ status: 'success', data: Object }}
  */
-function getAccountInfo() {
+function getAccountInfo(sessionToken) {
   try {
-    return success_(getServerAccountInfo_());
+    return success_(getServerAccountInfo_('', sessionToken));
   } catch (err) {
     logError_('Auth', 'getAccountInfo', err);
-    // UNAUTHORIZED はフロントが err.message で認証エラーを判定するためそのまま再throw
-    if (String(err.message || '').startsWith('UNAUTHORIZED:')) {
+    // UNAUTHORIZED / NOT_REGISTERED はフロントが err.message で認証エラーを判定するためそのまま再throw
+    const m = String(err.message || '');
+    if (m.startsWith('UNAUTHORIZED:') || m.startsWith('NOT_REGISTERED:')) {
       throw err;
     }
     throw new Error('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
