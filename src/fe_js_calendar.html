@@ -75,7 +75,7 @@ function loadScheduleData_() {
       console.error('[calendar] fetchScheduleData failed:', err);
       _scheduleLoaded = false; // 失敗時は再取得可能にする
     })
-    .fetchScheduleData();
+    .fetchScheduleData(getSessionToken_());
 }
 
 // カレンダーモーダル: 開閉制御（ページに依存しないためグローバルで登録）

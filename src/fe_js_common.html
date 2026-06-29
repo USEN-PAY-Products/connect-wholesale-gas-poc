@@ -93,6 +93,34 @@ function jstNow_() {
 // =============================================================================
 
 /**
+ * セッショントークンを取得する。
+ * LP から #token=xxx フラグメントで渡される（URLクエリと異なりサーバログに残らない）。
+ * 初回はフラグメントから抽出し sessionStorage に保存、以降はそこから読む（全 google.script.run に付与）。
+ * 保存後はフラグメントから token を除去しアドレスバーへの漏洩を防ぐ。
+ * @returns {string} セッショントークン（組織内アカウントは空で OK）
+ */
+function getSessionToken_() {
+  try {
+    const t = sessionStorage.getItem('shiire_session_token');
+    if (t) return t;
+    // フラグメントから抽出: #token=xxx または #home&token=xxx 等
+    const hash = (typeof window !== 'undefined' && window.location.hash) || '';
+    const match = hash.match(/[#&]token=([A-Za-z0-9_-]{1,128})/);
+    if (match) {
+      const token = match[1];
+      sessionStorage.setItem('shiire_session_token', token);
+      // フラグメントから token を除去（アドレスバー漏洩防止）
+      try {
+        const cleaned = hash.replace(/[#&]token=[A-Za-z0-9_-]+/, '') || '#home';
+        window.location.hash = cleaned.startsWith('#') ? cleaned : '#' + cleaned;
+      } catch (_) { /* GAS iframe 内等で失敗しても無視 */ }
+      return token;
+    }
+  } catch (e) { /* sessionStorage 不可でも組織内は Session フォールバックで動く */ }
+  return '';
+}
+
+/**
  * アカウント情報APIのレスポンスを SessionStorage に保存する。
  * @param {Object} data - getAccountInfo() のレスポンス data フィールド
  */
@@ -179,6 +207,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const msg = String(err.message || err);
         if (msg.startsWith('UNAUTHORIZED:')) {
           showErrorPage_('unauthorized');
+        } else if (msg.startsWith('NOT_REGISTERED:')) {
+          showErrorPage_('system');
         } else {
           showErrorPage_('system');
         }
@@ -186,7 +216,7 @@ document.addEventListener('DOMContentLoaded', function () {
         hideLoadingOverlay();
         navigate(); // エラー時もルーティングは実行する
       })
-      .getAccountInfo();
+      .getAccountInfo(getSessionToken_());
   } else {
     // GAS 環境外での実行は非対応
     console.error('[account] google.script.run が利用できません。GAS Webアプリとして実行してください。');
