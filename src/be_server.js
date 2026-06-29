@@ -12,12 +12,14 @@
  * BQ からアカウント情報を取得する内部ヘルパー。
  * メールアドレスをキーに wholesaler_user を起点に JOIN。
  * メールの取得優先順: 引数 email > sessionToken の Cache 逆引き > Session.getActiveUser()（組織内フォールバック）。
- * 対応ユーザーがない・削除済みの場合は UNAUTHORIZED エラーをthrowする。
+ * エラー種別は用途で2つに分かれる:
+ *   - UNAUTHORIZED:  メール未取得（未ログイン/トークン失効）→ フロントは再ログイン案内
+ *   - NOT_REGISTERED: メールは取れたが BQ に未登録 → フロントは登録案内（停止卸は弾かず閲覧可）
  *
  * @param {string} [email] - 認証済みメール。doPost の tokeninfo 検証後に渡される。
  * @param {string} [sessionToken] - セッショントークン。Cache から email を逆引きする。
  * @returns {Object} アカウント情報オブジェクト
- * @throws {Error} BQ クエリ失敗時、または対応ユーザーが見つからない場合
+ * @throws {Error} BQ クエリ失敗時、メール未取得(UNAUTHORIZED:)、または未登録(NOT_REGISTERED:)
  */
 function getServerAccountInfo_(email, sessionToken) {
   if (!email && sessionToken) {
@@ -33,7 +35,7 @@ function getServerAccountInfo_(email, sessionToken) {
 
   const accountInfo = fetchAccountInfoByEmail_(email);
   if (!accountInfo) {
-    logError_('Auth', '認証失敗: アカウント情報が見つかりません');
+    logError_('Auth', '認証失敗: アカウント未登録（BQに該当なし）');
     throw new Error('NOT_REGISTERED: このアカウントは登録されていません。管理者にお問い合わせください。');
   }
 

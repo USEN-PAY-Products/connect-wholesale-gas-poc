@@ -13,6 +13,7 @@
   "runtimeVersion": "V8",
   "oauthScopes": [
     "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.storage",
     "https://www.googleapis.com/auth/bigquery",
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/userinfo.email"

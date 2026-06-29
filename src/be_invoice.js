@@ -727,6 +727,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
  * @param {string}      parentInvoiceId   - wholesaler_invoices.id（詳細画面のID）
  * @param {string}      storeInvoiceId    - 差し戻し/否認対象の store_invoices.id
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object }}
  */
 function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover, sessionToken) {
@@ -1071,6 +1072,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
  * @param {Object} summaryData    - { wholesalerTotal, merchantTotals }
  * @param {Object} remarks        - { [customerCode]: string }
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object }}
  */
 function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers, sessionToken) {
@@ -1271,6 +1273,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  * @param {string} utf8CsvBase64 - UTF-8変換済みCSVのBase64（ヘッダー検証・BQ Load Jobに使用）
  * @param {Object} summaryData - フロント確定値 { wholesalerTotal: {...}, merchantTotals: [...] }
  * @param {Object} remarks     - 加盟店別備考 { [customerCode]: string }
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: { csv_url: string, invoice_uuid: string } }}
  * @throws {Error} Drive 操作または BQ 書き込み失敗時
  */
@@ -1437,6 +1440,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
  * @param {string}      storeInvoiceId     - 対象の store_invoices.id
  * @param {string}      parentInvoiceId    - 大元の wholesaler_invoices.id
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容（差し戻しの場合はnull）
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object }}
  */
 function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, sessionToken) {
@@ -1506,6 +1510,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
  *
  * @param {string} storeInvoiceId  - 対象の store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
 function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
@@ -1634,6 +1639,7 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
  *
  * @param {string} storeInvoiceId  - 対象 store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
 function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
@@ -1773,9 +1779,10 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken)
 
 /**
  * ログインユーザーの請求一覧を BQ から取得して返す。
- * wholesaler_id はサーバー側で getServerAccountInfo_() から取得する（引数は無視）。
- * フロントから渡された引数を使わないことで sessionStorage 改ざんによる他卸データ取得を防ぐ。
+ * wholesaler_id はサーバー側で getServerAccountInfo_(sessionToken) から確定する。
+ * 他卸データ取得を防ぐため wholesaler_id はフロントから受け取らず認証結果だけを使う。
  *
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Array<Object> }}
  */
 function fetchInvoices(sessionToken) {
@@ -1803,6 +1810,7 @@ function fetchInvoices(sessionToken) {
  * 孫明細（invoice_lines）はアコーディオン開閉時にオンデマンドで getInvoiceLinesByStore() を呼ぶ設計。
  *
  * @param {string} invoiceId - 取得対象の卸インボイスID
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: { summary: Object, stores: Array<Object> } | null }}
  */
 function fetchInvoiceDetail(invoiceId, sessionToken) {
@@ -1830,6 +1838,7 @@ function fetchInvoiceDetail(invoiceId, sessionToken) {
  * 詳細画面のアコーディオンがクリックされたタイミングでオンデマンドに呼ばれる。
  *
  * @param {string} storeInvoiceId - 加盟店インボイスID（store_invoices.id）
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Array<Object> }}
  */
 function getInvoiceLinesByStore(storeInvoiceId, sessionToken) {
@@ -1853,7 +1862,8 @@ function getInvoiceLinesByStore(storeInvoiceId, sessionToken) {
 
 /**
  * business_calendar テーブルからスケジュールデータを取得する。
- * サーバー側で wholesaler_id を確定するため、フロントからの引数は不要。
+ * wholesaler_id はサーバー側で sessionToken から確定するため、卸IDのフロント指定は不要。
+ * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Array }}
  */
 function fetchScheduleData(sessionToken) {

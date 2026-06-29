@@ -26,7 +26,7 @@ function doGet(e) {
   template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
 
   // LP から ?token= で渡されたセッショントークンをフロントへ渡す（外部アカウント認証用）。
-  // トークンは英数字・ハイフンのみ許可し XSS を防ぐ。未指定時は空（組織内は Session フォールバック）。
+  // トークンは英数字・アンダースコア・ハイフンのみ許可し XSS を防ぐ。未指定時は空（組織内は Session フォールバック）。
   let sessionToken = '';
   try {
     const raw = (e && e.parameter && e.parameter.token) || '';
@@ -59,16 +59,25 @@ function doGet(e) {
 
 /**
  * 外部（LP）からの POST ログインエンドポイント。
- * フロントから Google ID トークンを text/plain で受け取り、tokeninfo API で検証して
+ * フロントから Google ID トークンを受け取り、tokeninfo API で検証して
  * メールを抽出→aud 照合→BQ 照合→セッショントークンを Cache に保存して返す。
- * CORS 回避のため返却は ContentService(JSON)。
+ *
+ * 受け取り形式（CORS 回避のため Content-Type は text/plain を推奨）:
+ *   1. JSON 文字列  {"token":"<IDトークン>"}（推奨）
+ *   2. 純テキスト    "<IDトークン>" のみ（JSON でない場合はトークン本体とみなす）
+ * 返却は CORS 回避のため ContentService(JSON)。
  * @param {GoogleAppsScript.Events.DoPost} e
  * @returns {GoogleAppsScript.Content.TextOutput} JSON
  */
 function doPost(e) {
   try {
-    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    const idToken = body.token;
+    const contents = (e && e.postData && e.postData.contents) || '';
+    let idToken = '';
+    try {
+      idToken = JSON.parse(contents).token; // {"token":"..."} 形式
+    } catch (_) {
+      idToken = contents.trim();             // 純テキストのトークン本体
+    }
     if (!idToken) throw new Error('token がありません');
 
     const { oauthClientId } = getConfig_();
