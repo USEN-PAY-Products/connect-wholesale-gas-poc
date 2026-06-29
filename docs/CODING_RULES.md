@@ -15,6 +15,7 @@ GAS のファイル管理はフラット構造のため、`src/` 直下に以下
 src/
 ├── appsscript.json          # GASマニフェスト（権限・タイムゾーン設定）
 ├── be_main.js               # Back-end: エントリーポイント（doGet, include）
+├── be_auth.js               # Back-end: 外部アカウント認証（doPost, tokeninfo検証, セッショントークン発行）
 ├── be_config.js             # Back-end: 環境設定（ScriptPropertiesの取得・管理）
 ├── be_utils.js              # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付フォーマット）
 ├── be_invoice.js            # Back-end: 請求ドメイン（sendInvoiceData, fetchInvoices, fetchInvoiceDetail）

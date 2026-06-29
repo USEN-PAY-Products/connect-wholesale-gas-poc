@@ -58,59 +58,6 @@ function doGet(e) {
 }
 
 /**
- * 外部（LP）からの POST ログインエンドポイント。
- * フロントから Google ID トークンを受け取り、tokeninfo API で検証して
- * メールを抽出→aud 照合→BQ 照合→セッショントークンを Cache に保存して返す。
- *
- * 受け取り形式（CORS 回避のため Content-Type は text/plain を推奨）:
- *   1. JSON 文字列  {"token":"<IDトークン>"}（推奨）
- *   2. 純テキスト    "<IDトークン>" のみ（JSON でない場合はトークン本体とみなす）
- * 返却は CORS 回避のため ContentService(JSON)。
- * @param {GoogleAppsScript.Events.DoPost} e
- * @returns {GoogleAppsScript.Content.TextOutput} JSON
- */
-function doPost(e) {
-  try {
-    const contents = (e && e.postData && e.postData.contents) || '';
-    let idToken = '';
-    try {
-      idToken = JSON.parse(contents).token; // {"token":"..."} 形式
-    } catch (_) {
-      idToken = contents.trim();             // 純テキストのトークン本体
-    }
-    if (!idToken) throw new Error('token がありません');
-
-    const { oauthClientId } = getConfig_();
-    if (!oauthClientId) throw new Error('OAUTH_CLIENT_ID が未設定です');
-
-    const resp = UrlFetchApp.fetch(
-      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
-      { muteHttpExceptions: true });
-    if (resp.getResponseCode() !== 200) throw new Error('token検証失敗');
-    const info = JSON.parse(resp.getContentText());
-    if (info.aud !== oauthClientId) throw new Error('aud mismatch');
-    if (info.email_verified !== 'true' && info.email_verified !== true) throw new Error('email未検証');
-    const email = info.email;
-    if (!email) throw new Error('emailなし');
-
-    const accountInfo = getServerAccountInfo_(email);
-    const sessionToken = Utilities.getUuid().replace(/-/g, '');
-    CacheService.getScriptCache().put('shiire_session:' + sessionToken, email, 21600); // 6h
-    logInfo_('Auth', 'doPost認証成功: wholesaler_id=' + accountInfo.wholesaler_id);
-    return jsonOutput_({ status: 'success', sessionToken: sessionToken, data: accountInfo });
-  } catch (err) {
-    logError_('Auth', 'doPost', err);
-    return jsonOutput_({ status: 'fail', message: 'このアカウントは登録されていません。' });
-  }
-}
-
-/** JSON を ContentService で返すヘルパー。 */
-function jsonOutput_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
  * HTMLファイルを文字列として読み込む（ネストした include に対応）。
  * fe_index.html 内の <?!= include('fe_xxx'); ?> から呼ばれる。
  *

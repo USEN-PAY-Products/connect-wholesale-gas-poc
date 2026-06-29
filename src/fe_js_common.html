@@ -96,14 +96,23 @@ function jstNow_() {
  * セッショントークンを取得する。
  * LP から ?token= で渡され、doGet が window.__SESSION_TOKEN__ へ注入する。
  * 初回は sessionStorage に保存し、以降はそこから読む（全 google.script.run に付与）。
+ * 保存後は URL から token クエリを除去してアドレスバーへの漏洩を防ぐ。
  * @returns {string} セッショントークン（組織内アカウントは空で OK）
  */
 function getSessionToken_() {
   try {
-    var t = sessionStorage.getItem('shiire_session_token');
+    const t = sessionStorage.getItem('shiire_session_token');
     if (t) return t;
     if (typeof window !== 'undefined' && window.__SESSION_TOKEN__) {
       sessionStorage.setItem('shiire_session_token', window.__SESSION_TOKEN__);
+      // URL から token クエリを削除（アドレスバー/ログへの漏洩防止）
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('token')) {
+          url.searchParams.delete('token');
+          window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+        }
+      } catch (_) { /* GAS iframe 内等で失敗しても無視 */ }
       return window.__SESSION_TOKEN__;
     }
   } catch (e) { /* sessionStorage 不可でも組織内は Session フォールバックで動く */ }
