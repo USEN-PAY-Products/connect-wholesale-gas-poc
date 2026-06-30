@@ -121,19 +121,13 @@ document.getElementById('cancelModalClose').addEventListener('click', () => {
   closeCancelModal();
 });
 
-// モーダル: OK → データをリセットし元の画面へ
+// モーダル: OK → データをリセットして一覧（TOP）へ戻る
+// 「一覧に戻る」は CSV一括再請求（再送信モード）であっても常にTOP（#home）へ遷移する。
+// 再送信フラグ・詳細画面キャッシュは navigate() が #home 遷移時に自動でクリアする。
 document.getElementById('cancelModalOk').addEventListener('click', () => {
   closeCancelModal();
-  const parentId = _resubmitParentInvoiceId;
-  const wasResubmit = _isResubmitConfirm;
   resetPage();
-  if (wasResubmit && parentId) {
-    _isResubmitConfirm = false;
-    _detailCurrentInvoiceId = null;
-    location.hash = '#detail?invoiceId=' + parentId;
-  } else {
-    location.hash = '#home';
-  }
+  location.hash = '#home';
 });
 
 // モーダル: オーバーレイクリックで閉じる
@@ -486,7 +480,7 @@ function renderConfirmPage() {
   // 再送信モード: ページタイトルを変更
   const confirmTitle = document.querySelector('#pageConfirm .page-title');
   if (confirmTitle) {
-    confirmTitle.textContent = _isResubmitConfirm ? '再請求内容の確認' : '請求内容の確認';
+    confirmTitle.textContent = _isResubmitConfirm ? '請求内容の確認（再申請）' : '請求内容の確認';
   }
 
   // チェックボックス・送信ボタンをリセット
@@ -754,6 +748,10 @@ function renderConfirmPage() {
       handoverDiv.className = 'store-accordion__backoffice-remark';
       handoverDiv.innerHTML =
         '<div class="backoffice-remark__disputed-left">' +
+          '<div class="backoffice-remark__disputed-reason">' +
+            '<span class="backoffice-remark__label">・ 否認理由</span>' +
+            '<span class="backoffice-remark__reason-text">' + escapeHtml(_resubmitDisputedReasons[customerCode] || '') + '</span>' +
+          '</div>' +
           '<div class="backoffice-remark__disputed-handover">' +
             '<span class="backoffice-remark__label">・ 【必須】加盟店<br>　との合意内容</span>' +
             '<textarea class="backoffice-remark__handover-input confirm-handover-input" data-customer-code="' + escapeHtml(customerCode) + '"' +

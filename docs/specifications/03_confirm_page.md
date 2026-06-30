@@ -35,7 +35,7 @@ block-beta
     header["共通ヘッダー"]
     block:pageHeader["ページヘッダー"]
       columns 2
-      title["請求内容の確認 / 再請求内容の確認"]
+      title["請求内容の確認 / 請求内容の確認（再申請）"]
       back["← 一覧に戻る"]
     end
     block:summary["請求基本情報カード"]
@@ -82,7 +82,7 @@ block-beta
 
 | 要素 | 仕様 |
 |------|------|
-| タイトル | 新規: 「請求内容の確認」 / 再送信: 「再請求内容の確認」 |
+| タイトル | 新規: 「請求内容の確認」 / 再送信: 「請求内容の確認（再申請）」 |
 | 一覧に戻るボタン | 「← 一覧に戻る」（`#btnConfirmBack`, `#btnConfirmBackBottom`）→ キャンセル確認モーダル（`cancelModal`）を表示 |
 | キャンセルボタン | サマリーカード内の「キャンセル」（`#btnConfirmCancel`）→ アップロード/詳細画面へ戻るモーダル（`confirmCancelToUploadModal`）を表示 |
 
@@ -199,7 +199,7 @@ flowchart LR
     CONFIRM -->|送信成功| DETAIL2["#detail?invoiceId=xxx\n+ 成功トースト"]
 ```
 
-- ページタイトル: 「再請求内容の確認」
+- ページタイトル: 「請求内容の確認（再申請）」
 - USEN PAY社コメント欄: 表示（`handover_matter` の内容）
 - 送信先API: `bulkResubmitInvoiceData(rawCsv, utf8Csv, summaryData, remarks, parentId, handovers)`
 - キャンセル時の遷移先: `#detail?invoiceId={parentInvoiceId}`（アップロード画面ではなく詳細画面へ戻る）
