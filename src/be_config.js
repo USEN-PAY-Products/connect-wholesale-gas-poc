@@ -107,6 +107,11 @@ function overwriteLpUrl() {
   overwriteScriptProperty_('LP_URL', 'https://connect.dev.usen-pay.com/');
 }
 
+/** OAUTH_CLIENT_ID を設定する（GCP で発行した OAuth クライアントID） */
+function overwriteOauthClientId() {
+  overwriteScriptProperty_('OAUTH_CLIENT_ID', '');  // GCP Console から取得した値を貼り付けてから実行
+}
+
 /**
  * Script Property を1件だけ上書きする内部ヘルパー。
  * ENV=production の環境では実行を拒否する。

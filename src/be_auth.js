@@ -58,7 +58,7 @@ function doPost(e) {
       return jsonOutput_({ status: 'not_registered', message: 'このアカウントは登録されていません。管理者にお問い合わせください。' });
     }
     // token 検証失敗・aud mismatch・email未検証 等 → 一般的な認証失敗
-    return jsonOutput_({ status: 'fail', message: '認証に失敗しました。再度ログインしてください。' });
+    return jsonOutput_({ status: 'fail', message: '認証に失敗しました。再度ログインしてください。', debug: msg });
   }
 }
 
