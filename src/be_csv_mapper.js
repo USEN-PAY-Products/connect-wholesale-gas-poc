@@ -1250,24 +1250,34 @@ function buildMappedBulkResubmitTransactionSql_(params) {
       ])
     : [];
 
+  // CSVに含まれる加盟店の mall_code リスト（is_latest UPDATE の対象絞り込み用）
+  const targetMallCodes = summaryData.merchantTotals
+    .map(function(m) { return escSql_(mallCodeMap[String(m.customerCode)] || ''); })
+    .filter(function(mc) { return mc !== ''; });
+  const mallCodeInClause = targetMallCodes.length > 0
+    ? targetMallCodes.map(function(mc) { return "'" + mc + "'"; }).join(', ')
+    : "''";
+
   const sqlLines = [
     ...declareBlock,
     'BEGIN TRANSACTION;',
     '',
     ...validateBlock,
-    '-- ① 差し戻し store_invoices を is_latest = FALSE に更新',
+    '-- ① 差し戻し store_invoices を is_latest = FALSE に更新（CSVに含まれる加盟店のみ）',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND wholesaler_id = ' + wsId,
+    '  AND mall_code IN (' + mallCodeInClause + ')',
     "  AND backoffice_review_status = 'RETURNED'",
     '  AND is_latest = TRUE;',
     '',
-    '-- ② 否認 store_invoices を is_latest = FALSE に更新',
+    '-- ② 否認 store_invoices を is_latest = FALSE に更新（CSVに含まれる加盟店のみ）',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND wholesaler_id = ' + wsId,
+    '  AND mall_code IN (' + mallCodeInClause + ')',
     "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',

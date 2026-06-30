@@ -271,9 +271,9 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
   if (backofficeStatus === 'RETURNED') {
     return '<span class="detail-status-badge badge--returned"><i class="fa-solid fa-rotate-left"></i> 差戻し</span>';
   }
-  // 承認: MERCHANT_CONFIRMATION_REQUESTED + APPROVED
-  if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'APPROVED') {
-    return '<span class="detail-status-badge badge--approved"><i class="fa-solid fa-circle-check"></i> 承認</span>';
+  // 承認済み: invoice_status が APPROVED であれば BO ステータスに関係なく「承認済み」
+  if (invoiceStatus === 'APPROVED') {
+    return '<span class="detail-status-badge badge--approved"><i class="fa-solid fa-circle-check"></i> 承認済み</span>';
   }
   // 確認中: MERCHANT_CONFIRMATION_REQUESTED + PENDING_CONFIRMATION
   if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'PENDING_CONFIRMATION') {
@@ -288,9 +288,9 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
  * @param {Array<Object>} stores
  */
 function renderDetailStoreList_(stores) {
-  // 差し戻し: RETURNED かつ DISPUTED でなく WITHDRAWN でもない
+  // 差し戻し: RETURNED かつ DISPUTED でなく WITHDRAWN でもなく APPROVED でもない
   const returned  = stores.filter(function (s) {
-    return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED' && s.invoice_status !== 'WITHDRAWN';
+    return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED' && s.invoice_status !== 'WITHDRAWN' && s.invoice_status !== 'APPROVED';
   });
   // 否認: (MCR/RETURNED/PENDING_REVIEW + DISPUTED) ※WITHDRAWN は除外
   const disputed  = stores.filter(function (s) {
@@ -302,8 +302,9 @@ function renderDetailStoreList_(stores) {
   const withdrawn = stores.filter(function (s) {
     return s.invoice_status === 'WITHDRAWN';
   });
-  // 正常: 上記以外すべて
+  // 確認中・承認済み: invoice_status が APPROVED の場合は BO ステータスに関係なくここに入る。それ以外は上記以外すべて。
   const normal    = stores.filter(function (s) {
+    if (s.invoice_status === 'APPROVED') return true;
     return s.invoice_status !== 'WITHDRAWN' &&
       !(s.backoffice_review_status === 'RETURNED') &&
       !(s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') &&
