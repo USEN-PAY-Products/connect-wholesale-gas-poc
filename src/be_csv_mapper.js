@@ -1256,7 +1256,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     .filter(function(mc) { return mc !== ''; });
   const mallCodeInClause = targetMallCodes.length > 0
     ? targetMallCodes.map(function(mc) { return "'" + mc + "'"; }).join(', ')
-    : "''";
+    : 'NULL';
 
   const sqlLines = [
     ...declareBlock,

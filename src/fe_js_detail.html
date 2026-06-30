@@ -259,6 +259,10 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
   if (invoiceStatus === 'WITHDRAWN') {
     return '<span class="detail-status-badge badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済</span>';
   }
+  // 承認済み: invoice_status が APPROVED であれば BO ステータスに関係なく最優先で「承認済み」
+  if (invoiceStatus === 'APPROVED') {
+    return '<span class="detail-status-badge badge--approved"><i class="fa-solid fa-circle-check"></i> 承認済み</span>';
+  }
   // 否認差戻: MERCHANT_CONFIRMATION_REQUESTED + DISPUTED
   if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'DISPUTED') {
     return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認差戻</span>';
@@ -270,10 +274,6 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
   // 差戻し: RETURNED（DISPUTED でない）
   if (backofficeStatus === 'RETURNED') {
     return '<span class="detail-status-badge badge--returned"><i class="fa-solid fa-rotate-left"></i> 差戻し</span>';
-  }
-  // 承認済み: invoice_status が APPROVED であれば BO ステータスに関係なく「承認済み」
-  if (invoiceStatus === 'APPROVED') {
-    return '<span class="detail-status-badge badge--approved"><i class="fa-solid fa-circle-check"></i> 承認済み</span>';
   }
   // 確認中: MERCHANT_CONFIRMATION_REQUESTED + PENDING_CONFIRMATION
   if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'PENDING_CONFIRMATION') {
