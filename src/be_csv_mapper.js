@@ -1270,6 +1270,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     '  AND wholesaler_id = ' + wsId,
     '  AND mall_code IN (' + mallCodeInClause + ')',
     "  AND backoffice_review_status = 'RETURNED'",
+    "  AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN')",
     '  AND is_latest = TRUE;',
     '',
     '-- ② 否認 store_invoices を is_latest = FALSE に更新（CSVに含まれる加盟店のみ）',
