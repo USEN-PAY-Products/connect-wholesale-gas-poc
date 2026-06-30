@@ -29,6 +29,7 @@ let _resubmitParentInvoiceId = null;
 let _resubmitRemarks = {};
 let _resubmitHandovers = {};
 let _resubmitDisputedCodes = [];
+let _resubmitDisputedReasons = {};
 
 /**
  * 詳細画面を初期化する。
@@ -519,6 +520,10 @@ function buildDetailAccordion_(store, openByDefault) {
     withdrawnRow.className = 'store-accordion__backoffice-remark';
     withdrawnRow.innerHTML =
       '<div class="backoffice-remark__disputed-left">' +
+        '<div class="backoffice-remark__disputed-reason">' +
+          '<span class="backoffice-remark__label">・ 否認理由</span>' +
+          '<span class="backoffice-remark__reason-text">' + escapeHtml(store.store_disputed_reason || '') + '</span>' +
+        '</div>' +
         '<div class="backoffice-remark__disputed-handover">' +
           '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
           '<div class="backoffice-remark__handover-readonly">' + escapeHtml(store.wholesaler_handover || '') + '</div>' +
@@ -1097,6 +1102,7 @@ function renderDetailLines_(lines, container) {
         // 否認行の handover を収集（空でも確認画面へ遷移OK）
         const handovers_ = {};
         const disputedCodes_ = [];
+        const disputedReasons_ = {};
         document.querySelectorAll('.backoffice-remark__handover-input[data-customer-code]').forEach(function (el) {
           const cc = el.dataset.customerCode || '';
           if (!cc) return;
@@ -1104,6 +1110,12 @@ function renderDetailLines_(lines, container) {
           const val = nl2space_(el.value || '').trim();
           if (val) {
             handovers_[cc] = val;
+          }
+          // 否認理由を同じ否認行から収集し確認画面へ引き継ぐ（改行(LF)を保持するため textContent をそのまま使用）
+          const leftEl = el.closest('.backoffice-remark__disputed-left');
+          const reasonEl = leftEl ? leftEl.querySelector('.backoffice-remark__reason-text') : null;
+          if (reasonEl) {
+            disputedReasons_[cc] = reasonEl.textContent || '';
           }
         });
         _resubmitDisputedCodes = disputedCodes_;
@@ -1113,6 +1125,7 @@ function renderDetailLines_(lines, container) {
         _resubmitParentInvoiceId = parentInvoiceId;
         _resubmitRemarks = remarks_;
         _resubmitHandovers = handovers_;
+        _resubmitDisputedReasons = disputedReasons_;
         // USEN PAY社からのコメントを保存
         const handoverTextarea = document.querySelector('#detailSummaryCard .detail-handover-textarea');
         if (handoverTextarea) {

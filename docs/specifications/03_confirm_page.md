@@ -35,7 +35,7 @@ block-beta
     header["共通ヘッダー"]
     block:pageHeader["ページヘッダー"]
       columns 2
-      title["請求内容の確認 / 再請求内容の確認"]
+      title["請求内容の確認 / 請求内容の確認（再申請）"]
       back["← 一覧に戻る"]
     end
     block:summary["請求基本情報カード"]
@@ -82,7 +82,7 @@ block-beta
 
 | 要素 | 仕様 |
 |------|------|
-| タイトル | 新規: 「請求内容の確認」 / 再送信: 「再請求内容の確認」 |
+| タイトル | 新規: 「請求内容の確認」 / 再送信: 「請求内容の確認（再申請）」 |
 | 一覧に戻るボタン | 「← 一覧に戻る」（`#btnConfirmBack`, `#btnConfirmBackBottom`）→ キャンセル確認モーダル（`cancelModal`）を表示 |
 | キャンセルボタン | サマリーカード内の「キャンセル」（`#btnConfirmCancel`）→ アップロード/詳細画面へ戻るモーダル（`confirmCancelToUploadModal`）を表示 |
 
@@ -197,12 +197,15 @@ flowchart LR
 flowchart LR
     DETAIL["#detail\nCSV一括アップロード"] -->|モーダル → 確認画面へ進む| CONFIRM["#confirm\n_isResubmitConfirm = true"]
     CONFIRM -->|送信成功| DETAIL2["#detail?invoiceId=xxx\n+ 成功トースト"]
+    CONFIRM -->|「キャンセル」確定| DETAIL3["#detail?invoiceId=xxx"]
+    CONFIRM -->|「一覧に戻る」確定| HOME["#home\n（TOP）"]
 ```
 
-- ページタイトル: 「再請求内容の確認」
+- ページタイトル: 「請求内容の確認（再申請）」
 - USEN PAY社コメント欄: 表示（`handover_matter` の内容）
 - 送信先API: `bulkResubmitInvoiceData(rawCsv, utf8Csv, summaryData, remarks, parentId, handovers)`
-- キャンセル時の遷移先: `#detail?invoiceId={parentInvoiceId}`（アップロード画面ではなく詳細画面へ戻る）
+- 「キャンセル」ボタン時の遷移先: `#detail?invoiceId={parentInvoiceId}`（アップロード画面ではなく詳細画面へ戻る）
+- 「一覧に戻る」ボタン時の遷移先: `#home`（TOP。再送信モードでも詳細画面ではなく TOP へ戻る）
 
 ---
 
@@ -336,7 +339,7 @@ sequenceDiagram
 
 ### 7.1 一覧に戻る確認モーダル（`cancelModal`）
 
-「← 一覧に戻る」（`btnConfirmBack` / `btnConfirmBackBottom`）から起動。確定すると `#home`（再送信モードは `#detail?invoiceId=xxx`）へ遷移する。
+「← 一覧に戻る」（`btnConfirmBack` / `btnConfirmBackBottom`）から起動。確定するとモードに関わらず常に `#home`（TOP）へ遷移する。「一覧」は TOP を指すため、再送信モードでも詳細画面ではなく TOP に戻る（詳細画面に戻る動線は 7.2 の「キャンセル」ボタンが担う）。
 
 | 要素 | ID | 仕様 |
 |------|-----|------|
@@ -378,6 +381,7 @@ sequenceDiagram
 | `_resubmitRemarks` | `Object` | 再送信時の備考 `{ customerCode: value }` |
 | `_resubmitHandovers` | `Object` | 再送信時の合意事項 `{ customerCode: value }` |
 | `_resubmitDisputedCodes` | `string[]` | 再送信時に合意内容を必須とする否認加盟店の顧客コード |
+| `_resubmitDisputedReasons` | `Object` | 再送信時に確認画面へ表示する否認理由 `{ customerCode: value }`（詳細画面DOMからLF保持で引き継ぐ） |
 
 ---
 

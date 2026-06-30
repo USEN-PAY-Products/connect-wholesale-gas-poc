@@ -1337,6 +1337,7 @@ button { cursor: pointer; font-family: inherit; }
   padding: 12px 16px;
   border-bottom: 1px solid #E8E8E8;
   background: #F1F2F3;
+  overflow: hidden;
 }
 .backoffice-remark__label {
   flex-shrink: 0;
@@ -1409,18 +1410,25 @@ button { cursor: pointer; font-family: inherit; }
 /* 否認: 左側2段レイアウト */
 .backoffice-remark__disputed-left {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .backoffice-remark__disputed-reason {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
+  min-width: 0;
 }
 .backoffice-remark__reason-text {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   color: #333;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .backoffice-remark__disputed-handover {
   display: flex;
