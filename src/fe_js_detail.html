@@ -255,11 +255,11 @@ function renderDetailSummary_(s) {
  * @returns {string}
  */
 function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
-  // 取り下げ済: WITHDRAWN
+  // 取り下げ済: WITHDRAWN（最優先。取下げは全ステータスに優先する）
   if (invoiceStatus === 'WITHDRAWN') {
     return '<span class="detail-status-badge badge--withdrawn"><i class="fa-solid fa-check"></i> 取下げ済</span>';
   }
-  // 承認済み: invoice_status が APPROVED であれば BO ステータスに関係なく最優先で「承認済み」
+  // 承認済み: invoice_status が APPROVED であれば BO ステータスに関係なく「承認済み」（WITHDRAWN 以外で最優先）
   if (invoiceStatus === 'APPROVED') {
     return '<span class="detail-status-badge badge--approved"><i class="fa-solid fa-circle-check"></i> 承認済み</span>';
   }
