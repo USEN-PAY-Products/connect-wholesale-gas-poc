@@ -7,6 +7,7 @@
 1. **否認理由の表示範囲を拡張**: 従来は詳細画面の否認行のみに表示していた否認理由を、**再申請の確認画面（否認加盟店）**と**詳細画面の取り下げ（WITHDRAWN）行**にも表示するようにした。確認画面はCSV由来データで描画されBE側に否認理由を持たないため、詳細画面DOMから**改行(LF)を保持したまま**引き継ぐ方式を採用した。
 2. **長文・改行によるレイアウト崩れの修正**: 否認理由（最大250文字・LF含む）が折り返さず横に伸び、操作ボタン列がカード外へ押し出されてクリック不能になる不具合を、CSS（折り返し + flex の `min-width:0`）のみで解消した。
 3. **確認画面「一覧に戻る」の遷移先修正**: CSV一括再請求の確認画面で「一覧に戻る」を押すと TOP ではなく詳細画面に遷移していた不具合を、常に `#home`（TOP）へ遷移するよう修正した。あわせて仕様書・テストシナリオを実装に合わせて統一した。
+4. **エラー画面への共通フッター追加**: エラー画面にだけ共通フッター（`site-footer`）がなかったため、他ページと同一の Copyright 表記フッターを追加した。
 
 ## 対象ブランチ
 
@@ -21,6 +22,7 @@
 | `src/fe_js_detail.html` | 変更 | グローバル変数 `_resubmitDisputedReasons` 追加 / 取り下げ(WITHDRAWN)行に否認理由ブロックを追加 / 再申請開始時に否認理由を DOM(`textContent`)から LF 保持で収集 |
 | `src/fe_js_confirm.html` | 変更 | 確認画面の否認加盟店に否認理由ブロックを追加 / 「一覧に戻る」を常に `#home` 遷移へ修正 / ページタイトル文言を「請求内容の確認（再申請）」へ調整 |
 | `src/fe_css.html` | 変更 | 否認理由テキストの折り返し・LF 改行・`min-width:0`・`overflow:hidden` でボタン位置を固定 |
+| `src/fe_page_error.html` | 変更 | エラー画面に他ページと同一の共通フッター（`site-footer` / Copyright 表記）を `</main>` 直後に追加 |
 | `docs/specifications/03_confirm_page.md` | 変更 | 「一覧に戻る」= 常に TOP の仕様に統一 / 状態変数表に `_resubmitDisputedReasons` 追記 / 再送信モードのフロー図に離脱動線を追加 |
 | `docs/specifications/07_test_scenarios.md` | 変更 | テストシナリオ C-9・C-14 を TOP 遷移に修正 / 「キャンセル」動線の C-15 を新設 |
 
@@ -123,6 +125,11 @@ flowchart LR
 - `.backoffice-remark__disputed-reason`: `min-width:0` 追加 + `align-items` を `center` → `flex-start`（複数行時にラベルを先頭行へ）。
 - `.store-accordion__backoffice-remark`: `overflow:hidden` を追加（保険）。
 
+### `src/fe_page_error.html`
+
+- エラー画面にだけ共通フッターが欠落していたため、他全ページ（home / csv_upload / confirm / detail）と同じく `</main>` 直後に `<footer class="site-footer">`（Copyright 表記）を追加。CSS（`.site-footer`）は既存定義を再利用し、追加スタイルは不要。
+  > 注: カード内の `error-page__footer`（「ログインページに戻る」ボタン）はページ固有 UI で、今回追加した共通フッターとは別物。両方を残している。
+
 ### `docs/specifications/03_confirm_page.md` / `07_test_scenarios.md`
 
 - 仕様書 7.1 節・4.2 節を「一覧に戻る = 常に TOP」「キャンセル = （再送信時）詳細画面」に整理し、フロー図に離脱動線を追記。状態変数表に `_resubmitDisputedReasons` を追加。
@@ -144,6 +151,5 @@ flowchart LR
 
 - **機能影響**:
   - 否認理由の表示が「詳細の否認行」に加え「詳細の取り下げ行」「再申請の確認画面」へ拡大。個別リアップロードモーダルは既存表示のまま CSS 改善の恩恵を受ける。
-  - 「一覧に戻る」は再送信モードでも TOP へ遷移するよう挙動変更（仕様統一）。「キャンセル」ボタンの遷移先は従来どおり変更なし。
-  - 否認理由表示はすべて表示専用で、登録・保存系のデータフローには影響しない。
-- **パフォーマンス影響**: なし（DOM 1 回の `querySelector` 追加と CSS のみ。BE/BQ 変更なし）。
+  - 「一覧に戻る」は再送信モードでも TOP へ遷移するよう挙動変更（仕様統一）。「キャンセル」ボタンの遷移先は従来どおり変更なし。  - エラー画面に共通フッター（Copyright 表記）が表示されるようになり、他ページと見た目が揃う。  - 否認理由表示はすべて表示専用で、登録・保存系のデータフローには影響しない。
+- **パフォーマンス影響**: なし（DOM 1 回の `querySelector` 追加・CSS・静的HTML（フッター）のみ。BE/BQ 変更なし）。
