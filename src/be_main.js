@@ -22,8 +22,12 @@ function doGet(e) {
     console.warn('[doGet] 環境判定に失敗したため本番扱いにします: ' + err);
   }
 
+  // LP から ?token=xxx で渡されるセッショントークンを取得（iframe 内ではフラグメントが使えないため）
+  const sessionToken = (e && e.parameter && e.parameter.token) || '';
+
   const template = HtmlService.createTemplateFromFile('fe_index');
   template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
+  template.sessionToken = sessionToken; // フロント getSessionToken_() がテンプレート注入値を読む
 
   const output = template
     .evaluate()

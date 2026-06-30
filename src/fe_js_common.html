@@ -94,27 +94,29 @@ function jstNow_() {
 
 /**
  * セッショントークンを取得する。
- * LP から #token=xxx フラグメントで渡される（URLクエリと異なりサーバログに残らない）。
- * 初回はフラグメントから抽出し sessionStorage に保存、以降はそこから読む（全 google.script.run に付与）。
- * 保存後はフラグメントから token を除去しアドレスバーへの漏洩を防ぐ。
+ * LP から ?token=xxx クエリパラメータで GAS に渡され、doGet がテンプレート経由で
+ * window.__SESSION_TOKEN__ に注入する（fe_index.html で評価）。
+ * fe_js_common.html は include() → createHtmlOutputFromFile のため <?= ?> が動かず、
+ * グローバル変数経由で受け取る。
  * @returns {string} セッショントークン（組織内アカウントは空で OK）
  */
 function getSessionToken_() {
   try {
-    const t = sessionStorage.getItem('shiire_session_token');
+    // 1. sessionStorage に既に保存済みならそれを返す
+    var t = sessionStorage.getItem('shiire_session_token');
     if (t) return t;
-    // フラグメントから抽出: #token=xxx または #home&token=xxx 等
-    const hash = (typeof window !== 'undefined' && window.location.hash) || '';
-    const match = hash.match(/[#&]token=([A-Za-z0-9_-]{1,128})/);
+    // 2. doGet がテンプレートから注入したグローバル変数を読む
+    var injected = (typeof window !== 'undefined' && window.__SESSION_TOKEN__) || '';
+    if (injected) {
+      sessionStorage.setItem('shiire_session_token', injected);
+      return injected;
+    }
+    // 3. フォールバック: フラグメントからも試す（後方互換）
+    var hash = (typeof window !== 'undefined' && window.location.hash) || '';
+    var match = hash.match(/[#&]token=([A-Za-z0-9_-]{1,128})/);
     if (match) {
-      const token = match[1];
-      sessionStorage.setItem('shiire_session_token', token);
-      // フラグメントから token を除去（アドレスバー漏洩防止）
-      try {
-        const cleaned = hash.replace(/[#&]token=[A-Za-z0-9_-]+/, '') || '#home';
-        window.location.hash = cleaned.startsWith('#') ? cleaned : '#' + cleaned;
-      } catch (_) { /* GAS iframe 内等で失敗しても無視 */ }
-      return token;
+      sessionStorage.setItem('shiire_session_token', match[1]);
+      return match[1];
     }
   } catch (e) { /* sessionStorage 不可でも組織内は Session フォールバックで動く */ }
   return '';
