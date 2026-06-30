@@ -14,18 +14,21 @@ GAS のファイル管理はフラット構造のため、`src/` 直下に以下
 ```
 src/
 ├── appsscript.json          # GASマニフェスト（権限・タイムゾーン設定）
-├── be_main.js               # Back-end: エントリーポイント（doGet, include）
+├── be_main.js               # Back-end: エントリーポイント（doGet, doPost, include）
 ├── be_auth.js               # Back-end: 外部アカウント認証（doPost, tokeninfo検証, セッショントークン発行）
+├── be_assets.js             # Back-end: 静的アセット管理（favicon URL取得）
 ├── be_config.js             # Back-end: 環境設定（ScriptPropertiesの取得・管理）
-├── be_utils.js              # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付フォーマット）
-├── be_invoice.js            # Back-end: 請求ドメイン（sendInvoiceData, fetchInvoices, fetchInvoiceDetail）
+├── be_csv_mapper.js         # Back-end: CSV列マッピング（csv_format_rules対応のSQL生成・ヘッダー検証）
+├── be_invoice.js            # Back-end: 請求ドメイン（送信・再送信・取下げ・一括再送信）
+├── be_server.js             # Back-end: アカウント情報取得・ログイン/ログアウトURL生成
+├── be_utils.js              # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付フォーマット・ロギング）
 ├── db_bq_connection.js      # DB: BQ Load Job投入・ポーリング・トランザクション実行・staging DROP
-├── db_bq_query.js           # DB: BQ 参照系クエリ（請求一覧・詳細）
+├── db_bq_query.js           # DB: BQ 参照系クエリ（請求一覧・詳細・アカウント情報）
 ├── fe_index.html            # Front-end: SPAのルートHTML（GASテンプレート）
 ├── fe_css.html              # Front-end: 共通スタイルシート（styleタグ）
 ├── fe_js_common.html        # Front-end: 共通基盤（ルーター・トースト・ローディング・ヘッダー/ログアウト・アカウント初期化）
 ├── fe_js_csv_common.html    # Front-end: CSV共通処理（validateCsv / parseCsvLine / getCsvFormatRules）
-├── fe_js_calendar.html      # Front-end: カレンダー（ホーム・詳細で共有）
+├── fe_js_calendar.html      # Front-end: 請求スケジュールカレンダー（ホーム・詳細で共有）
 ├── fe_js_home.html          # Front-end: 【画面】ホームのJSロジック
 ├── fe_js_upload.html        # Front-end: 【画面】CSVアップロードのJSロジック
 ├── fe_js_confirm.html       # Front-end: 【画面】確認画面のJSロジック
@@ -34,7 +37,8 @@ src/
 ├── fe_page_home.html        # Front-end: 【画面】ホーム
 ├── fe_page_csv_upload.html  # Front-end: 【画面】CSVアップロード
 ├── fe_page_confirm.html     # Front-end: 【画面】確認画面
-└── fe_page_detail.html      # Front-end: 【画面】詳細画面
+├── fe_page_detail.html      # Front-end: 【画面】詳細画面
+└── fe_page_error.html       # Front-end: 【画面】エラーページ（認証エラー等）
 ```
 
 ### ファイル命名プレフィックス
@@ -66,12 +70,16 @@ function include(filename) {
 | ファイル | 責務 |
 |---|---|
 | `db_bq_connection.js` | BQ Load Job投入・ポーリング・トランザクション実行・staging DROP |
-| `db_bq_query.js` | BQ 参照系クエリ（請求一覧・詳細） |
+| `db_bq_query.js` | BQ 参照系クエリ（請求一覧・詳細・アカウント情報） |
 | `db_xxx.js` | 新しいDBアクセス処理を追加する際は `db_` を冠した新ファイルを作成する |
 | `be_main.js` | エントリーポイントのみ。`doGet` と `include` だけを置く |
+| `be_auth.js` | 外部アカウント認証（doPost, tokeninfo検証, セッショントークン発行・検証） |
+| `be_assets.js` | 静的アセット管理（favicon URL取得等） |
 | `be_config.js` | ScriptProperties の取得・初期設定のみ |
-| `be_utils.js` | 全ファイルから使う汎用ヘルパー（レスポンス整形・Drive操作・日付変換など） |
-| `be_invoice.js` | 請求ドメインのロジック（sendInvoiceData, fetch系, モック） |
+| `be_csv_mapper.js` | CSV列マッピング（csv_format_rules対応のSQL生成・ヘッダー検証） |
+| `be_invoice.js` | 請求ドメインのロジック（sendInvoiceData, resubmit系, withdraw系, fetch系） |
+| `be_server.js` | アカウント情報取得・ログイン/ログアウトURL生成 |
+| `be_utils.js` | 全ファイルから使う汎用ヘルパー（レスポンス整形・Drive操作・日付変換・ロギングなど） |
 | `be_xxx.js` | 新機能を追加する際は **機能名（ドメイン名）** を冠した新ファイルを作成する |
 
 ### フロントエンドのファイル分割方針

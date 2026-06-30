@@ -17,14 +17,23 @@ shiire-poc-supplier/
 │   ├── DESIGN.md              # 画面デザイン・スタイル定義
 │   ├── SETUP.md               # 環境構築・開発マニュアル
 │   ├── CODING_RULES.md        # コーディング規約
-│   ├── 01_directory_structure.md
-│   └── 02_system_requirements.md
+│   ├── 01_directory_structure.md  # 本ファイル（ディレクトリ構成）
+│   ├── 02_system_requirements.md  # 要件・設計定義
+│   ├── plan/                  # 機能設計書
+│   ├── pr_work_logs/          # PR 作業ログ
+│   └── specifications/        # 仕様書
 └── src/                       # 🚀 開発 & デプロイ用（ここで作業 → そのまま GAS へ push）
     ├── appsscript.json        # GAS マニフェスト（権限・タイムゾーン設定）
-    ├── be_main.js             # Back-end: エントリーポイント（doGet / include）
+    ├── be_main.js             # Back-end: エントリーポイント（doGet / doPost / include）
+    ├── be_auth.js             # Back-end: 外部アカウント認証（tokeninfo検証・セッショントークン発行）
+    ├── be_assets.js           # Back-end: 静的アセット管理（favicon URL取得）
     ├── be_config.js           # Back-end: 環境設定（ScriptProperties の取得・初期設定）
-    ├── be_utils.js            # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付変換）
-    ├── be_invoice.js          # Back-end: 請求ドメイン（sendInvoiceData / fetchInvoices / fetchInvoiceDetail）
+    ├── be_csv_mapper.js       # Back-end: CSV列マッピング（csv_format_rules対応のSQL生成）
+    ├── be_invoice.js          # Back-end: 請求ドメイン（送信・再送信・取下げ・一括再送信）
+    ├── be_server.js           # Back-end: アカウント情報取得・ログイン/ログアウトURL生成
+    ├── be_utils.js            # Back-end: 共通ユーティリティ（レスポンス整形・Drive操作・日付変換・ロギング）
+    ├── db_bq_connection.js    # DB: BQ接続（Load Job投入・ポーリング・トランザクション実行・staging DROP）
+    ├── db_bq_query.js         # DB: BQ参照系クエリ（請求一覧・詳細・アカウント情報）
     ├── fe_index.html          # Front-end: SPA ルート HTML（GAS テンプレート）
     ├── fe_css.html            # Front-end: 共通スタイルシート（<style> タグ）
     ├── fe_js_common.html      # Front-end: 共通基盤（ルーター・トースト・ヘッダー/ログアウト・アカウント初期化）
@@ -38,14 +47,16 @@ shiire-poc-supplier/
     ├── fe_page_home.html      # Front-end: 【画面】ホーム
     ├── fe_page_csv_upload.html # Front-end: 【画面】CSV アップロード
     ├── fe_page_confirm.html   # Front-end: 【画面】確認画面
-    └── fe_page_detail.html    # Front-end: 【画面】詳細画面
+    ├── fe_page_detail.html    # Front-end: 【画面】詳細画面
+    └── fe_page_error.html     # Front-end: 【画面】エラーページ（認証エラー等）
 ```
 
 ## 2. ファイル命名規則
 
 | プレフィックス | 対象 | 内容 |
 |---|---|---|
-| `be_` | Back-end | サーバー側ロジック（`.js`） |
+| `db_` | DB層 | DBアクセス・クエリ実行（`.js`） |
+| `be_` | Back-end | 画面遷移/API/業務ロジック（`.js`） |
 | `fe_` | Front-end | ブラウザ側 UI・CSS・JS（`.html`） |
 | `fe_page_` | 画面単位 | 特定ページのコンテンツ |
 | `fe_part_` | 部品単位 | 複数画面で共有するパーツ |
@@ -92,63 +103,4 @@ claspは `rootDir: "./src"` を参照するため、`src/` 内のファイルの
 ```
 
 
-```text
-wholesaler-system/
-├── .clasp.json                # claspの設定ファイル（push先は dist/ を指定）
-├── appsscript.json            # GASのタイムゾーンやスコープ設定
-├── package.json               # Node.jsパッケージ（ビルドスクリプト管理用）
-├── build.js                   # ビルドスクリプト（@@include展開 / CSS・JS インライン化）
-├── docs/                      # ドキュメント群
-│   ├── DESIGN.md              # 画面デザイン・スタイル定義
-│   ├── SETUP.md               # 環境構築・開発マニュアル
-│   ├── 01_directory_structure.md
-│   ├── 02_system_requirements.md
-│   └── CODING_RULES.md
-├── src/                       # 🛠️ 開発用ディレクトリ（ここで作業する）
-│   ├── backend/               # GASバックエンド（BE）
-│   │   ├── config.js          # Script Properties 取得・初期設定ヘルパー
-│   │   └── server.js          # doGet / BackOffice API プロキシ / Drive保存ロジック
-│   └── frontend/              # 画面フロントエンド（FE）
-│       ├── index.html         # SPAシェル（@@include でコンポーネントを結合）
-│       ├── components/
-│       │   └── header.html    # ヘッダーコンポーネント
-│       ├── pages/
-│       │   ├── home.html      # ホーム画面
-│       │   ├── upload.html    # CSVアップロード画面
-│       │   └── confirm.html   # 確認画面
-│       ├── css/
-│       │   └── style.css      # スタイルシート
-│       ├── images/
-│       │   └── icon-company.svg  # 企業アイコン（インラインSVGとしてHTMLに埋め込み）
-│       └── js/
-│           ├── utils.js       # 共通ユーティリティ（escapeHtml など）
-│           ├── home.js        # ホーム画面（カレンダー・請求履歴描画）
-│           ├── upload.js      # アップロード画面（CSV読み込み・バリデーション・状態管理）
-│           ├── confirm.js     # 確認画面（モーダル・送信処理・テーブル描画）
-│           └── router.js      # SPA ルーター（ハッシュ変化の検知・ページ切替）
-└── dist/                      # 🚀 デプロイ用ディレクトリ（GASにpushされる）
-    ├── appsscript.json        # ルートからコピー
-    ├── index.html             # FEのHTML・CSS・JSが1つに結合されたファイル
-    ├── config.js              # src/backend/config.js のコピー
-    └── server.js              # src/backend/server.js のコピー
-```
 
-## 2. 開発フロー（The Vibe Coding Way）
-
-### Step 1: ローカルでのUI開発 (Live Server)
-`src/frontend/` 内で、ピュアな `.html`, `.css`, `.js` を記述します。
-Copilotの補完がフルに効き、VSCodeの Live Server 機能を使ってブラウザで即座にUI・CSVパースの動作確認が可能です（GAS特有の遅延なし）。
-
-### Step 2: ファイルの結合（ビルド）
-開発が一段落し、GAS上で動かしたくなったら `dist/` ディレクトリへ統合します。
-`node build.js`（または `npm run build`）を実行すると、以下が自動で行われます。
-
-1. `src/frontend/index.html` の `<!-- @@include -->` ディレクティブを再帰展開
-2. `css/style.css` を `<style>` タグとしてインライン化
-3. `js/` 配下の JS ファイルを依存順（`utils → home → upload → confirm → router`）で結合し、`<script>` タグとしてインライン化 → `dist/index.html` を出力
-4. `appsscript.json` を `dist/appsscript.json` にコピー
-5. `src/backend/` の `.js` ファイルすべてを `dist/` 直下にコピー（GASはフラット構成のため）
-
-### Step 3: clasp push
-`.clasp.json` の `rootDir` を `"dist"` に設定しておきます。
-ターミナルで `clasp push` を実行すると、`dist/` の中身だけが綺麗にGASへデプロイされます。
