@@ -13,9 +13,10 @@
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
         crossorigin="anonymous" />
   <?!= include('fe_css'); ?>
-  <!-- サーバーが判定した実行環境フラグをフロントへ公開（development のときのみ true） -->
+  <!-- サーバーが判定した実行環境フラグ・セッショントークンをフロントへ公開 -->
   <script>
     window.__APP_IS_DEV__ = ('<?= isDev ?>' === 'true');
+    window.__SESSION_TOKEN__ = '<?= sessionToken ?>';
   </script>
 </head>
 <body>
