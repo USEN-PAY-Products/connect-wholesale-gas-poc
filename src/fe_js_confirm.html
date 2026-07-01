@@ -1,0 +1,851 @@
+<script>
+// ---- confirm.js ----
+// =============================================================================
+// Confirm page: Cancel modal（フォーカス管理・トラップ・Esc 対応）
+// =============================================================================
+
+/** モーダルを開く直前にフォーカスしていた要素を記憶する */
+let _modalTrigger = null;
+
+/** フォーカス可能なセレクタ */
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * キャンセル確認モーダルを開く
+ * @param {HTMLElement} [trigger] - 開くきっかけになった要素（閉じ後にフォーカスを戻す）
+ */
+function openCancelModal(trigger) {
+  const modal = document.getElementById('cancelModal');
+  _modalTrigger = trigger || document.activeElement;
+  modal.classList.remove('hidden');
+  // 最初のフォーカス可能要素へ移動
+  const first = modal.querySelector(FOCUSABLE);
+  if (first) first.focus();
+}
+
+/** キャンセル確認モーダルを閉じる */
+function closeCancelModal() {
+  const modal = document.getElementById('cancelModal');
+  modal.classList.add('hidden');
+  // フォーカスをトリガー要素に戻す
+  if (_modalTrigger && typeof _modalTrigger.focus === 'function') {
+    _modalTrigger.focus();
+  }
+  _modalTrigger = null;
+}
+
+// 確認ページ: 一覧に戻るボタン → モーダルを表示
+document.getElementById('btnConfirmBack').addEventListener('click', function () {
+  openCancelModal(this);
+});
+document.getElementById('btnConfirmBackBottom').addEventListener('click', function () {
+  openCancelModal(this);
+});
+
+// 確認ページ: キャンセルボタン → 戻り先に応じたモーダルを表示
+document.getElementById('btnConfirmCancel').addEventListener('click', function () {
+  const modal = document.getElementById('confirmCancelToUploadModal');
+  // 再送信モードの場合はモーダルの文言を詳細画面向けに切り替え
+  const titleEl = document.getElementById('confirmCancelToUploadTitle');
+  const descEl  = document.getElementById('confirmCancelToUploadDesc');
+  const okBtn   = document.getElementById('confirmCancelToUploadOk');
+  if (_isResubmitConfirm) {
+    if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> 登録をキャンセルして詳細画面に戻りますか？';
+    if (descEl)  descEl.textContent = 'アップロードされたファイルは、まだ登録が完了していません。詳細画面に戻ると、編集中のデータは削除されます。';
+    if (okBtn)   okBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i> 詳細画面に戻る';
+  } else {
+    if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> 登録をキャンセルしてアップロード画面に戻りますか？';
+    if (descEl)  descEl.textContent = 'アップロードされたファイルは、まだ登録が完了していません。アップロード画面に戻ると、編集中のデータは削除されます。';
+    if (okBtn)   okBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i> アップロード画面に戻る';
+  }
+  _modalTrigger = this;
+  modal.classList.remove('hidden');
+  const first = modal.querySelector(FOCUSABLE);
+  if (first) first.focus();
+});
+// キャンセルモーダル: 閉じる
+document.getElementById('confirmCancelToUploadClose').addEventListener('click', function () {
+  document.getElementById('confirmCancelToUploadModal').classList.add('hidden');
+  if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
+  _modalTrigger = null;
+});
+// キャンセルモーダル: OK → 遷移元へ戻る
+document.getElementById('confirmCancelToUploadOk').addEventListener('click', function () {
+  document.getElementById('confirmCancelToUploadModal').classList.add('hidden');
+  _modalTrigger = null;
+  if (_isResubmitConfirm) {
+    // 再送信モード: 詳細画面へ戻る
+    const parentId = _resubmitParentInvoiceId;
+    resetPage();
+    _isResubmitConfirm = false;
+    _detailCurrentInvoiceId = null;
+    location.hash = parentId ? '#detail?invoiceId=' + encodeURIComponent(parentId) : '#home';
+  } else {
+    resetPage();
+    location.hash = '#upload';
+  }
+});
+// キャンセルモーダル: オーバーレイクリックで閉じる
+document.getElementById('confirmCancelToUploadModal').addEventListener('click', function (e) {
+  if (e.target === this) {
+    this.classList.add('hidden');
+    if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
+    _modalTrigger = null;
+  }
+});
+// キャンセルモーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  const modal = document.getElementById('confirmCancelToUploadModal');
+  if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+    modal.classList.add('hidden');
+    if (_modalTrigger && typeof _modalTrigger.focus === 'function') _modalTrigger.focus();
+    _modalTrigger = null;
+  }
+});
+// キャンセルモーダル: フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+document.getElementById('confirmCancelToUploadModal').addEventListener('keydown', function (e) {
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(this.querySelectorAll(FOCUSABLE));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last  = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+  }
+});
+
+// モーダル: キャンセル（閉じるだけ）
+document.getElementById('cancelModalClose').addEventListener('click', () => {
+  closeCancelModal();
+});
+
+// モーダル: OK → データをリセットして一覧（TOP）へ戻る
+// 「一覧に戻る」は CSV一括再請求（再送信モード）であっても常にTOP（#home）へ遷移する。
+// 再送信フラグ・詳細画面キャッシュは navigate() が #home 遷移時に自動でクリアする。
+document.getElementById('cancelModalOk').addEventListener('click', () => {
+  closeCancelModal();
+  resetPage();
+  location.hash = '#home';
+});
+
+// モーダル: オーバーレイクリックで閉じる
+document.getElementById('cancelModal').addEventListener('click', function (e) {
+  if (e.target === this) closeCancelModal();
+});
+
+// モーダル: Esc キーで閉じる
+document.addEventListener('keydown', e => {
+  const modal = document.getElementById('cancelModal');
+  if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+    closeCancelModal();
+  }
+});
+
+// モーダル: フォーカストラップ（Tab / Shift+Tab をモーダル内に閉じ込める）
+document.getElementById('cancelModal').addEventListener('keydown', function (e) {
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(this.querySelectorAll(FOCUSABLE));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last  = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+  }
+});
+
+// =============================================================================
+// Confirm page: collectSummaryData / collectRemarks
+// =============================================================================
+
+/**
+ * 確認画面の金額 input から wholesalerTotal / merchantTotals を収集して返す。
+ * @returns {{ wholesalerTotal: Object, merchantTotals: Array<Object> }}
+ */
+function collectSummaryData_() {
+  // span（read-only）と input（編集可）の両方から数値を取り出す共通ヘルパー
+  const readEl = el => {
+    if (!el) return 0;
+    const raw = el.tagName === 'INPUT' ? el.value : el.textContent;
+    return Number(String(raw).replace(/[^0-9.-]/g, '')) || 0;
+  };
+  const getVal   = id    => readEl(document.getElementById(id));
+  const getField = (card, field) => readEl(card.querySelector(`[data-field="${field}"]`));
+
+  const wholesalerTotal = {
+    totalAmount:    getVal('summaryAmountInTax'),
+    subtotalAmount: getVal('summaryAmountExTax'),
+    taxAmount:      getVal('summaryTax'),
+    exTax10:        getVal('summaryExTax10'),
+    tax10:          getVal('summaryTax10'),
+    exTax8:         getVal('summaryExTax8'),
+    tax8:           getVal('summaryTax8'),
+    feeAmount:      getVal('summaryFee'),
+    paymentAmount:  getVal('summaryTransfer'),
+  };
+
+  const merchantTotals = [];
+  const confirmList = document.getElementById('confirmStoreList');
+  (confirmList ? confirmList.querySelectorAll('.store-accordion') : []).forEach(card => {
+    const customerCode = card.dataset.cc || '';
+    merchantTotals.push({
+      customerCode,
+      managedStoreName: card.dataset.managedStoreName || '',
+      totalAmount:    getField(card, 'totalAmount'),
+      subtotalAmount: getField(card, 'subtotalAmount'),
+      taxAmount:      getField(card, 'taxAmount'),
+      exTax10:        getField(card, 'exTax10'),
+      tax10:          getField(card, 'tax10'),
+      exTax8:         getField(card, 'exTax8'),
+      tax8:           getField(card, 'tax8'),
+    });
+  });
+
+  return { wholesalerTotal, merchantTotals };
+}
+
+/**
+ * 確認画面の備考 textarea から { customerCode: remarks文字列 } を収集して返す。
+ * @returns {Object.<string, string>}
+ */
+function collectRemarks_() {
+  const remarks = {};
+  document.querySelectorAll('.remarks-input[data-customer-code]').forEach(ta => {
+    remarks[ta.dataset.customerCode] = nl2space_(ta.value || '');
+  });
+  return remarks;
+}
+
+/**
+ * 確認画面上の handover テキストエリアから値を収集する。
+ * @returns {Object.<string, string>}  { customerCode: handoverText }
+ */
+function collectHandovers_() {
+  const handovers = {};
+  document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
+    handovers[ta.dataset.customerCode] = nl2space_(ta.value || '');
+  });
+  return handovers;
+}
+
+// =============================================================================
+// Confirm page: Submit
+// =============================================================================
+
+// 確認ページ: 請求情報を登録するボタン
+btnFinalSubmit.addEventListener('click', () => {
+  // 送信可能なデータが揃っているか念のため確認
+  if (!parsedData || !rawCsvBase64 || !utf8CsvBase64) {
+    showToast('送信できるデータがありません。アップロードページからやり直してください。', 'error');
+    location.hash = '#upload';
+    return;
+  }
+
+  // ── 送信開始: UI をローディング状態に ─────────────────────────────────────
+  setSubmitLoading();
+  showLoadingOverlay('登録中...');
+  hideToast();
+
+  // ── GAS バックエンドへ送信 ────────────────────────────────────────────────
+  // google.script.run は GAS Webアプリ環境でのみ有効。
+  // ローカル Live Server で動作確認する場合は下部の「ローカル確認用フォールバック」が使われる。
+  const wholesalerName = sessionStorage.getItem('shiire_wholesaler_name') || '';
+  const summaryData    = collectSummaryData_();
+  const remarks        = collectRemarks_();
+
+  // 備考の文字数バリデーション（250文字以内）
+  const overLimitRemarks = Object.entries(remarks).filter(([, v]) => v.length > 250);
+  if (overLimitRemarks.length > 0) {
+    hideLoadingOverlay();
+    resetSubmitButton();
+    showToast('加盟店別請求書備考は250文字以内で入力してください。', 'error');
+    return;
+  }
+
+  // ── 税額 ±1円バリデーション ─────────────────────────────────────────────
+  const taxAdjustErrors = [];
+  const confirmListForTax = document.getElementById('confirmStoreList');
+  (confirmListForTax ? confirmListForTax.querySelectorAll('.store-accordion') : []).forEach(card => {
+    const cc = card.dataset.cc || '';
+    card.querySelectorAll('[data-field="tax8"], [data-field="tax10"]').forEach(el => {
+      const orig = Number(el.dataset.orig || 0);
+      const cur  = Math.trunc(Number(el.value) || 0);
+      if (Math.abs(cur - orig) > 1) {
+        const label = el.dataset.field === 'tax10' ? '税内訳（10%）' : '税内訳（8%）';
+        taxAdjustErrors.push('加盟店 ' + cc + ': ' + label + 'の調整は±1円までです（現在: ' + cur + '円 / 計算値: ' + orig + '円）');
+      }
+    });
+  });
+  if (taxAdjustErrors.length > 0) {
+    hideLoadingOverlay();
+    resetSubmitButton();
+    showToast(taxAdjustErrors[0], 'error');
+    return;
+  }
+
+  // ── 金額桁数バリデーション（DDL制約に基づく / 共通関数） ─────────────────────
+  const validationErrors = validateAmountDigits_(summaryData);
+  if (validationErrors.length > 0) {
+    hideLoadingOverlay();
+    resetSubmitButton();
+    showToast(validationErrors[0], 'error');
+    return;
+  }
+
+  if (_isResubmitConfirm) {
+    // ── 再送信モード: bulkResubmitInvoiceData を呼ぶ ──────────────────────
+    const parentInvoiceId = _resubmitParentInvoiceId;
+    // 確認画面の handover 入力欄から最新値を取得
+    const handovers = collectHandovers_();
+    // 否認店舗の handover 必須チェック
+    // 確認画面に実際に表示されている handover 欄のうち、未入力のものだけを対象にする。
+    // （CSVに無い否認店舗は欄が描画されないため、自然に対象外になる）
+    const missingCodes = [];
+    document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
+      const cc = ta.dataset.customerCode || '';
+      if (cc && (!handovers[cc] || !handovers[cc].trim())) missingCodes.push(cc);
+    });
+    if (missingCodes.length > 0) {
+      // 未入力の handover textarea にエラー表示
+      document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
+        const cc = ta.dataset.customerCode;
+        const parentDiv = ta.closest('.backoffice-remark__disputed-handover');
+        if (missingCodes.indexOf(cc) !== -1) {
+          ta.classList.add('confirm-handover-input--error');
+          ta.setAttribute('aria-invalid', 'true');
+          const errId = 'handover-err-' + cc;
+          ta.setAttribute('aria-describedby', errId);
+          if (!ta.nextElementSibling || !ta.nextElementSibling.classList.contains('handover-validation-error')) {
+            const errSpan = document.createElement('div');
+            errSpan.className = 'handover-validation-error';
+            errSpan.id = errId;
+            errSpan.textContent = '※ 加盟店との合意内容を記入してください';
+            ta.insertAdjacentElement('afterend', errSpan);
+          }
+          // 対象アコーディオンを開く
+          const accordion = ta.closest('.store-accordion');
+          if (accordion && !accordion.classList.contains('is-open')) {
+            accordion.classList.add('is-open');
+            const accHeader = accordion.querySelector('.store-accordion__header');
+            if (accHeader) accHeader.setAttribute('aria-expanded', 'true');
+          }
+        } else {
+          ta.classList.remove('confirm-handover-input--error');
+          ta.removeAttribute('aria-invalid');
+          ta.removeAttribute('aria-describedby');
+          if (parentDiv) {
+            const errEl = parentDiv.querySelector('.handover-validation-error');
+            if (errEl) errEl.remove();
+          }
+        }
+      });
+      // 最初のエラー箇所までスクロールしフォーカスを当てる
+      const firstErr = document.querySelector('.confirm-handover-input--error');
+      if (firstErr) {
+        firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstErr.focus();
+      }
+      hideLoadingOverlay();
+      resetSubmitButton();
+      return;
+    }
+    // 確認画面の備考で上書き
+    const confirmRemarks = collectRemarks_();
+    Object.keys(confirmRemarks).forEach(function (k) { remarks[k] = confirmRemarks[k]; });
+    // _resubmitRemarks もマージ
+    Object.keys(_resubmitRemarks).forEach(function (k) { if (!(k in remarks)) remarks[k] = _resubmitRemarks[k]; });
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          hideLoadingOverlay();
+          resetSubmitButton();
+          if (result && result.status === 'error') {
+            showToast('登録に失敗しました: ' + (result.message || '不明なエラー'), 'error');
+            return;
+          }
+          rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+          _isResubmitConfirm = false;
+          _detailCurrentInvoiceId = null;
+          // 詳細画面への遷移直後はローディングオーバーレイ（z-index 9999）が
+          // トースト（z-index 100）を覆い隠すため、_detailPendingToastMsg に退避し
+          // 詳細データ取得・再描画完了後（initDetailPage 内）に表示する。
+          _detailPendingToastMsg = '登録完了しました';
+          location.hash = '#detail?invoiceId=' + parentInvoiceId;
+        })
+        .withFailureHandler(function (err) {
+          hideLoadingOverlay();
+          resetSubmitButton();
+          showToast('登録に失敗しました: ' + (err.message || err), 'error');
+        })
+        .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers, getSessionToken_());
+    } else {
+      console.warn('[bulkResubmit] google.script.run が利用できません（モック）');
+      console.log('[resubmit] parentInvoiceId:', parentInvoiceId);
+      console.log('[resubmit] summaryData:', summaryData);
+      console.log('[resubmit] remarks:', remarks);
+      console.log('[resubmit] handovers:', handovers);
+      setTimeout(function () {
+        hideLoadingOverlay();
+        resetSubmitButton();
+        rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+        _isResubmitConfirm = false;
+        _detailCurrentInvoiceId = null;
+        _detailPendingToastMsg = '登録完了しました';
+        location.hash = '#detail?invoiceId=' + parentInvoiceId;
+      }, 1500);
+    }
+  } else if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(onSubmitSuccess)
+      .withFailureHandler(onSubmitFailure)
+      // rawCsvBase64: Drive 保存用（元ファイルのバイト列そのまま）
+      // utf8CsvBase64: BQ Load Job 用（UTF-8 に変換済み）
+      .sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, getSessionToken_());
+  } else {
+    // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
+    console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
+    console.log('[submit] wholesalerName:', wholesalerName);
+    console.log('[submit] rawCsvBase64 (先頭100文字):', rawCsvBase64.slice(0, 100));
+    console.log('[submit] utf8CsvBase64 (先頭100文字):', utf8CsvBase64.slice(0, 100));
+    console.log('[submit] summaryData:', summaryData);
+    console.log('[submit] remarks:', remarks);
+    setTimeout(() => onSubmitSuccess({ status: 'success', data: '(mock)' }), 1500);
+  }
+});
+
+/**
+ * 送信成功ハンドラ
+ * @param {{ status: string, data: * }} result - server.js の success_() が返すオブジェクト
+ *   エラー時は error_() が返したオブジェクトが SuccessHandler に流れる場合がある
+ */
+function onSubmitSuccess(result) {
+  console.log('[submit] success:', result);
+  if (result && result.status === 'error') {
+    // GAS 側が _error() を返した場合（SuccessHandler に流れるがエラー扱い）
+    hideLoadingOverlay();
+    showToast('送信に失敗しました: ' + (result.message || '不明なエラー'), 'error');
+    resetSubmitButton();
+    return;
+  }
+  resetPage();
+  hideLoadingOverlay();
+  location.hash = '#home';
+
+  showToast('登録完了しました', 'success');
+}
+
+/**
+ * 送信失敗ハンドラ
+ * @param {Error} error
+ */
+function onSubmitFailure(error) {
+  console.error('[submit] failure:', error);
+  hideLoadingOverlay();
+  showToast('送信に失敗しました: ' + (error.message || error), 'error');
+  resetSubmitButton(); // 再送信できるようにボタンを戻す
+}
+
+// 確認ページ: チェックボックスで送信ボタンの活性/非活性を切り替える
+document.getElementById('checkConfirm').addEventListener('change', function () {
+  btnFinalSubmit.disabled = !this.checked;
+});
+
+// =============================================================================
+// Confirm page: render
+// =============================================================================
+
+/**
+ * 確認画面を parsedData を元に描画する。
+ * navigate() が '#confirm' に切り替えるたびに呼ばれる。
+ */
+function renderConfirmPage() {
+  // データがなければ元の画面へ戻す
+  if (!parsedData || parsedData.length === 0 || !rawCsvBase64 || !utf8CsvBase64) {
+    if (parsedData && parsedData.length > 0 && (!rawCsvBase64 || !utf8CsvBase64)) {
+      showToast('ページがリロードされたため、CSVを再度アップロードしてください。', 'error');
+    }
+    if (_isResubmitConfirm) {
+      _isResubmitConfirm = false;
+      location.hash = '#detail?invoiceId=' + (_resubmitParentInvoiceId || '');
+    } else {
+      location.hash = '#upload';
+    }
+    return;
+  }
+
+  // 再送信モード: ページタイトルを変更
+  const confirmTitle = document.querySelector('#pageConfirm .page-title');
+  if (confirmTitle) {
+    confirmTitle.textContent = _isResubmitConfirm ? '請求内容の確認（再申請）' : '請求内容の確認';
+  }
+
+  // チェックボックス・送信ボタンをリセット
+  const checkConfirm = document.getElementById('checkConfirm');
+  if (checkConfirm) checkConfirm.checked = false;
+  btnFinalSubmit.disabled = true;
+
+  // ── 卸情報を SessionStorage から取得 ─────────────────────────────────────
+  const wholesalerId     = sessionStorage.getItem('shiire_wholesaler_id')     || '';
+  const wholesalerUserId = sessionStorage.getItem('shiire_wholesaler_user_id') || '';
+  const wholesalerName   = sessionStorage.getItem('shiire_wholesaler_name')   || '';
+  // 表示用は BQ NUMERIC の設定値をそのまま使う（Number() だと末専0消失・精度落ち）。計算用のみ Number 化。
+  const feeRateRaw       = sessionStorage.getItem('shiire_invoice_fee_rate') || '0';
+  const feeRate          = Number(feeRateRaw);
+  const mappings         = getMerchantMappings();
+
+  // customer_code → mall_code / merchant_name の変換マップ
+  const mappingMap = {};
+  mappings.forEach(m => { mappingMap[String(m.customer_code)] = m; });
+
+  // ── サマリー計算（1パスで全集計）────────────────────────────────────────
+  // tax_amount は CSV の値をそのまま使用。未マッピング時は amount_ex_tax × tax_rate で計算
+  const totals = parsedData.reduce((acc, r) => {
+    const amtExTax  = Number(r['amount_ex_tax'] || 0);
+    const taxRate   = Number(r['tax_rate']       || 0);
+    const rawTax    = r['tax_amount'];
+    const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
+    acc.amountExTax += amtExTax;
+    acc.tax         += taxAmount;
+    if (taxRate === 10)     { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+    else if (taxRate === 8) { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
+    return acc;
+  }, { amountExTax: 0, tax: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 });
+
+  const totalAmountExTax = roundTax(totals.amountExTax);
+  const totalTax         = roundTax(totals.tax);
+  const totalAmountInTax = totalAmountExTax + totalTax;
+  const exTax10 = roundTax(totals.exTax10);
+  const tax10   = roundTax(totals.tax10);
+  const exTax8  = roundTax(totals.exTax8);
+  const tax8    = roundTax(totals.tax8);
+  const feeAmount  = roundTax(totalAmountInTax * feeRate / 100);
+  const payAmount  = totalAmountInTax - feeAmount;
+
+  const fmt = n => n.toLocaleString('ja-JP');
+
+  // 登録日時（JST 基準の現在日時）
+  const jstReg = jstNow_();
+  const registeredAt = `${jstReg.year}/${String(jstReg.month).padStart(2,'0')}/${String(jstReg.date).padStart(2,'0')} ${String(jstReg.hours).padStart(2,'0')}:${String(jstReg.minutes).padStart(2,'0')}`;
+  const registeredAtEl = document.getElementById('summaryRegisteredAt');
+  if (registeredAtEl) registeredAtEl.textContent = registeredAt;
+
+  // 請求月（JST 基準のアップロード月）
+  const billingMonth = `${jstReg.year}年${jstReg.month}月`;
+  const billingMonthEl = document.getElementById('summaryBillingMonth');
+  if (billingMonthEl) billingMonthEl.textContent = billingMonth;
+
+  document.getElementById('summaryAmountInTax').textContent = fmt(totalAmountInTax);
+  document.getElementById('summaryAmountExTax').textContent = fmt(totalAmountExTax);
+  document.getElementById('summaryTax').textContent         = fmt(totalTax);
+  document.getElementById('summaryFeeRate').textContent     = feeRateRaw;
+  document.getElementById('summaryFee').textContent         = fmt(feeAmount);
+  document.getElementById('summaryTransfer').textContent    = fmt(payAmount);
+  document.getElementById('summaryExTax10').textContent     = fmt(exTax10);
+  document.getElementById('summaryTax10').textContent       = fmt(tax10);
+  document.getElementById('summaryExTax8').textContent      = fmt(exTax8);
+  document.getElementById('summaryTax8').textContent        = fmt(tax8);
+
+  // ── 再送信モード: USEN PAY社からのコメントを表示 ─────────────────────────
+  const handoverRow  = document.getElementById('confirmHandoverRow');
+  const handoverText = document.getElementById('confirmHandoverText');
+  if (_isResubmitConfirm) {
+    const handoverMatter = sessionStorage.getItem('shiire_resubmit_handover_matter') || '';
+    if (handoverRow)  handoverRow.classList.remove('hidden');
+    if (handoverText) handoverText.value = handoverMatter;
+  } else {
+    if (handoverRow)  handoverRow.classList.add('hidden');
+  }
+
+  // ── customer_code ごとにグルーピング ─────────────────────────────────────
+  /** @type {Map<string, Array>} */
+  const groups = new Map();
+  parsedData.forEach(row => {
+    const cc = String(row['customer_code'] || '');
+    if (!groups.has(cc)) groups.set(cc, []);
+    groups.get(cc).push(row);
+  });
+
+
+  // ── 加盟店別リストを描画 ──────────────────────────────────────────────────
+  const list = document.getElementById('confirmStoreList');
+  list.innerHTML = '';
+
+  /**
+   * 全カードの tax8/tax10 input を合算してサマリー欄を再計算する。
+   * tax8/tax10 input 変更時に呼ぶ。
+   */
+  const recalcSummary_ = () => {
+    let totalExTax = 0, totalTax8 = 0, totalTax10 = 0;
+    const confirmList = document.getElementById('confirmStoreList');
+    (confirmList ? confirmList.querySelectorAll('.store-accordion') : []).forEach(c => {
+      const subSpan = c.querySelector('[data-field="subtotalAmount"]');
+      const t8El    = c.querySelector('[data-field="tax8"]');
+      const t10El   = c.querySelector('[data-field="tax10"]');
+      totalExTax += Number(String(subSpan ? subSpan.textContent : '0').replace(/[^0-9.-]/g, '')) || 0;
+      totalTax8  += Math.trunc(Number(t8El  ? t8El.value  : 0) || 0);
+      totalTax10 += Math.trunc(Number(t10El ? t10El.value : 0) || 0);
+    });
+    const totalTax   = totalTax8 + totalTax10;
+    const totalInTax = totalExTax + totalTax;
+    const fRate      = Number(sessionStorage.getItem('shiire_invoice_fee_rate') || 0);
+    const fee        = roundTax(totalInTax * fRate / 100);
+    const pay        = totalInTax - fee;
+    const fmt = n => n.toLocaleString('ja-JP');
+    document.getElementById('summaryAmountInTax').textContent = fmt(totalInTax);
+    document.getElementById('summaryAmountExTax').textContent = fmt(totalExTax);
+    document.getElementById('summaryTax').textContent         = fmt(totalTax);
+    document.getElementById('summaryFee').textContent         = fmt(fee);
+    document.getElementById('summaryTransfer').textContent    = fmt(pay);
+    document.getElementById('summaryTax8').textContent        = fmt(totalTax8);
+    document.getElementById('summaryTax10').textContent       = fmt(totalTax10);
+  };
+
+  // 列ヘッダー行
+  const colHeader = document.createElement('div');
+  colHeader.className = 'store-list-header';
+  colHeader.innerHTML =
+    `<span class="slh-col slh-col--name">加盟店名</span>` +
+    `<span class="slh-col slh-col--mallcode">顧客ID</span>` +
+    `<span class="slh-col slh-col--amount">請求金額</span>` +
+    `<span class="slh-col slh-col--extax">小計（税抜）</span>` +
+    `<span class="slh-col slh-col--tax">消費税</span>` +
+    `<span class="slh-col slh-col--tax10">税内訳（10%）</span>` +
+    `<span class="slh-col slh-col--tax8">税内訳（8%）</span>` +
+    `<span class="slh-col slh-col--toggle"></span>`;
+  list.appendChild(colHeader);
+
+  groups.forEach((rows, customerCode) => {
+    const mapping  = mappingMap[customerCode] || {};
+    // 加盟店表示名の解決ロジック:
+    // 1. CSVに merchant_name 列がある（カスタムフォーマット）→ CSVの値を使用
+    // 2. CSVに merchant_name 列がない（デフォルトフォーマット）→ merchant_mappings から customer_code で検索（store_name キー）
+    // 3. どちらも取得できない場合 → customer_code をそのまま表示
+    const merchantNameFromCsv = String(rows[0]['merchant_name'] || '');
+    const merchantNameFromMap  = (mappingMap[customerCode] || {}).store_name || '';
+    const displayName          = merchantNameFromCsv || merchantNameFromMap || customerCode;
+
+    const st = rows.reduce((acc, r) => {
+      const amtExTax  = Number(r['amount_ex_tax'] || 0);
+      const taxRate   = Number(r['tax_rate']       || 0);
+      const rawTax    = r['tax_amount'];
+      const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
+      acc.amountExTax += amtExTax;
+      acc.tax         += taxAmount;
+      if (taxRate === 10)     { acc.exTax10 += amtExTax; acc.tax10 += taxAmount; }
+      else if (taxRate === 8) { acc.exTax8  += amtExTax; acc.tax8  += taxAmount; }
+      return acc;
+    }, { amountExTax: 0, tax: 0, exTax8: 0, tax8: 0, exTax10: 0, tax10: 0 });
+
+    const storeAmountExTax = roundTax(st.amountExTax);
+    const storeTax         = roundTax(st.tax);
+    const storeTotal       = storeAmountExTax + storeTax;
+
+    const card = document.createElement('div');
+    card.className = 'store-accordion';
+    card.dataset.cc = customerCode;
+    card.dataset.managedStoreName = displayName;
+
+    const header = document.createElement('div');
+    header.className = 'store-accordion__header';
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+    const mallCode = String(mapping.mall_code || customerCode);
+    header.innerHTML =
+      `<span class="slh-col slh-col--name store-accordion__code">${escapeHtml(displayName)}</span>` +
+      `<span class="slh-col slh-col--mallcode">${escapeHtml(customerCode)}</span>` +
+      `<span class="slh-col slh-col--amount"><span class="amount-display" data-field="totalAmount">${storeTotal.toLocaleString('ja-JP')}</span>円</span>` +
+      `<span class="slh-col slh-col--extax"><span class="amount-display" data-field="subtotalAmount">${storeAmountExTax.toLocaleString('ja-JP')}</span>円</span>` +
+      `<span class="slh-col slh-col--tax"><span class="amount-display" data-field="taxAmount">${storeTax.toLocaleString('ja-JP')}</span>円</span>` +
+      `<span class="slh-col slh-col--tax10"><input type="number" class="amount-input" data-field="tax10" data-orig="${st.tax10}" value="${st.tax10}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（10%）（円）" /><span class="unit-label">円</span></span>` +
+      `<span class="slh-col slh-col--tax8"><input type="number" class="amount-input" data-field="tax8" data-orig="${st.tax8}" value="${st.tax8}" max="99999999999" step="1" inputmode="numeric" aria-label="${escapeHtml(displayName)} 税内訳（8%）（円）" /><span class="unit-label">円</span></span>` +
+      `<span class="slh-col slh-col--toggle"><i class="fa-solid fa-chevron-down store-accordion__icon"></i></span>`;
+
+    const toggleAccordion = () => {
+      const isOpen = card.classList.toggle('is-open');
+      header.setAttribute('aria-expanded', String(isOpen));
+    };
+    header.addEventListener('click', toggleAccordion);
+    header.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAccordion(); }
+    });
+
+    // tax8/tax10 input 変更時: カード内の taxAmount・totalAmount を更新し全体サマリーも再計算
+    const tax8Input       = header.querySelector('[data-field="tax8"]');
+    const tax10Input      = header.querySelector('[data-field="tax10"]');
+    const taxAmountSpan   = header.querySelector('[data-field="taxAmount"]');
+    const totalAmountSpan = header.querySelector('[data-field="totalAmount"]');
+    const subtotalSpan    = header.querySelector('[data-field="subtotalAmount"]');
+    const recalcCard_ = () => {
+      const newTax8  = Math.trunc(Number(tax8Input.value)  || 0);
+      const newTax10 = Math.trunc(Number(tax10Input.value) || 0);
+      tax8Input.value  = newTax8;
+      tax10Input.value = newTax10;
+      const newTax   = newTax8 + newTax10;
+      const subTotal = Number(String(subtotalSpan.textContent).replace(/[^0-9.-]/g, '')) || 0;
+      const newTotal = subTotal + newTax;
+      taxAmountSpan.textContent   = newTax.toLocaleString('ja-JP');
+      totalAmountSpan.textContent = newTotal.toLocaleString('ja-JP');
+      recalcSummary_();
+    };
+    // input クリック時にアコーディオンが開閉しないよう伝播を止める
+    const MAX_TAX_VALUE = 99999999999; // NUMERIC(11)
+    [tax8Input, tax10Input].forEach(el => {
+      el.addEventListener('click',  e => e.stopPropagation());
+      el.addEventListener('keydown', e => e.stopPropagation());
+      el.addEventListener('input', e => {
+        // 桁数上限チェック（11桁）
+        const v = Number(el.value);
+        if (!isNaN(v) && Math.abs(v) > MAX_TAX_VALUE) {
+          el.value = v > 0 ? MAX_TAX_VALUE : -MAX_TAX_VALUE;
+        }
+        recalcCard_();
+        // ±1円バリデーション
+        const orig = Number(el.dataset.orig || 0);
+        const cur  = Math.trunc(Number(el.value) || 0);
+        const diff = Math.abs(cur - orig);
+        const parentCol = el.closest('.slh-col');
+        const errId = 'tax-err-' + customerCode + '-' + el.dataset.field;
+        let errMsg = parentCol ? parentCol.querySelector('.tax-validation-error') : null;
+        if (diff > 1) {
+          el.classList.add('amount-input--error');
+          el.setAttribute('aria-invalid', 'true');
+          el.setAttribute('aria-describedby', errId);
+          if (!errMsg && parentCol) {
+            errMsg = document.createElement('span');
+            errMsg.className = 'tax-validation-error';
+            errMsg.id = errId;
+            parentCol.appendChild(errMsg);
+          }
+          if (errMsg) errMsg.textContent = '※±1円まで';
+        } else {
+          el.classList.remove('amount-input--error');
+          el.removeAttribute('aria-invalid');
+          el.removeAttribute('aria-describedby');
+          if (errMsg) errMsg.remove();
+        }
+      });
+    });
+
+    const body = document.createElement('div');
+    body.className = 'store-accordion__body';
+
+    // 備考 input（加盟店への備考）
+    const remarksDiv = document.createElement('div');
+    remarksDiv.className = 'store-accordion__remarks';
+    remarksDiv.innerHTML =
+      `<label class="remarks-label">・ 加盟店別請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>` +
+      `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="※加盟店請求書に表示される備考情報を記載ください。" rows="2" maxlength="250"></textarea>`;
+    body.appendChild(remarksDiv);
+
+    // 再送信モード: 否認店舗の handover 入力欄を追加（詳細画面の否認セクションと同じデザイン）
+    if (_isResubmitConfirm && _resubmitDisputedCodes.indexOf(customerCode) !== -1) {
+      const handoverDiv = document.createElement('div');
+      handoverDiv.className = 'store-accordion__backoffice-remark';
+      handoverDiv.innerHTML =
+        '<div class="backoffice-remark__disputed-left">' +
+          '<div class="backoffice-remark__disputed-reason">' +
+            '<span class="backoffice-remark__label">・ 否認理由</span>' +
+            '<span class="backoffice-remark__reason-text">' + escapeHtml(_resubmitDisputedReasons[customerCode] || '') + '</span>' +
+          '</div>' +
+          '<div class="backoffice-remark__disputed-handover">' +
+            '<span class="backoffice-remark__label">・ 【必須】加盟店<br>　との合意内容</span>' +
+            '<textarea class="backoffice-remark__handover-input confirm-handover-input" data-customer-code="' + escapeHtml(customerCode) + '"' +
+              ' placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。"></textarea>' +
+          '</div>' +
+        '</div>';
+      const handoverTa = handoverDiv.querySelector('textarea');
+      if (handoverTa && _resubmitHandovers[customerCode]) {
+        handoverTa.value = _resubmitHandovers[customerCode];
+      }
+      // 入力時にエラー状態をクリア
+      if (handoverTa) {
+        handoverTa.addEventListener('input', function () {
+          handoverTa.classList.remove('confirm-handover-input--error');
+          handoverTa.removeAttribute('aria-invalid');
+          handoverTa.removeAttribute('aria-describedby');
+          const errEl = handoverTa.nextElementSibling;
+          if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
+        });
+      }
+      body.appendChild(handoverDiv);
+    }
+
+    // 明細アコーディオン（ネスト）
+    const detailAccordion = document.createElement('div');
+    detailAccordion.className = 'detail-accordion';
+
+    const detailHeader = document.createElement('div');
+    detailHeader.className = 'detail-accordion__header';
+    detailHeader.setAttribute('role', 'button');
+    detailHeader.setAttribute('tabindex', '0');
+    detailHeader.innerHTML =
+      `<span class="detail-accordion__label">・ 明細</span>` +
+      `<i class="fa-solid fa-chevron-down detail-accordion__icon"></i>`;
+
+    const toggleDetail_ = () => { detailAccordion.classList.toggle('is-open'); };
+    detailHeader.addEventListener('click', toggleDetail_);
+    detailHeader.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDetail_(); }
+    });
+
+    const detailBody = document.createElement('div');
+    detailBody.className = 'detail-accordion__body';
+
+    const table = document.createElement('table');
+    table.className = 'detail-table';
+    const thead = table.createTHead();
+    thead.innerHTML =
+      `<tr>` +
+        `<th>取引日</th>` +
+        `<th>明細項目</th>` +
+        `<th class="num-th">単価</th>` +
+        `<th class="num-th">数量</th>` +
+        `<th class="num-th">明細金額（税抜）</th>` +
+        `<th class="num-th">消費税</th>` +
+        `<th>備考</th>` +
+      `</tr>`;
+
+    const tbody = table.createTBody();
+    rows.forEach(row => {
+      const amtExTax  = Number(row['amount_ex_tax'] || 0);
+      const taxRate   = Number(row['tax_rate']       || 0);
+      const rawTax    = row['tax_amount'];
+      const taxAmount = (rawTax !== undefined && rawTax !== '') ? Number(rawTax) : roundTax(amtExTax * taxRate / 100);
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td>${escapeHtml(String(row['transaction_date'] || '').replace(/-/g, '/'))}</td>` +
+        `<td>${escapeHtml(String(row['item_name'] || ''))}</td>` +
+        `<td class="num-td">${Number(row['unit_price'] || 0).toLocaleString('ja-JP')}円</td>` +
+        `<td class="num-td">${Number(row['quantity'] || 0).toLocaleString('ja-JP')}</td>` +
+        `<td class="num-td">${amtExTax.toLocaleString('ja-JP')}円</td>` +
+        `<td class="num-td tax-cell"><span class="tax-amount">${taxAmount.toLocaleString('ja-JP')}円</span><span class="tax-rate">（${taxRate}%）</span></td>` +
+        `<td>${escapeHtml(String(row['invoice_detail_remark'] || '')) || '—'}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    detailBody.appendChild(table);
+    detailAccordion.appendChild(detailHeader);
+    detailAccordion.appendChild(detailBody);
+    body.appendChild(detailAccordion);
+
+    // 加盟店ごとの内訳 hidden input（collectSummaryData_ で読み取る）
+    const hiddenDiv = document.createElement('div');
+    hiddenDiv.style.display = 'none';
+    hiddenDiv.innerHTML =
+      `<input type="number" data-field="exTax10" value="${roundTax(st.exTax10)}" />` +
+      `<input type="number" data-field="exTax8"  value="${roundTax(st.exTax8)}"  />`;
+    body.appendChild(hiddenDiv);
+
+    card.appendChild(header);
+    card.appendChild(body);
+    list.appendChild(card);
+  });
+}
+
+
+</script>

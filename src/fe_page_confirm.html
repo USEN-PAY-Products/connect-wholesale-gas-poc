@@ -1,0 +1,167 @@
+<div id="pageConfirm" class="hidden">
+
+  <main class="main-content">
+
+    <div class="page-header">
+      <h1 class="page-title">請求内容の確認</h1>
+      <button type="button" class="btn btn-back" id="btnConfirmBack">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </button>
+    </div>
+
+    <!-- 請求概要 -->
+    <div class="card detail-summary-card">
+      <div class="detail-summary-title">請求基本情報</div>
+      <!-- コンテンツ行 -->
+      <div class="detail-summary-inner">
+
+        <!-- 左：請求基本情報 -->
+        <div class="detail-summary-meta">
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">請求月</span>
+            <span class="detail-meta-value" id="summaryBillingMonth">―</span>
+          </div>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">登録日時</span>
+            <span class="detail-meta-value" id="summaryRegisteredAt">―</span>
+          </div>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">手数料（<span id="summaryFeeRate">-</span>%）<span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">手数料は、卸コネクトサービスの使用料としての料金です。<br>加盟店への請求金額の総額に対して、設定された手数料率をかけることで算出されます。<br>その他、手数料に関するお問い合わせは000-0000-0000までご連絡ください。</span></span></span>
+            <span class="detail-meta-value"><span id="summaryFee" class="summary-value-display">0</span>円</span>
+          </div>
+          <div class="detail-meta-row">
+            <span class="detail-meta-label">振込予定金額</span>
+            <span class="detail-meta-value"><span id="summaryTransfer" class="summary-value-display">0</span>円</span>
+          </div>
+          <div class="detail-meta-row--handover hidden" id="confirmHandoverRow">
+            <span class="detail-meta-label detail-meta-label--block">USEN PAY社<br>からのコメント</span>
+            <textarea class="detail-handover-textarea" id="confirmHandoverText" readonly placeholder="差し戻しなどが発生した場合は、こちらに申し送り事項が記載される場合があります。"></textarea>
+          </div>
+        </div>
+
+        <!-- 縦線 -->
+        <div class="summary-card__divider"></div>
+
+        <!-- 右：請求金額 -->
+        <div class="detail-summary-amount confirm-summary-amount">
+          <div class="detail-amount-header">請求金額</div>
+          <div class="confirm-amount-group">
+            <div class="confirm-amount-row confirm-amount-row--total">
+              <span>合計（税込）</span><span><span id="summaryAmountInTax" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>小計（税抜）</span><span><span id="summaryAmountExTax" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>消費税</span><span><span id="summaryTax" class="summary-value-display">0</span>円</span>
+            </div>
+          </div>
+          <div class="detail-amount-divider"></div>
+          <div class="confirm-amount-group">
+            <div class="detail-amount-section-label">内訳</div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>10%対象小計（税抜）</span><span><span id="summaryExTax10" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>10%対象消費税</span><span><span id="summaryTax10" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>8%対象小計（税抜）</span><span><span id="summaryExTax8" class="summary-value-display">0</span>円</span>
+            </div>
+            <div class="confirm-amount-row confirm-amount-row--sub">
+              <span>8%対象消費税</span><span><span id="summaryTax8" class="summary-value-display">0</span>円</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <!-- JS互換用 hidden spans は削除（上の spanへ移動） -->
+
+      <!-- キャンセルボタン -->
+      <div class="confirm-cancel-btn-wrap">
+        <button type="button" class="btn btn-outline btn-cancel" id="btnConfirmCancel">キャンセル</button>
+      </div>
+    </div>
+
+    <!-- 加盟店別明細 -->
+    <!-- キャンセル確認モーダル（一覧に戻るボタンから起動） -->
+    <div class="modal-overlay hidden"
+         id="cancelModal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="cancelModalTitle"
+         aria-describedby="cancelModalDesc">
+      <div class="modal modal--warn">
+        <button class="modal__close" id="cancelModalClose" aria-label="閉じる">&times;</button>
+        <h2 class="modal__title modal__title--warn" id="cancelModalTitle">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          一覧に戻ると登録作業中のファイルは削除されますがよろしいですか？
+        </h2>
+        <p class="modal__message modal__message--warn" id="cancelModalDesc">アップロードされたファイルは、まだ登録が完了していません。一覧画面に戻ると、編集中のデータは削除されます。</p>
+        <div class="modal__actions modal__actions--center">
+          <button class="btn btn-back modal__btn" id="cancelModalOk">
+            <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- キャンセル確認モーダル（キャンセルボタンから起動 → アップロード画面へ） -->
+    <div class="modal-overlay hidden"
+         id="confirmCancelToUploadModal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="confirmCancelToUploadTitle"
+         aria-describedby="confirmCancelToUploadDesc">
+      <div class="modal modal--warn">
+        <button class="modal__close" id="confirmCancelToUploadClose" aria-label="閉じる">&times;</button>
+        <h2 class="modal__title modal__title--warn" id="confirmCancelToUploadTitle">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          登録をキャンセルしてアップロード画面に戻りますか？
+        </h2>
+        <p class="modal__message modal__message--warn" id="confirmCancelToUploadDesc">アップロードされたファイルは、まだ登録が完了していません。アップロード画面に戻ると、編集中のデータは削除されます。</p>
+        <div class="modal__actions modal__actions--center">
+          <button class="btn btn-back modal__btn" id="confirmCancelToUploadOk">
+            <i class="fa-solid fa-chevron-left"></i> アップロード画面に戻る
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 加盟店別明細 -->
+    <div class="store-list-section">
+      <h2 class="card-label">加盟店別詳細</h2>
+      <p class="store-list-note">「消費税内訳」の項目は申請いただいた小数点の処理ルールに基づいて自動計算されています。誤りがある場合は、下記より金額をご変更ください。<br>なお「消費税内訳」の項目以外の内容に誤りがある場合は、一覧画面に戻り「新規請求を登録する」ボタンから、再度アップロードをお願いします。</p>
+      <div id="confirmStoreList" class="store-list-wrap"></div>
+
+      <!-- 横線 -->
+      <div class="store-list-section__divider"></div>
+
+      <!-- 最終確認・送信 -->
+      <div class="confirm-submit-area">
+        <label class="confirm-check-label">
+          <input type="checkbox" id="checkConfirm" class="confirm-checkbox" />
+          <span>私は入力データが正確であることを誓約し、登録不備による遅延は自社で責任を負います。</span>
+        </label>
+        <div class="action-buttons">
+          <button class="btn btn-submit" id="btnFinalSubmit" disabled>
+            請求情報を登録する
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 下部ボタン -->
+    <div class="detail-bottom-actions">
+      <button type="button" class="btn btn-back" id="btnConfirmBackBottom">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </button>
+    </div>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY CORPORATION All Rights Reserved.</p>
+  </footer>
+
+</div><!-- /#pageConfirm -->

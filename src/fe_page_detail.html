@@ -1,0 +1,212 @@
+<div id="pageDetail" class="hidden">
+
+  <main class="main-content detail-content">
+
+    <!-- ページヘッダー -->
+    <div class="page-header">
+      <h1 class="page-title">登録済み請求内容</h1>
+      <a href="#home" class="btn btn-back">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </a>
+    </div>
+
+    <!-- 親サマリーカード（請求基本情報 + 請求金額） -->
+    <div class="card detail-summary-card" id="detailSummaryCard">
+      <div class="detail-loading-placeholder">
+        <i class="fa-solid fa-spinner fa-spin"></i> 読み込み中...
+      </div>
+    </div>
+
+    <!-- ================================================================
+         要対応の請求一覧（差し戻し / 否認）
+         ================================================================ -->
+    <section class="detail-section hidden" id="detailActionRequiredSection">
+      <div class="detail-section-header detail-section-header--returned">
+        <div class="detail-section-header__top">
+          <h2 class="detail-section-title detail-section-title--returned">
+            要対応の請求一覧
+          </h2>
+          <div class="detail-section-header__actions">
+            <button type="button" class="btn btn-outline btn-sm detail-action-btn" id="detailBtnUploadCsv">
+              <i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> CSV一括アップロード
+            </button>
+          </div>
+        </div>
+        <p class="detail-section-desc detail-section-desc--alert">
+          <i class="fa-solid fa-circle-exclamation"></i> 差戻し、もしくは否認された請求があります。内容に修正がある場合、CSVファイルをアップロードしなおして、請求内容を再送信してください。
+        </p>
+      </div>
+
+      <!-- 差戻し -->
+      <div class="detail-subsection hidden" id="detailReturnedSubsection">
+        <div class="detail-subsection-header">
+          <span class="detail-subsection-title">
+            差戻し
+          </span>
+        </div>
+        <div class="store-list-wrap" id="detailReturnedList"></div>
+      </div>
+
+      <!-- 否認 -->
+      <div class="detail-subsection hidden" id="detailDisputedSubsection">
+        <div class="detail-subsection-header">
+          <span class="detail-subsection-title">
+            否認
+          </span>
+        </div>
+        <div class="store-list-wrap" id="detailDisputedList"></div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         確認中・承認済みの請求一覧
+         ================================================================ -->
+    <section class="detail-section hidden" id="detailNormalSection">
+      <div class="detail-section-header">
+        <div class="detail-section-header__left">
+          <h2 class="detail-section-title">確認中・承認済みの請求一覧</h2>
+          <p class="detail-section-desc">
+            以下の請求は、現在確認中、または承認済みです。対応は不要です。
+          </p>
+        </div>
+      </div>
+
+      <div class="store-list-wrap" id="detailNormalList"></div>
+    </section>
+
+    <!-- ================================================================
+         取下げ済みの請求一覧
+         ================================================================ -->
+    <section class="detail-section hidden" id="detailWithdrawnSection">
+      <div class="detail-section-header">
+        <div class="detail-section-header__left">
+          <h2 class="detail-section-title">取下げ済みの請求一覧</h2>
+          <p class="detail-section-desc">
+            以下の請求は、差戻／否認差戻後に取下げされた請求です。対応は不要です。
+          </p>
+        </div>
+      </div>
+
+      <div class="store-list-wrap" id="detailWithdrawnList"></div>
+    </section>
+
+    <!-- 下部ボタン -->
+    <div class="detail-bottom-actions">
+      <a href="#home" class="btn btn-back">
+        <i class="fa-solid fa-chevron-left"></i> 一覧に戻る
+      </a>
+    </div>
+
+  </main>
+
+  <!-- ================================================================
+       修正ファイルアップロード モーダル
+       ================================================================ -->
+  <div id="detailUploadModal" class="detail-upload-modal hidden" role="dialog" aria-modal="true">
+    <div class="detail-upload-modal__overlay"></div>
+    <div class="detail-upload-modal__dialog">
+      <div class="detail-upload-modal__header">
+        <h2 class="detail-upload-modal__title">請求CSVファイルの再登録</h2><!-- JS の openModal で用途に応じて動的に書き換え -->
+        <button type="button" class="detail-upload-modal__close" id="detailUploadModalClose" aria-label="閉じる">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="detail-upload-modal__body">
+        <p class="detail-upload-modal__desc">修正した請求CSVファイルを選択してください。</p>
+        <div class="detail-upload-modal__dropzone" id="detailUploadDropZone">
+          <i class="fa-regular fa-file-lines drop-zone__icon"></i>
+          <p class="drop-zone__text">ここにドラッグ＆ドロップ<br>または</p>
+          <button type="button" class="btn btn-select-file" id="detailUploadBtnSelect">
+            <i class="fa-regular fa-folder-open"></i> ファイルを選択
+          </button>
+          <input type="file" id="detailUploadFileInput" accept=".csv" hidden />
+        </div>
+        <div class="detail-upload-modal__analyzing hidden" id="detailUploadAnalyzing">
+          <div class="drop-zone__spinner"></div>
+          <p class="drop-zone__analyzing-text">CSVを確認中...</p>
+          <p class="drop-zone__analyzing-sub" id="detailUploadAnalyzingName"></p>
+        </div>
+        <div class="file-info hidden" id="detailUploadSelectedArea">
+          <span class="file-info__label">アップロードファイル：</span>
+          <span class="file-info__name" id="detailUploadFileName"></span>
+          <button type="button" class="btn btn-file-delete" id="detailUploadRemove">
+            <i class="fa-regular fa-trash-can"></i> ファイルを削除する
+          </button>
+        </div>
+        <div class="error-card hidden" id="detailUploadErrorCard">
+          <h2 class="error-card__title">エラー／アラート一覧</h2>
+          <p class="error-card__desc">下記のエラーを確認の上、CSVファイルを修正し、再度アップロードしてください。</p>
+          <ul class="alert-list" id="detailUploadAlertList"></ul>
+        </div>
+
+        <!-- ================================================
+             Phase 2: プレビュー＋登録（個別リアップロード用）
+             ================================================ -->
+        <div id="detailUploadPreview" class="detail-upload-preview hidden">
+          <div id="previewTargetStore" class="preview-target-store"></div>
+          <div id="previewFileInfo" class="preview-file-info file-info"></div>
+          <div id="previewBody" class="preview-body"></div>
+          <div class="preview-footer">
+            <label class="preview-oath">
+              <input type="checkbox" id="previewOathCheck" />
+              私は入力データが正確であることを誓約し、登録不備による遅延は自社で責任を負います。
+            </label>
+            <button type="button" class="btn btn-primary btn-submit preview-submit-btn" id="previewSubmitBtn" disabled data-action="modal-reupload-submit">
+              登録する
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="detail-upload-modal__footer" id="detailUploadModalFooter">
+        <button type="button" class="btn btn-primary btn-submit" id="detailUploadModalConfirm" disabled>
+          確認画面へ進む <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================
+       請求取り下げ確認モーダル
+       ================================================================ -->
+  <div id="withdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="withdrawConfirmTitle" aria-describedby="withdrawConfirmDesc">
+    <div class="modal modal--warn">
+      <h2 class="modal__title modal__title--warn" id="withdrawConfirmTitle">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        加盟店への請求情報を取り下げます。よろしいですか？
+      </h2>
+      <div class="modal__message modal__message--warn" id="withdrawConfirmDesc">
+        <p>加盟店単位の請求情報を取り下げます。</p>
+        <p>取り下げ後、再度請求したい場合は、取下げ済みの請求一覧から<br>
+        「取下げをやめる」で要対応に戻してから再送信してください。</p>
+      </div>
+      <div class="modal__actions modal__actions--center">
+        <button type="button" class="btn btn-danger" id="withdrawConfirmOk">取り下げる</button>
+        <button type="button" class="btn btn-outline" id="withdrawConfirmCancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================
+       取下げ取り消し確認モーダル
+       ================================================================ -->
+  <div id="undoWithdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="undoWithdrawConfirmTitle" aria-describedby="undoWithdrawConfirmDesc">
+    <div class="modal modal--warn">
+      <h2 class="modal__title modal__title--warn" id="undoWithdrawConfirmTitle">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        請求の取り下げを取り消します。よろしいですか？
+      </h2>
+      <div class="modal__message modal__message--warn" id="undoWithdrawConfirmDesc">
+        <p>取り下げを取り消すと、対象の請求は「要対応の請求一覧」に戻ります。</p>
+      </div>
+      <div class="modal__actions modal__actions--center">
+        <button type="button" class="btn btn-danger" id="undoWithdrawConfirmOk">取り消す</button>
+        <button type="button" class="btn btn-outline" id="undoWithdrawConfirmCancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY Co.,Ltd. All Rights Reserved.</p>
+  </footer>
+
+</div>

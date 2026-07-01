@@ -1,0 +1,45 @@
+name: Deploy GAS API
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+# 同一ブランチへの連続pushで並行実行されないよう直列化する
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # ブランチ名に応じて、GitHubのEnvironmentを動的に切り替える
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+
+    steps:
+      - name: コードのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Node.jsのセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 依存パッケージのインストール
+        run: npm ci
+
+      - name: 認証情報とGASプロジェクトの紐付け
+        # 選択されたEnvironmentのSecretsが自動で注入されます
+        run: |
+          printf '%s' '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+          printf '%s' '{"scriptId":"${{ secrets.SCRIPT_ID }}","rootDir":"./src"}' > .clasp.json
+
+      - name: GASへコードを送信 (エディタの更新)
+        run: npx clasp push --force
+
+      # NOTE: Google審査対応のため一時的にデプロイを停止中。審査完了後にコメントアウトを解除すること。
+      # - name: ウェブアプリとしてデプロイ (APIの更新)
+      #   # 既存のデプロイメントIDを指定して上書き更新するためURLは変わらない
+      #   run: npx clasp deploy -i ${{ secrets.DEPLOYMENT_ID }} -d "Auto deployed via GitHub Actions"

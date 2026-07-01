@@ -1,0 +1,659 @@
+<script>
+/**
+ * 金額系カラムの整数部桁数上限（行単位チェック用）。
+ * DDL 正本 docs/plan/column_limits.csv の invoice_lines カラムの NUMERIC(p,3) 整数部桁数に準拠。
+ *   amount_ex_tax → line_amount_excluding_tax NUMERIC(15,3) → 整数部12桁
+ *   tax_amount    → line_tax_amount          NUMERIC(14,3) → 整数部11桁
+ *   unit_price    → unit_price               NUMERIC(11,3) → 整数部 8桁
+ *   quantity      → quantity                 NUMERIC(9,3)  → 整数部 6桁
+ * ※ 小数第3位までは decimal の正規表現で担保。本定数は「整数部の桁数」のみを見る。
+ */
+const AMOUNT_INT_DIGIT_LIMITS_ = {
+  amount_ex_tax: 12,
+  tax_amount:    11,
+  unit_price:     8,
+  quantity:       6,
+};
+
+/**
+ * 集計後金額の桁数上限（確認画面・個別プレビュー共通）。
+ * 加盟店単位 = store_invoices、卸全体 = wholesaler_invoices の NUMERIC 桁数に準拠。
+ */
+const AMOUNT_DIGIT_LIMITS_ = {
+  merchant: 999999999999,   // store_invoices total/subtotal NUMERIC(12)
+  tax:       99999999999,   // store_invoices tax_amount/standard/reduced NUMERIC(11)
+};
+
+/**
+ * 集計後の金額桁数バリデーション（DDL 制約ベース）。
+ * 確認画面の登録ボタンと個別プレビューの登録ボタンの両方から呼ぶ共通関数。
+ * 集計値（tax10/tax8 はユーザー編集可）は登録押下時にしか確定しないため、送信直前に呼ぶこと。
+ * @param {{ wholesalerTotal: Object, merchantTotals: Object[] }} summaryData
+ * @returns {string[]} エラー文言の配列（空なら違反なし）
+ */
+function validateAmountDigits_(summaryData) {
+  const errors = [];
+  if (!summaryData) return errors;
+
+  // 加盟店単位（store_invoices: 金額12桁 / 税11桁）
+  (summaryData.merchantTotals || []).forEach(function (m) {
+    const cc = m.customerCode;
+    if (Math.abs(m.totalAmount)    > AMOUNT_DIGIT_LIMITS_.merchant) errors.push('加盟店 ' + cc + ': 請求金額合計が上限（12桁）を超えています');
+    if (Math.abs(m.subtotalAmount) > AMOUNT_DIGIT_LIMITS_.merchant) errors.push('加盟店 ' + cc + ': 小計（税抜）が上限（12桁）を超えています');
+    if (Math.abs(m.taxAmount)      > AMOUNT_DIGIT_LIMITS_.tax)      errors.push('加盟店 ' + cc + ': 消費税合計が上限（11桁）を超えています');
+    if (Math.abs(m.tax10)          > AMOUNT_DIGIT_LIMITS_.tax)      errors.push('加盟店 ' + cc + ': 税内訳（10%）が上限（11桁）を超えています');
+    if (Math.abs(m.tax8)           > AMOUNT_DIGIT_LIMITS_.tax)      errors.push('加盟店 ' + cc + ': 税内訳（8%）が上限（11桁）を超えています');
+  });
+
+  // 卸全体（wholesaler_invoices: NUMERIC(25)。Number.MAX_SAFE_INTEGER を超えるため BigInt 比較）
+  const wt = summaryData.wholesalerTotal;
+  if (wt) {
+    const MAX_25 = BigInt('9999999999999999999999999');
+    const absBig = function (v) { const b = BigInt(Math.trunc(Number(v) || 0)); return b < 0n ? -b : b; };
+    if (absBig(wt.totalAmount)   > MAX_25) errors.push('請求金額合計（税込）が上限（25桁）を超えています');
+    if (absBig(wt.feeAmount)     > MAX_25) errors.push('手数料金額が上限（25桁）を超えています');
+    if (absBig(wt.paymentAmount) > MAX_25) errors.push('振込予定金額が上限（25桁）を超えています');
+  }
+
+  return errors;
+}
+
+/**
+ * デフォルト卸向け固定9列の columns 定義。
+ * csv_format_rules が null（csv_format_rules 未設定の卸）が使用する。
+ * ⚠️ 列順・csv_header は db_bq_connection.js の STAGING_SCHEMA_ と完全一致させること
+ */
+const DEFAULT_CSV_COLUMNS_ = [
+  { index: 0, csv_header: '顧客コード',       system_column: 'customer_code',         type: 'string',  required: true  },
+  { index: 1, csv_header: '日付',             system_column: 'transaction_date',      type: 'date',    required: true  },
+  { index: 2, csv_header: '品目',             system_column: 'item_name',             type: 'string',  required: true  },
+  { index: 3, csv_header: '数量',             system_column: 'quantity',              type: 'decimal', required: true  },
+  { index: 4, csv_header: '単価',             system_column: 'unit_price',            type: 'decimal', required: true  },
+  { index: 5, csv_header: '税率区分(%)',       system_column: 'tax_rate',              type: 'integer', required: true,  enum: [8, 10] },
+  { index: 6, csv_header: '請求金額（税抜）', system_column: 'amount_ex_tax',         type: 'decimal', required: true  },
+  { index: 7, csv_header: '消費税',           system_column: 'tax_amount',            type: 'decimal', required: true  },
+  { index: 8, csv_header: '備考',             system_column: 'invoice_detail_remark', type: 'string',  required: false },
+];
+
+/**
+ * sessionStorage に保存された csv_format_rules を返す。
+ * 新形式（columns 配列）の場合は index 昇順にソートして返す。
+ * csv_format_rules が未設定の卸は null を返す。
+ * 呼び出し側は null の場合に DEFAULT_CSV_COLUMNS_ を使用する。
+ *
+ * @returns {{ has_header: boolean, columns: Array }|null}
+ */
+function getCsvFormatRules() {
+  let raw;
+  try {
+    raw = JSON.parse(sessionStorage.getItem('shiire_csv_format_rules'));
+  } catch (e) {
+    // JSON パース失敗 → 不正データとして扱う
+    console.error('[getCsvFormatRules] csv_format_rules の JSON パースに失敗しました。raw=',
+      sessionStorage.getItem('shiire_csv_format_rules'), e);
+    throw new Error('CSVフォーマットの設定に不備があります。管理者にお問い合わせください。');
+  }
+
+  // null / undefined → デフォルト卸（固定9列）
+  if (raw === null || raw === undefined) return null;
+
+  // 空オブジェクト({}) → バックエンドはデフォルト卸として扱うため、フロントも null と同等に扱う。
+  // saveAccountInfo() が csv_format_rules={} をそのまま保存する経路があるため、
+  // フロント/バックで挙動を揃えて「フロントだけアップロード不可」を防ぐ。
+  if (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0) return null;
+
+  // 新形式（columns 配列あり）→ index を検証してから index 昇順ソートして返す
+  if (typeof raw === 'object' && Array.isArray(raw.columns) && raw.columns.length > 0) {
+    // バックエンドの buildStagingSchema_() と同じ上限値
+    const MAX_COL_INDEX = 200;
+    const seenIndexes       = {};
+    // seenSystemColumns は Object.create(null) を使う。
+    // {} だと 'constructor' や 'toString' 等の既存プロパティと衝突し、
+    // 初回出現でも !== undefined が true になって誤った「重複」エラーになるため。
+    const seenSystemColumns = Object.create(null);
+    raw.columns.forEach(function (col, i) {
+      // ── 型・範囲チェック ────────────────────────────────────────────────────
+      if (!Number.isInteger(col.index) || col.index < 0) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が不正です。',
+          'index=', col.index, 'col=', JSON.stringify(col));
+        throw new Error(
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
+        );
+      }
+      if (col.index > MAX_COL_INDEX) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が上限(' + MAX_COL_INDEX + ')を超えています。',
+          'index=', col.index, 'col=', JSON.stringify(col));
+        throw new Error(
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
+        );
+      }
+      // ── index 重複チェック ──────────────────────────────────────────────────
+      // 重複があると validateCsv() で同じ列を複数回参照し、rowObj のキーが上書きされて
+      // 後に定義された列の値で前の列が上書きされ、誤ったデータになる。
+      if (seenIndexes[col.index] !== undefined) {
+        console.error('[getCsvFormatRules] columns[' + i + '].index が重複しています。',
+          'index=', col.index, '先行=columns[' + seenIndexes[col.index] + ']',
+          'col=', JSON.stringify(col));
+        throw new Error(
+          'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
+        );
+      }
+      seenIndexes[col.index] = i;
+      // ── system_column 重複チェック ──────────────────────────────────────────
+      // 重複があるとバックエンドの INSERT カラムが重複して BQ がエラーになる。
+      // null / 未設定（読み飛ばし列）は重複しても問題ないため除外する。
+      const sc = col.system_column;
+      if (sc && sc !== 'null') {
+        if (seenSystemColumns[sc] !== undefined) {
+          console.error('[getCsvFormatRules] columns[' + i + '].system_column が重複しています。',
+            'system_column=', sc, '先行=columns[' + seenSystemColumns[sc] + ']',
+            'col=', JSON.stringify(col));
+          throw new Error(
+            'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
+          );
+        }
+        seenSystemColumns[sc] = i;
+      }
+    });
+    const sorted = raw.columns.slice().sort((a, b) => a.index - b.index);
+    return { ...raw, columns: sorted };
+  }
+
+  // それ以外（旧形式・不正値）→ 明示エラー
+  // バックエンドの buildStagingSchema_() も同条件で throw するため、
+  // フロントで先に検知してユーザーに分かりやすく通知する。
+  console.error('[getCsvFormatRules] columns が未定義または不正な形式です。',
+    'type=', typeof raw, 'raw=', JSON.stringify(raw));
+  throw new Error(
+    'CSVフォーマットの設定に不備があります。管理者にお問い合わせください。'
+  );
+}
+/**
+ * ArrayBuffer を Base64 文字列に変換する。
+ * @param {ArrayBuffer} buffer
+ * @returns {string}
+ */
+function arrayBufferToBase64_(buffer) {
+  const bytes     = new Uint8Array(buffer);
+  const chunkSize = 8192; // 8KB ずつ処理してスタックオーバーフローを防ぐ
+  const parts     = [];
+  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(parts.join(''));
+}
+
+/**
+ * UTF-8 文字列を Base64 エンコードする。
+ * TextEncoder で UTF-8 バイト列に変換してから btoa() する。
+ * BQ Load Job 投入用（Shift_JIS CSVを UTF-8 に変換した後に呼ぶ）。
+ *
+ * @param {string} text - UTF-8 として扱う文字列
+ * @returns {string} Base64 文字列
+ */
+function stringToBase64Utf8_(text) {
+  const bytes     = new TextEncoder().encode(text);
+  const chunkSize = 8192;
+  const parts     = [];
+  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(parts.join(''));
+}
+
+/**
+ * ArrayBuffer を文字コード自動判定してテキストに変換する。
+ * UTF-8 BOM あり / UTF-8 妥当 → UTF-8 で decode。
+ * それ以外 → Shift_JIS で decode し UTF-8 に変換して返す。
+ *
+ * @param {ArrayBuffer} buffer
+ * @returns {string}
+ */
+function decodeBuffer_(buffer) {
+  const bytes = new Uint8Array(buffer);
+
+  // UTF-8 BOM チェック (EF BB BF)
+  const hasUtf8Bom = bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+  if (hasUtf8Bom) {
+    return new TextDecoder('utf-8').decode(buffer);
+  }
+
+  // UTF-8 として valid か試みる（fatal:true = 不正バイト列で例外）
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch (_) {
+    // UTF-8 として invalid → Shift_JIS として decode
+    return new TextDecoder('shift_jis').decode(buffer);
+  }
+}
+
+// =============================================================================
+// Upload page: CSV parse & validate
+// =============================================================================
+
+/**
+ * CSV のクォート内改行を処理しつつ、明細備考以外の列の改行をエラーとして検出する（列認識パーサ）。
+ *
+ * parseCsvLine と同一の「フィールド先頭の " のみクォート開始」モデルを採用する。
+ * フィールド途中の "（例: 32"テレビ）はリテラル扱いとし、トグル方式の desync を構造的に回避する。
+ *
+ *   - クォート内の改行・制御文字 → 半角スペースに変換（出力テキスト）
+ *   - 明細備考列(invoice_detail_remark)の改行 → スペース変換のみ（エラーなし）
+ *   - それ以外の列の改行 → スペース変換しつつ newlineErrors に収集（確認画面手前でブロック）
+ *   - クォート外の改行（CRLF/CR/LF/U+2028/U+2029/U+0085/VT/FF）→ \n に正規化してレコード区切り化
+ *   - EOF でクォートが閉じない → パースエラーを収集
+ *
+ * 文字集合（CR/LF/U+2028/U+2029/U+0085/VT/FF）は FE サニタイズ（本関数・nl2space_）と
+ * BQ ロード時クリーニング（be_csv_mapper.js の REGEXP_REPLACE）で統一。TAB は意味あるフィールド内文字のため除外。
+ * 注: BE の税額再検証パーサ be_invoice.js:stripQuotedNewlines_ は CR/LF のみ＋トグル方式の別実装。
+ *     FE 側で U+2028 等は既に \n へ正規化済みのため、再検証時は CR/LF だけで足りる。
+ *
+ * @param {string} csvText - 生 CSV テキスト
+ * @param {Array<{index:number, csv_header:string, system_column:string}>} columns - 列定義（getCsvFormatRules().columns または DEFAULT_CSV_COLUMNS_）
+ * @returns {{ text: string, newlineErrors: string[] }}
+ */
+function sanitizeCsvQuotedNewlines_(csvText, columns) {
+  const NEWLINE_RE = /[\r\n\u2028\u2029\u0085\u000B\u000C]/;
+  const cols = columns || [];
+
+  // 備考列の絶対インデックスを逆引き（無ければ -1 = 全列の改行をエラー化）
+  let remarkIndex = -1;
+  const headerByIndex = {};
+  cols.forEach(function (col) {
+    if (col.system_column === 'invoice_detail_remark') remarkIndex = col.index;
+    headerByIndex[col.index] = col.csv_header;
+  });
+
+  const out = [];
+  const newlineErrors = [];
+  const seenErrorKeys = {};
+  let inQuote = false;
+  let atFieldStart = true;
+  let colIndex = 0;
+  let rowNum = 1; // ヘッダーを1行目とする（Excel の行番号に一致）
+
+  const recordNewlineError = function () {
+    // 備考列の改行はスペース変換のみ（エラーにしない）
+    if (remarkIndex !== -1 && colIndex === remarkIndex) return;
+    const key = rowNum + ':' + colIndex;
+    if (seenErrorKeys[key]) return;
+    seenErrorKeys[key] = true;
+    const header = headerByIndex[colIndex];
+    const colLabel = header ? ('"' + header + '"') : ((colIndex + 1) + '\u5217\u76ee');
+    newlineErrors.push(rowNum + '\u884c\u76ee: ' + colLabel + ' \u306b\u6539\u884c\u3092\u542b\u3081\u308b\u3053\u3068\u306f\u3067\u304d\u307e\u305b\u3093\u3002\u6539\u884c\u3092\u524a\u9664\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+  };
+
+  for (let i = 0; i < csvText.length; i++) {
+    const ch = csvText[i];
+    if (inQuote) {
+      if (ch === '"') {
+        if (csvText[i + 1] === '"') {
+          out.push('""'); // RFC 4180 エスケープ — そのまま出力し状態維持
+          i++;
+        } else {
+          inQuote = false;
+          out.push(ch);
+        }
+      } else if (ch === '\r' && csvText[i + 1] === '\n') {
+        out.push(' '); // クォート内 CRLF → スペース1つ
+        i++;
+        recordNewlineError();
+      } else if (NEWLINE_RE.test(ch)) {
+        out.push(' '); // クォート内改行・制御文字 → スペース
+        recordNewlineError();
+      } else {
+        out.push(ch);
+      }
+    } else {
+      if (ch === '"' && atFieldStart) {
+        inQuote = true;
+        atFieldStart = false;
+        out.push(ch);
+      } else if (ch === ',') {
+        colIndex++;
+        atFieldStart = true;
+        out.push(ch);
+      } else if (ch === '\r' && csvText[i + 1] === '\n') {
+        out.push('\n'); // クォート外 CRLF → レコード区切り（\n に正規化）
+        i++;
+        rowNum++;
+        colIndex = 0;
+        atFieldStart = true;
+      } else if (NEWLINE_RE.test(ch)) {
+        // クォート外の改行・特殊行区切り（CR/LF/U+2028/U+2029/U+0085/VT/FF）→ \n に正規化。
+        // 後段 validateCsv()/removeEmptyLines_() は \r\n|\r|\n しか分割しないため、U+2028 等を
+        // そのまま残すとレコード区切りとして認識されず CSV 全体が1行扱いになりパースが壊れる。
+        out.push('\n');
+        rowNum++;
+        colIndex = 0;
+        atFieldStart = true;
+      } else {
+        out.push(ch); // 通常文字（フィールド途中の " はリテラル）
+        atFieldStart = false;
+      }
+    }
+  }
+
+  if (inQuote) {
+    newlineErrors.push('CSV\u306e\u5f15\u7528\u7b26\uff08"\uff09\u304c\u9589\u3058\u3089\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u5f15\u7528\u7b26\u306e\u5bfe\u5fdc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002');
+  }
+
+  return { text: out.join(''), newlineErrors: newlineErrors };
+}
+
+/**
+ * 文字列内の改行・制御文字を半角スペースに変換する（手入力値の BQ 構文エラー対策）。
+ * 文字集合（CR/LF/U+2028/U+2029/U+0085/VT/FF）は FE サニタイズ・BQ ロード時クリーニングで統一。TAB は除外。
+ * 注: BE の stripQuotedNewlines_（税額再検証用）は CR/LF のみ＋トグル方式の別実装。
+ * @param {*} str
+ * @returns {string}
+ */
+function nl2space_(str) {
+  return String(str == null ? '' : str).replace(/[\r\n\u2028\u2029\u0085\u000B\u000C]+/g, ' ');
+}
+
+/**
+ * CSV テキストから完全な空行・空白のみの行を物理除去する（jagged row による Load Job 失敗対策）。
+ * クォート内改行がスペース化された後（sanitizeCsvQuotedNewlines_ の後段）に適用すること。
+ * @param {string} text
+ * @returns {string}
+ */
+function removeEmptyLines_(text) {
+  return String(text == null ? '' : text)
+    .split(/\r\n|\r|\n/)
+    .filter(function (line) { return line.trim() !== ''; })
+    .join('\n');
+}
+
+/**
+ * CSV の1行をフィールド配列にパースする。
+ * RFC 4180 準拠のダブルクォート・エスケープ（""）・空フィールド・行頭カンマを正しく処理する。
+ * 正規表現の lastIndex に依存しない状態機械ベース実装のため、連続カンマ等で無限ループしない。
+ *
+ * @param {string} line - 改行を含まない1行
+ * @returns {string[]} フィールド値の配列（前後スペースをtrim済み）
+ */
+function parseCsvLine(line) {
+  const result = [];
+  let i = 0;
+  while (i <= line.length) {
+    if (i === line.length) {
+      // 末尾カンマがある場合のみ空フィールドを追加する。
+      // クォートフィールド終端後など、カンマなしで行末に達した場合は追加しない。
+      if (i > 0 && line[i - 1] === ',') result.push('');
+      break;
+    }
+    if (line[i] === '"') {
+      // ── クォートフィールド ──────────────────────────────────────────────
+      let val = '';
+      i++; // 開きクォートをスキップ
+      while (i < line.length) {
+        if (line[i] === '"' && line[i + 1] === '"') {
+          // エスケープされたクォート（""）
+          val += '"';
+          i += 2;
+        } else if (line[i] === '"') {
+          // 閉じクォート
+          i++;
+          break;
+        } else {
+          val += line[i++];
+        }
+      }
+      result.push(val.trim());
+      if (line[i] === ',') i++; // 区切りカンマをスキップ
+    } else {
+      // ── 非クォートフィールド ────────────────────────────────────────────
+      const end = line.indexOf(',', i);
+      if (end === -1) {
+        result.push(line.slice(i).trim());
+        break;
+      }
+      result.push(line.slice(i, end).trim());
+      i = end + 1;
+    }
+  }
+  return result;
+}
+
+/**
+ * csv_format_rules に基づいてCSVをパース・バリデーションする。
+ * getCsvFormatRules() が null の場合はデフォルト9列（DEFAULT_CSV_COLUMNS_）を使用する。
+ * merchant_mappings で customer_code の有効性もチェックする。
+ *
+ * @param {string} csvText
+ * @param {Object} [options] - バリデーションオプション
+ * @param {boolean} [options.skipCustomerCodeCheck] - true の場合、customer_code のメンバーシップチェックをスキップ（詳細画面再請求用。必須チェックは維持）
+ * @returns {{ errors: string[], rows: Object[] }}
+ */
+function validateCsv(csvText, options) {
+  options = options || {};
+  const skipCustomerCodeCheck = options.skipCustomerCodeCheck === true;
+  const errors = [];
+  const rows   = [];
+
+  // SessionStorage からフォーマットルールとマッピングを取得
+  const rules    = getCsvFormatRules();
+  const columns  = rules ? rules.columns : DEFAULT_CSV_COLUMNS_;
+  const mappings = getMerchantMappings();
+
+  // columns.length（配列の要素数）ではなく 最大index+1（CSVの実際の列数）で算出する。
+  // index に欠番がある場合（省略列を配列から抜いているケース）に columns.length だと
+  // 正しいCSVを誤って「列数不一致」と判定してしまうため。
+  const expectedCols = columns.reduce((max, col) => Math.max(max, col.index + 1), 0);
+
+  // 有効な customer_code セットを作成
+  // is_active が未提供（undefined）の場合は active 扱いにする
+  const validCustomerCodes = new Set(
+    mappings.filter(m => m.is_active !== false).map(m => String(m.customer_code))
+  );
+
+  // 改行コードを統一する。空行は実データから除外するが、エラーの行番号は
+  // 「元ファイル基準（Excel 行番号 = 空行も 1 行として数える）」で振る必要がある。
+  // sanitizeCsvQuotedNewlines_ が返す newlineErrors も同じ元ファイル基準で行番号を付けるため、
+  // 両者を結合表示したときに行番号がずれないよう、空行除外後の連番ではなく元の行位置を保持する。
+  const allLines = csvText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n');
+
+  // lines: 空行を除いた実データ行 / lineNums[i]: lines[i] に対応する元ファイル行番号（1 始まり）
+  const lines = [];
+  const lineNums = [];
+  allLines.forEach(function (line, idx) {
+    if (line.trim() !== '') {
+      lines.push(line);
+      lineNums.push(idx + 1);
+    }
+  });
+
+  // ── 空ファイルチェック（lines[0] が undefined になる前に弾く）──────────────
+  if (lines.length === 0) {
+    errors.push('CSVが空です。ヘッダー行とデータ行を含むCSVをアップロードしてください');
+    return { errors, rows };
+  }
+
+  // ── ヘッダー行チェック ─────────────────────────────────────────────────────
+  const headerCols = parseCsvLine(lines[0]);
+  if (headerCols.length !== expectedCols) {
+    errors.push(`ヘッダー行のカラム数が正しくありません（${headerCols.length}列 / 期待値: ${expectedCols}列）`);
+    return { errors, rows };
+  }
+  const headerErrors = columns
+    .map((col) => {
+      return headerCols[col.index] !== col.csv_header
+        ? `ヘッダー行 ${col.index + 1}列目: "${col.csv_header}" が期待されますが "${headerCols[col.index]}" になっています`
+        : null;
+    })
+    .filter(Boolean);
+  if (headerErrors.length > 0) {
+    errors.push(...headerErrors);
+    return { errors, rows };
+  }
+
+  if (lines.length <= 1) {
+    errors.push('CSVにデータ行が1件もありません');
+    return { errors, rows };
+  }
+
+  // ── データ行チェック ────────────────────────────────────────────────────────
+  // lines は空行除外済み。行番号は lineNums[i]（元ファイル基準 = Excel 行番号）を参照する。
+  for (let i = 1; i < lines.length; i++) {
+    // 元ファイル基準（Excel 行番号）。sanitizeCsvQuotedNewlines_ の newlineErrors と
+    // 行番号基準を揃えるため、空行除外後の連番（i+1）ではなく元の行番号を使う。
+    const rowNum  = lineNums[i];
+    const cols    = parseCsvLine(lines[i]);
+    const rowErrors = [];
+
+    if (cols.length !== expectedCols) {
+      errors.push(`${rowNum}行目: カラム数が正しくありません（${cols.length}列 / 期待値: ${expectedCols}列）`);
+      continue;
+    }
+
+    const rowObj = {};
+    columns.forEach((col) => {
+      // system_column が null（JS の null）または文字列 "null"（GAS の JSON 変換由来）の
+      // 両方を null 扱いにする。null 列はプレースホルダーキーを使用する。
+      const hasSystemColumn = col.system_column !== null
+        && col.system_column !== undefined
+        && col.system_column !== 'null';
+      const key = hasSystemColumn ? col.system_column : `_col_${col.index}`;
+      const val  = cols[col.index]; // idx（配列並び順）ではなく col.index（CSV上の列位置）で参照
+
+      // 必須チェック
+      if (col.required && val === '') {
+        rowErrors.push(`${rowNum}行目: "${col.csv_header}" は必須項目です`);
+        return;
+      }
+      if (val === '') {
+        rowObj[key] = '';
+        return;
+      }
+
+      // 型チェック
+      switch (col.type) {
+        case 'date': {
+          // format 定義に応じてバリデーションパターンを切り替える。
+          // 1) 正規表現で形式チェック → 2) Date オブジェクトで実在チェック。
+          // ※ BQ 側の PARSE_DATE フォーマット文字列も合わせて更新が必要な場合は
+          //    be_csv_mapper.js の buildInvoiceLinesSelectSql_() を確認すること。
+          const fmt = col.format || 'YYYY-MM-DD';
+          let dateOk = false;
+          let dateHint = '';
+          if (fmt === 'YYYYMMDD') {
+            // 例: 20260301
+            dateOk   = /^\d{8}$/.test(val);
+            dateHint = 'YYYYMMDD形式（例: 20260301）';
+          } else if (fmt === 'YYYY/MM/DD') {
+            // 例: 2026/03/01（Excel 日本語保存でよく発生）
+            dateOk   = /^\d{4}\/\d{2}\/\d{2}$/.test(val);
+            dateHint = 'YYYY/MM/DD形式（例: 2026/03/01）';
+          } else if (fmt === 'YYYY-MM-DD' || !col.format) {
+            // デフォルト: YYYY-MM-DD (ISO 8601)
+            dateOk   = /^\d{4}-\d{2}-\d{2}$/.test(val);
+            dateHint = 'YYYY-MM-DD形式（例: 2026-03-01）';
+          } else {
+            // 未対応フォーマット → バックエンドも throw するため明示エラー
+            // 対応フォーマット: YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD
+            rowErrors.push(
+              `${rowNum}行目: "${col.csv_header}" の日付フォーマット "${fmt}" は未対応です。` +
+              'csv_format_rules の format を YYYYMMDD / YYYY/MM/DD / YYYY-MM-DD のいずれかに設定してください。'
+            );
+            break;
+          }
+          if (!dateOk) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${dateHint}で入力してください`);
+          } else {
+            // 日付の実在チェック（例: 2月30日, 13月 などを検出）
+            // JS の Date は不正な日付を自動補正する（2/30 → 3/2）ため、
+            // 復元した年月日が元の値と一致するか確認する。
+            let y, m, d;
+            if (fmt === 'YYYYMMDD') {
+              y = parseInt(val.substring(0, 4), 10);
+              m = parseInt(val.substring(4, 6), 10);
+              d = parseInt(val.substring(6, 8), 10);
+            } else {
+              const parts = val.split(/[-\/]/);
+              y = parseInt(parts[0], 10);
+              m = parseInt(parts[1], 10);
+              d = parseInt(parts[2], 10);
+            }
+            const dt = new Date(0);
+            dt.setUTCFullYear(y, m - 1, d);
+            if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" に存在しない日付が含まれています（${val}）`);
+            } else {
+              rowObj[key] = val;
+            }
+          }
+          break;
+        }
+        case 'integer':
+          if (val === '' || !/^-?\d+$/.test(val.trim())) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数で入力してください`);
+          } else {
+            const num = Number(val);
+            const digitLimit = AMOUNT_INT_DIGIT_LIMITS_[col.system_column];
+            // 整数部桁数は生文字列から数える（Number 経由だと 1e21 以上で指数表記になり桁数を誤るため）
+            const intDigits = val.trim().replace(/^-/, '').replace(/^0+(?=\d)/, '').length;
+            // enumチェック
+            if (col.enum && !col.enum.includes(num)) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は ${col.enum.join(' または ')} を入力してください`);
+            } else if (digitLimit && intDigits > digitLimit) {
+              // 桁数上限（DDL 準拠）。INT64 オーバーフローを BQ 送信前にブロックし、「半角数字」誤導を防ぐ。
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数部${digitLimit}桁以内で入力してください`);
+            } else {
+              rowObj[key] = num;
+            }
+          }
+          break;
+        case 'decimal':
+          if (val === '' || !/^-?\d+(\.\d{1,3})?$/.test(val.trim())) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は数値（小数第3位まで）で入力してください`);
+          } else {
+            const num = Number(val);
+            const digitLimit = AMOUNT_INT_DIGIT_LIMITS_[col.system_column];
+            // 整数部桁数は生文字列から数える（符号・小数点以降・先頭ゼロを除去）
+            const intDigits = val.trim().replace(/^-/, '').split('.')[0].replace(/^0+(?=\d)/, '').length;
+            if (col.enum && !col.enum.includes(num)) {
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は ${col.enum.join(' または ')} を入力してください`);
+            } else if (digitLimit && intDigits > digitLimit) {
+              // 桁数上限（DDL 準拠・整数部のみ）。桁数オーバーを BQ 送信前にブロックする。
+              rowErrors.push(`${rowNum}行目: "${col.csv_header}" は整数部${digitLimit}桁以内で入力してください`);
+            } else {
+              rowObj[key] = num;
+            }
+          }
+          break;
+        default: // string
+          if (col.max_length && val.length > col.max_length) {
+            rowErrors.push(`${rowNum}行目: "${col.csv_header}" は${col.max_length}文字以内で入力してください`);
+          } else {
+            rowObj[key] = val;
+          }
+      }
+    });
+
+    // customer_code の有効性チェック（merchant_mappings）
+    // ※ cc === undefined の場合は汎用 required チェック（L1615）で既にエラー追加済みのためスキップ
+    const cc = rowObj['customer_code'];
+    const ccCol = columns.find(c => c.system_column === 'customer_code' || c.field === 'customer_code');
+    const ccHeader = ccCol ? ccCol.csv_header : '加盟店コード';
+    if (cc !== undefined && cc === '') {
+      rowErrors.push(`${rowNum}行目: "${ccHeader}" は必須です`);
+    } else if (cc !== undefined) {
+      if (!skipCustomerCodeCheck && validCustomerCodes.size > 0 && !validCustomerCodes.has(String(cc))) {
+        rowErrors.push(`${rowNum}行目: "${ccHeader}" の値 "${cc}" は請求可能な${ccHeader}ではありません`);
+      }
+    }
+
+    if (rowErrors.length === 0) {
+      rows.push(rowObj);
+    } else {
+      errors.push(...rowErrors);
+    }
+  }
+
+  return { errors, rows };
+}
+</script>

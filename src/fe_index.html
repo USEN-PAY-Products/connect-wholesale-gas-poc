@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>仕入れコネクト</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700&display=swap" />
+  <!-- Font Awesome -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+        crossorigin="anonymous" />
+  <?!= include('fe_css'); ?>
+  <!-- サーバーが判定した実行環境フラグ・セッショントークンをフロントへ公開 -->
+  <script>
+    window.__APP_IS_DEV__ = ('<?= isDev ?>' === 'true');
+    window.__SESSION_TOKEN__ = '<?= sessionToken ?>';
+  </script>
+</head>
+<body>
+
+  <?!= include('fe_part_header'); ?>
+
+  <!-- グローバル Toast: 全ページ共通 -->
+  <div class="toast toast--error hidden" id="toast" role="alert">
+    <i class="fa-solid fa-circle-exclamation" id="toastIcon"></i>
+    <div class="toast-content">
+      <span class="toast-title" id="toastTitle"></span>
+      <span class="toast-body" id="toastBody"></span>
+    </div>
+    <button class="toast-close" id="toastClose" aria-label="閉じる">&times;</button>
+  </div>
+
+  <!-- 全画面ローディングスピナー -->
+  <div class="loading-overlay hidden" id="loadingOverlay" aria-hidden="true">
+    <div class="loading-overlay__spinner">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+    <p class="loading-overlay__text">登録中...</p>
+  </div>
+
+  <?!= include('fe_page_home'); ?>
+
+  <?!= include('fe_page_csv_upload'); ?>
+
+  <?!= include('fe_page_confirm'); ?>
+
+  <?!= include('fe_page_detail'); ?>
+
+  <?!= include('fe_page_error'); ?>
+
+  <!-- ================================================================
+       カレンダーモーダル（全ページ共通・ページコンテナの外）
+       ================================================================ -->
+  <div class="calendar-modal-overlay hidden" id="calendarModalOverlay">
+    <div class="calendar-modal" role="dialog" aria-modal="true" aria-labelledby="calendarModalTitle">
+      <button class="calendar-modal__close" id="calendarModalClose" aria-label="閉じる">&times;</button>
+
+      <!-- カレンダーヘッダー -->
+      <div class="calendar-header">
+        <h2 id="calendarModalTitle" class="visually-hidden">スケジュールカレンダー</h2>
+        <button class="calendar-nav" id="calPrev" aria-label="前の月">&lt;</button>
+        <span class="calendar-month-label" id="calMonthLabel"></span>
+        <button class="calendar-nav" id="calNext" aria-label="次の月">&gt;</button>
+      </div>
+
+      <!-- 曜日ヘッダー -->
+      <div class="calendar-weekdays">
+        <span class="calendar-weekday calendar-weekday--sun">日</span>
+        <span class="calendar-weekday">月</span>
+        <span class="calendar-weekday">火</span>
+        <span class="calendar-weekday">水</span>
+        <span class="calendar-weekday">木</span>
+        <span class="calendar-weekday">金</span>
+        <span class="calendar-weekday calendar-weekday--sat">土</span>
+      </div>
+
+      <!-- 日付グリッド（JS で生成） -->
+      <div class="calendar-grid" id="calGrid"></div>
+
+      <!-- 凡例（JS で生成） -->
+      <div class="cal-legend" id="calLegend"></div>
+
+    </div>
+  </div>
+
+  <?!= include('fe_js_common'); ?>
+  <?!= include('fe_js_csv_common'); ?>
+  <?!= include('fe_js_calendar'); ?>
+  <?!= include('fe_js_home'); ?>
+  <?!= include('fe_js_upload'); ?>
+  <?!= include('fe_js_confirm'); ?>
+  <?!= include('fe_js_detail'); ?>
+</body>
+</html>

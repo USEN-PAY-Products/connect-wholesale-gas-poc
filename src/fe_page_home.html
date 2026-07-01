@@ -1,0 +1,50 @@
+<div id="pageHome">
+
+  <main class="main-content home-content">
+
+    <!-- ================================================================
+         請求の登録
+         ================================================================ -->
+    <section class="home-section">
+      <h2 class="home-section-title">請求の登録</h2>
+      <!-- 新規請求登録ボタン -->
+      <div class="home-fab-area home-fab-area--center">
+        <a href="#upload" class="btn btn-fab">
+          新規請求を登録する <span class="btn-fab__plus">＋</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         請求履歴一覧
+         ================================================================ -->
+    <section class="home-section">
+      <h2 class="home-section-title">請求履歴一覧</h2>
+
+      <div class="billing-history-table-wrap">
+        <table class="billing-history-table" id="billingHistoryTable">
+          <thead>
+            <tr>
+              <th>請求月</th>
+              <th>登録日時 <span class="sort-icon">&#9660;</span></th>
+              <th>請求金額</th>
+              <th>手数料（税込）</th>
+              <th>差戻し有無</th>
+              <th>否認有無</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="billingHistoryBody">
+            <!-- JS で動的生成 -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Copyright &copy; USEN PAY Co.,Ltd. All Rights Reserved.</p>
+  </footer>
+
+</div>

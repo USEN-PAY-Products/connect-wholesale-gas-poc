@@ -1,0 +1,612 @@
+<script>
+// ---- utils.js ----
+/**
+ * sessionStorage の tax_rounding_method に応じて消費税を丸める。
+ * floor（切り捨て）/ ceil（切り上げ）/ round（四捨五入）
+ * @param {number} value - 丸め対象の数値
+ * @returns {number}
+ */
+function roundTax(value) {
+  const method = sessionStorage.getItem('shiire_tax_rounding_method') || 'floor';
+  if (method === 'ceil')  return Math.ceil(value);
+  if (method === 'round') return Math.round(value);
+  return Math.floor(value);
+}
+
+/**
+ * JST (Asia/Tokyo) 基準で現在日時の年月日・時分を返すユーティリティ。
+ * ユーザー端末のタイムゾーンに依存せず、BE 側と同じ Asia/Tokyo 基準で判定する。
+ * UTC epoch に +9h の固定オフセットを加算し、ロケール依存の文字列パースを回避する。
+ * @returns {{ year: number, month: number, date: number, hours: number, minutes: number, ym: string, ymd: string }}
+ */
+function jstNow_() {
+  const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const d = new Date(Date.now() + JST_OFFSET_MS);
+  const year    = d.getUTCFullYear();
+  const month   = d.getUTCMonth() + 1;
+  const date    = d.getUTCDate();
+  const hours   = d.getUTCHours();
+  const minutes = d.getUTCMinutes();
+  return {
+    year:    year,
+    month:   month,
+    date:    date,
+    hours:   hours,
+    minutes: minutes,
+    ym:  year + '-' + String(month).padStart(2, '0'),
+    ymd: year + '-' + String(month).padStart(2, '0') + '-' + String(date).padStart(2, '0')
+  };
+}
+
+/**
+ * ツールチップの位置を画面内に収まるよう動的に調整する。
+ * mouseenter 時に呼び出し、画面上部に余裕があれば上に、なければ下に表示する。
+ */
+(function initTooltipPositioning() {
+  document.addEventListener('mouseenter', function (e) {
+    const wrap = e.target.closest('.detail-meta-help-wrap');
+    if (!wrap) return;
+    const tooltip = wrap.querySelector('.detail-meta-tooltip');
+    if (!tooltip) return;
+
+    // 一旦位置リセットして表示サイズを取得
+    tooltip.style.left = '';
+    tooltip.style.top = '';
+    tooltip.classList.remove('detail-meta-tooltip--above', 'detail-meta-tooltip--below');
+
+    // wrap の位置を取得
+    const rect = wrap.getBoundingClientRect();
+    const tipWidth = 280; // CSS で固定
+    // 仮に上に表示して高さを計測
+    tooltip.style.visibility = 'hidden';
+    tooltip.style.display = 'block';
+    const tipHeight = tooltip.offsetHeight;
+    tooltip.style.display = '';
+    tooltip.style.visibility = '';
+
+    const gap = 10;
+    let top, dirClass;
+
+    // 上に十分なスペースがあるか
+    if (rect.top - tipHeight - gap > 0) {
+      top = rect.top - tipHeight - gap;
+      dirClass = 'detail-meta-tooltip--above';
+    } else {
+      top = rect.bottom + gap;
+      dirClass = 'detail-meta-tooltip--below';
+    }
+
+    // 左右位置: wrap の中央を基準にし、画面外にはみ出さないよう補正
+    let left = rect.left + rect.width / 2 - tipWidth / 2;
+    if (left < 8) left = 8;
+    if (left + tipWidth > window.innerWidth - 8) left = window.innerWidth - tipWidth - 8;
+
+    tooltip.classList.add(dirClass);
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }, true);
+})();
+
+// ---- account.js ----
+// =============================================================================
+// Account: ログイン時のアカウント情報取得・SessionStorage管理
+// =============================================================================
+
+/**
+ * セッショントークンを取得する。
+ * LP から ?token=xxx クエリパラメータで GAS に渡され、doGet がテンプレート経由で
+ * window.__SESSION_TOKEN__ に注入する（fe_index.html で評価）。
+ * fe_js_common.html は include() → createHtmlOutputFromFile のため <?= ?> が動かず、
+ * グローバル変数経由で受け取る。
+ * @returns {string} セッショントークン（組織内アカウントは空で OK）
+ */
+function getSessionToken_() {
+  try {
+    // 1. sessionStorage に既に保存済みならそれを返す
+    var t = sessionStorage.getItem('shiire_session_token');
+    if (t) return t;
+    // 2. doGet がテンプレートから注入したグローバル変数を読む
+    var injected = (typeof window !== 'undefined' && window.__SESSION_TOKEN__) || '';
+    if (injected) {
+      sessionStorage.setItem('shiire_session_token', injected);
+      return injected;
+    }
+    // 3. フォールバック: フラグメントからも試す（後方互換）
+    var hash = (typeof window !== 'undefined' && window.location.hash) || '';
+    var match = hash.match(/[#&]token=([A-Za-z0-9_-]{1,128})/);
+    if (match) {
+      sessionStorage.setItem('shiire_session_token', match[1]);
+      return match[1];
+    }
+  } catch (e) { /* sessionStorage 不可でも組織内は Session フォールバックで動く */ }
+  return '';
+}
+
+/**
+ * アカウント情報APIのレスポンスを SessionStorage に保存する。
+ * @param {Object} data - getAccountInfo() のレスポンス data フィールド
+ */
+function saveAccountInfo(data) {
+  try {
+    sessionStorage.setItem('shiire_wholesaler_id',        String(data.wholesaler_id        ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_user_id',   String(data.wholesaler_user_id   ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_name',      String(data.wholesaler_name      ?? ''));
+    sessionStorage.setItem('shiire_wholesaler_status',    String(data.wholesaler_status    ?? ''));
+    sessionStorage.setItem('shiire_invoice_fee_rate',     String(data.fee_rate             ?? 0));
+    sessionStorage.setItem('shiire_tax_rounding_method',  String(data.tax_rounding_method  ?? ''));
+    sessionStorage.setItem('shiire_merchant_mappings',    JSON.stringify(data.merchant_mappings  || []));
+    sessionStorage.setItem('shiire_csv_format_rules',     JSON.stringify(data.csv_format_rules   || null));
+    console.log('[account] SessionStorage に卸情報を保存しました:', data.wholesaler_name);
+  } catch (e) {
+    console.warn('[account] SessionStorage への保存に失敗しました:', e);
+  }
+  // DOM更新は sessionStorage 保存の成否に関わらず実行する
+  try {
+    const headerName = document.getElementById('headerWholesalerName');
+    if (headerName) headerName.textContent = data.wholesaler_name || '―';
+  } catch (e) {
+    console.warn('[account] ヘッダー企業名の更新に失敗しました:', e);
+  }
+}
+
+/**
+ * SessionStorage から merchant_mappings を取得する。
+ * @returns {Array<{customer_code:string, mall_code:string, store_name:string}>}
+ */
+function getMerchantMappings() {
+  try {
+    return JSON.parse(sessionStorage.getItem('shiire_merchant_mappings') || '[]');
+  } catch (_) { return []; }
+}
+
+
+// =============================================================================
+// Account: アプリ初期化（DOMContentLoaded で実行）
+// =============================================================================
+
+/**
+ * 開発環境（window.__APP_IS_DEV__ === true）のとき、ヘッダーのサービス名に
+ * "(Dev)" サフィックスを付与する。本番環境では何もしない。
+ * サーバー往復（getAccountInfo）の成否に依存せず同期的に実行するため、
+ * doGet がテンプレートへ注入した window.__APP_IS_DEV__ を参照する。
+ */
+function applyDevServiceNameLabel_() {
+  try {
+    if (window.__APP_IS_DEV__ !== true) return;
+    const el = document.getElementById('headerServiceName');
+    if (!el) return;
+    const suffix = '(Dev)';
+    if (!el.textContent.includes(suffix)) {
+      el.textContent = el.textContent + suffix;
+    }
+  } catch (e) {
+    console.warn('[env] サービス名の (Dev) 付与に失敗しました:', e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  applyDevServiceNameLabel_(); // 開発環境ではサービス名に "(Dev)" を付与
+  showLoadingOverlay('読み込み中...');
+
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run
+      .withSuccessHandler(function (result) {
+        if (result && result.data) {
+          saveAccountInfo(result.data);
+          enableUploadUi_();
+          // スケジュールデータをプリフェッチ（カレンダーを開く前にデータを準備）
+          loadScheduleData_();
+        } else {
+          console.error('[account] getAccountInfo のレスポンスが不正です:', result);
+          showErrorPage_('system');
+          location.hash = '#error'; // エラーページへ強制
+        }
+        hideLoadingOverlay();
+        navigate(); // アカウント情報確定後にルーティング実行
+      })
+      .withFailureHandler(function (err) {
+        console.error('[account] getAccountInfo failed:', err);
+        const msg = String(err.message || err);
+        if (msg.startsWith('UNAUTHORIZED:')) {
+          showErrorPage_('unauthorized');
+        } else if (msg.startsWith('NOT_REGISTERED:')) {
+          showErrorPage_('system');
+        } else {
+          showErrorPage_('system');
+        }
+        location.hash = '#error'; // エラーページへ強制
+        hideLoadingOverlay();
+        navigate(); // エラー時もルーティングは実行する
+      })
+      .getAccountInfo(getSessionToken_());
+  } else {
+    // GAS 環境外での実行は非対応
+    console.error('[account] google.script.run が利用できません。GAS Webアプリとして実行してください。');
+    showErrorPage_('env');
+    location.hash = '#error'; // エラーページへ強制
+    hideLoadingOverlay();
+    navigate();
+  }
+});
+
+/**
+ * アカウント情報取得完了後にアップロードUIを有効化する。
+ * DOMContentLoaded 時点では dropZone / fileInput が disabled になっている前提。
+ */
+function enableUploadUi_() {
+  const dz = document.getElementById('dropZone');
+  const fi = document.getElementById('fileInput');
+  const btn = document.getElementById('btnSelectFile');
+  if (dz)  dz.classList.remove('is-disabled');
+  if (fi)  fi.disabled  = false;
+  if (btn) btn.disabled = false;
+}
+
+/**
+ * アカウント情報取得失敗時にエラーページの表示内容を設定する。
+ * この関数を呼んだ後に location.hash = '#error' → navigate() の順で実行すること。
+ * @param {'unauthorized'|'system'|'env'} type - エラーの種類
+ */
+function showErrorPage_(type) {
+  const banner   = document.getElementById('errorPageBannerText');
+  const message  = document.getElementById('errorPageMessage');
+  const sub      = document.getElementById('errorPageSub');
+
+  if (type === 'unauthorized') {
+    // デフォルトの文言をそのまま使用（fe_page_error.html の HTML のまま）
+    return;
+  }
+
+  if (type === 'env') {
+    if (banner)  banner.textContent  = '環境エラー';
+    if (message) message.innerHTML   = 'この画面はGAS Webアプリとして実行してください。';
+    if (sub)     sub.textContent     = '';
+    return;
+  }
+
+  // type === 'system'
+  if (banner)  banner.textContent  = 'ログインに使用されたアカウントの登録が見当たりません。';
+  if (message) message.innerHTML   = '本サイトへのログインにご使用された、Googleアカウントがサービスデータベース上に見当たりません。<br>ご登録時に設定いただいたアカウントで再度ログインしなおしてください。';
+  if (sub)     sub.textContent     = 'ご登録済みのログイン用Googleアカウントが不明の場合は、下記窓口までご連絡ください。';
+}
+
+
+// ---- utils.js ----
+// =============================================================================
+// Utils: 共通ユーティリティ
+// =============================================================================
+
+/**
+ * 全画面ローディングスピナーを表示する。
+ * @param {string} [text='登録中...'] - スピナー下部に表示するテキスト
+ */
+function showLoadingOverlay(text) {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  const textEl = overlay.querySelector('.loading-overlay__text');
+  if (textEl) textEl.textContent = text || '登録中...';
+  overlay.classList.remove('hidden');
+  overlay.setAttribute('aria-hidden', 'false');
+}
+
+/** 全画面ローディングスピナーを非表示にする。 */
+function hideLoadingOverlay() {
+  const overlay = document.getElementById('loadingOverlay');
+  if (!overlay) return;
+  overlay.classList.add('hidden');
+  overlay.setAttribute('aria-hidden', 'true');
+}
+
+/**
+ * XSS 対策: HTML 特殊文字をエスケープする
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+
+const toast          = document.getElementById('toast');
+const toastClose     = document.getElementById('toastClose');
+// =============================================================================
+// Upload page: Toast helpers
+// =============================================================================
+
+/** 自動非表示タイマーID */
+let _toastTimer = null;
+
+/**
+ * @param {string} message
+ * @param {'error'|'success'} [type='error']
+ * @param {number} [autoHideMs] - 自動非表示までのミリ秒。省略時: success=4000ms, error=0（自動非表示なし）
+ */
+function showToast(message, type = 'error', autoHideMs, body) {
+  const titleEl = document.getElementById('toastTitle');
+  const bodyEl  = document.getElementById('toastBody');
+  const iconEl  = document.getElementById('toastIcon');
+  if (titleEl) titleEl.textContent = message;
+  if (bodyEl) {
+    if (body) {
+      bodyEl.innerHTML = body;
+      bodyEl.style.display = '';
+    } else {
+      bodyEl.textContent = '';
+      bodyEl.style.display = 'none';
+    }
+  }
+  // アイコン切り替え
+  if (iconEl) {
+    iconEl.className = type === 'success'
+      ? 'fa-solid fa-circle-check'
+      : 'fa-solid fa-circle-exclamation';
+  }
+  toast.classList.remove('hidden', 'toast--error', 'toast--success');
+  toast.classList.add(`toast--${type}`);
+
+  // 既存タイマーをクリア
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+
+  // 自動非表示: success はデフォルト8秒、error は明示指定がある場合のみ
+  const delay = autoHideMs !== undefined ? autoHideMs : (type === 'success' ? 8000 : 0);
+  if (delay > 0) {
+    _toastTimer = setTimeout(hideToast, delay);
+  }
+}
+
+function hideToast() {
+  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+  toast.classList.add('hidden');
+}
+
+toastClose.addEventListener('click', hideToast);
+// ---- router.js ----
+// =============================================================================
+// Router: ハッシュベースの簡易 SPA ルーター
+// =============================================================================
+
+/**
+ * 登録済みページのマップ。
+ * key   : URL ハッシュ（'#upload' など）
+ * value : そのページのルート要素の id
+ */
+const ROUTES = {
+  '#home':    'pageHome',
+  '#upload':  'pageUpload',
+  '#confirm': 'pageConfirm',
+  '#detail':  'pageDetail',
+  '#error':   'pageError',
+};
+
+/** デフォルトルート */
+const DEFAULT_ROUTE = '#home';
+
+/**
+ * location.hash から { baseHash, params } を取り出す。
+ * 例: '#detail?invoiceId=b001' → { baseHash: '#detail', params: URLSearchParams }
+ * @returns {{ baseHash: string, params: URLSearchParams }}
+ */
+function parseHash() {
+  const raw = location.hash || DEFAULT_ROUTE;
+  const sepIdx = raw.indexOf('?');
+  if (sepIdx === -1) {
+    return { baseHash: raw, params: new URLSearchParams() };
+  }
+  return {
+    baseHash: raw.slice(0, sepIdx),
+    params:   new URLSearchParams(raw.slice(sepIdx + 1)),
+  };
+}
+
+/**
+ * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
+ */
+function navigate() {
+  const { baseHash, params } = parseHash();
+  const targetId = ROUTES[baseHash] || ROUTES[DEFAULT_ROUTE];
+
+  Object.values(ROUTES).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', id !== targetId);
+  });
+
+  // ヘッダーの請求スケジュールボタン: TOP と詳細画面のみ表示
+  const btnCal = document.getElementById('btnCalendarOpen');
+  if (btnCal) {
+    btnCal.classList.toggle('hidden', targetId !== 'pageHome' && targetId !== 'pageDetail');
+  }
+
+  // ヘッダーのアプリ名(ロゴ): エラー画面のみ押下不可、他画面は TOP へ遷移可能
+  const logoLink = document.getElementById('headerLogoLink');
+  if (logoLink) {
+    const isErrorPage = targetId === 'pageError';
+    logoLink.classList.toggle('is-disabled', isErrorPage);
+    if (isErrorPage) {
+      logoLink.setAttribute('aria-disabled', 'true');
+      logoLink.setAttribute('tabindex', '-1');
+    } else {
+      logoLink.removeAttribute('aria-disabled');
+      logoLink.removeAttribute('tabindex');
+    }
+  }
+
+  if (targetId === 'pageHome') {
+    initHomePage();
+  }
+
+  if (targetId === 'pageUpload') {
+    // 前回のエラー表示・ファイル情報・データをリセットして初期状態にする
+    // （エラー後に一覧へ戻り再度アップロード画面を開いた際、古いエラーが残らないようにする）
+    resetDropZone();
+    fileInfoEl.classList.add('hidden');
+    alertList.innerHTML = '';
+    errorCard.classList.add('hidden');
+    btnToConfirm.disabled = true;
+    rawCsvBase64  = null;
+    utf8CsvBase64 = null;
+    parsedData    = null;
+    sessionStorage.removeItem('shiire_parsedData');
+    checkUploadDeadline_();
+  }
+
+  if (targetId === 'pageConfirm') {
+    renderConfirmPage();
+  }
+
+  if (targetId === 'pageDetail') {
+    const invoiceId = params.get('invoiceId') || null;
+    initDetailPage(invoiceId);
+  }
+
+  if (targetId !== 'pageDetail') {
+    // 詳細画面以外に遷移したら次回の再描画を許可するためキャッシュをクリア
+    _detailCurrentInvoiceId = null;
+    _detailActionRequiredMallCodes = [];
+    _detailReturnedOnlyMallCodes = [];
+    _detailMallToCustomerMap = {};
+    _objectionEndAt = null;
+  }
+
+  if (targetId !== 'pageConfirm') {
+    // 確認画面以外に遷移したら再送信フラグをリセット
+    _isResubmitConfirm = false;
+  }
+
+  console.log(`[router] navigated to ${baseHash} -> #${targetId}`);
+}
+
+// ハッシュ変化時にルーティング実行（初回ロードは getAccountInfo 完了後に呼ぶ）
+window.addEventListener('hashchange', navigate);
+// ---- logout.js ----
+// =============================================================================
+// Logout: ヘッダーストアドロップダウン & ログアウト処理
+// =============================================================================
+
+/** ヘッダー卸名クリックでドロップダウンを開閉する */
+(function initHeaderStoreDropdown() {
+  const trigger   = document.getElementById('headerStoreTrigger');
+  const dropdown  = document.getElementById('headerStoreDropdown');
+  const btnLogout = document.getElementById('btnLogout');
+  if (!trigger || !dropdown) return;
+
+  function openDropdown() {
+    dropdown.classList.remove('hidden');
+    trigger.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    if (btnLogout) btnLogout.focus();
+  }
+
+  function closeDropdown(returnFocus) {
+    dropdown.classList.add('hidden');
+    trigger.classList.remove('is-open');
+    trigger.setAttribute('aria-expanded', 'false');
+    if (returnFocus) trigger.focus();
+  }
+
+  // クリックでトグル（実 <button> なので Enter/Space も click として発火する）
+  trigger.addEventListener('click', function (e) {
+    e.stopPropagation();
+    const isOpen = !dropdown.classList.contains('hidden');
+    if (isOpen) {
+      closeDropdown(false);
+    } else {
+      openDropdown();
+    }
+  });
+
+  // Escape で閉じてトリガーへフォーカス戻し
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !dropdown.classList.contains('hidden')) {
+      closeDropdown(true);
+    }
+  });
+
+  // ドロップダウン外クリックで閉じる
+  document.addEventListener('click', function () {
+    closeDropdown(false);
+  });
+})();
+
+/** ログアウトボタンクリックで sessionStorage クリア → LP へリダイレクト */
+(function initLogout() {
+  const btnLogout = document.getElementById('btnLogout');
+  if (!btnLogout) return;
+
+  const FALLBACK_LOGOUT_URL = 'https://accounts.google.com/Logout';
+
+  btnLogout.addEventListener('click', function (e) {
+    e.stopPropagation();
+
+    // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
+    Object.keys(sessionStorage).forEach(function (key) {
+      if (key.startsWith('shiire_')) sessionStorage.removeItem(key);
+    });
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          if (result && result.data && result.data.url) {
+            window.top.location.href = result.data.url;
+          } else {
+            console.warn('[logout] getLogoutUrl: 想定外のレスポンス:', result);
+            window.top.location.href = FALLBACK_LOGOUT_URL;
+          }
+        })
+        .withFailureHandler(function (err) {
+          console.error('[logout] getLogoutUrl failed:', err);
+          window.top.location.href = FALLBACK_LOGOUT_URL;
+        })
+        .getLogoutUrl();
+    } else {
+      // GAS 環境外（ローカル開発時）
+      window.top.location.href = FALLBACK_LOGOUT_URL;
+    }
+  });
+})();
+
+/** エラー画面「ログインページに戻る」ボタン → LP（ログインページ）へリダイレクト。
+ *  エラー画面はログイン前提のため、ログアウトトーストが出ない専用の getLoginUrl()（?logout=true なし・https 検証済み）を使用する。 */
+(function initBackToLogin() {
+  const btn = document.getElementById('btnBackToLogin');
+  if (!btn) return;
+
+  const fallbackToLoginPage = function () {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      location.hash = '#home';
+    }
+  };
+
+  btn.addEventListener('click', function () {
+    // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
+    Object.keys(sessionStorage).forEach(function (key) {
+      if (key.startsWith('shiire_')) sessionStorage.removeItem(key);
+    });
+
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          if (result && result.data && result.data.url) {
+            window.top.location.href = result.data.url;
+          } else {
+            console.warn('[backToLogin] getLoginUrl: 想定外のレスポンス:', result);
+            fallbackToLoginPage();
+          }
+        })
+        .withFailureHandler(function (err) {
+          console.error('[backToLogin] getLoginUrl failed:', err);
+          fallbackToLoginPage();
+        })
+        .getLoginUrl();
+    } else {
+      fallbackToLoginPage();
+    }
+  });
+})();
+</script>

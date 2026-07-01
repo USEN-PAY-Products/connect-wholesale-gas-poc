@@ -1,0 +1,21 @@
+{
+  "name": "shiire-poc-supplier",
+  "version": "1.0.0",
+  "description": "卸システム (GAS + HTML Service)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "push:local": "cp .clasp-local.json .clasp.json && clasp push",
+    "push:dev": "cp .clasp-dev.json .clasp.json && clasp push",
+    "push:prod": "cp .clasp-prod.json .clasp.json && clasp push"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@google/clasp": "3.3.0",
+    "@types/google-apps-script": "^1.0.83"
+  }
+}

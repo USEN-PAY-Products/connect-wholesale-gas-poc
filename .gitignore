@@ -1,0 +1,17 @@
+# GAS/clasp settings
+.clasp*.json
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build output (no longer used)
+dist/
+
+# Local env files
+.env
+
+docs/plan/
+*.csv
+*.sql
