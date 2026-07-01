@@ -104,7 +104,7 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     'si_flags AS ( ' +
     '  SELECT ' +
     '    r.root_id, ' +
-    '    MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' THEN 1 ELSE 0 END) AS has_resubmit, ' +
+    '    MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' AND COALESCE(si.invoice_status, \'\') NOT IN (\'APPROVED\', \'WITHDRAWN\') THEN 1 ELSE 0 END) AS has_resubmit, ' +
     '    MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
     '  FROM ranked AS r ' +
     '  INNER JOIN ' + tbl + '.store_invoices` AS si ' +
