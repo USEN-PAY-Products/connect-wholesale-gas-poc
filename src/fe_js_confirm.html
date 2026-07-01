@@ -209,11 +209,12 @@ function collectSummaryData_() {
 
 /**
  * 確認画面の備考 textarea から { customerCode: remarks文字列 } を収集して返す。
+ * #pageConfirm 内に限定し、hidden 状態の詳細画面の入力欄を拾わないようにする。
  * @returns {Object.<string, string>}
  */
 function collectRemarks_() {
   const remarks = {};
-  document.querySelectorAll('.remarks-input[data-customer-code]').forEach(ta => {
+  document.querySelectorAll('#pageConfirm .remarks-input[data-customer-code]').forEach(ta => {
     remarks[ta.dataset.customerCode] = nl2space_(ta.value || '');
   });
   return remarks;
@@ -740,6 +741,11 @@ function renderConfirmPage() {
     remarksDiv.innerHTML =
       `<label class="remarks-label">・ 加盟店別請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>` +
       `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="※加盟店請求書に表示される備考情報を記載ください。" rows="2" maxlength="250"></textarea>`;
+    // 再送信モード: 詳細画面で入力済みの備考をプリセット
+    if (_isResubmitConfirm && _resubmitRemarks[customerCode]) {
+      const remarksTa = remarksDiv.querySelector('textarea');
+      if (remarksTa) remarksTa.value = _resubmitRemarks[customerCode];
+    }
     body.appendChild(remarksDiv);
 
     // 再送信モード: 否認店舗の handover 入力欄を追加（詳細画面の否認セクションと同じデザイン）
