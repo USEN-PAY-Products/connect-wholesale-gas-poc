@@ -181,7 +181,10 @@ function checkWholesalerEndStatus_() {
   const endMsg = '仕入れコネクトの契約が終了しているため、再請求できません。';
 
   // 個別ボタン（修正ファイルをアップ / 変更なしで再請求）　※取り下げ（withdraw）は対象外
+  // 既に他の理由（異議申立期間切れ等）で disabled かつ title 設定済みの場合は上書きしない
+  // （tooltip の理由と画面上のメッセージ段落の食い違いを防止するため）
   document.querySelectorAll('[data-action="reupload"], [data-action="resubmit"]').forEach(function(btn) {
+    if (btn.disabled && btn.title) return;
     btn.disabled = true;
     btn.title    = endMsg;
     btn.style.opacity = '0.5';
@@ -198,8 +201,9 @@ function checkWholesalerEndStatus_() {
   });
 
   // 一括再送信ボタン（CSV一括アップロード）
+  // 既に他の理由（異議申立期間切れ等）で disabled かつ title 設定済みの場合は上書きしない
   const bulkBtn2 = document.getElementById('detailBtnUploadCsv');
-  if (bulkBtn2) {
+  if (bulkBtn2 && !(bulkBtn2.disabled && bulkBtn2.title)) {
     bulkBtn2.disabled = true;
     bulkBtn2.title    = endMsg;
     bulkBtn2.style.opacity = '0.5';
