@@ -186,8 +186,10 @@ function checkWholesalerEndStatus_() {
     btn.title    = endMsg;
     btn.style.opacity = '0.5';
   });
-  // 各 .backoffice-remark__actions に契約終了メッセージを追加（異議申立期限切れメッセージとの重複防止）
+  // 各 .backoffice-remark__actions のうち、reupload/resubmit ボタンが存在する行にのみ契約終了メッセージを追加する
+  // （取下げをやめる等の再請求と無関係な行への誤表示を防止。異議申立期限切れメッセージとの重複も防止）
   document.querySelectorAll('.backoffice-remark__actions').forEach(function(actionsEl) {
+    if (!actionsEl.querySelector('[data-action="reupload"], [data-action="resubmit"]')) return;
     if (actionsEl.querySelector('.detail-action-btn__period-expired-msg')) return;
     const msgEl = document.createElement('p');
     msgEl.className = 'detail-action-btn__period-expired-msg';
