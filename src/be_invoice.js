@@ -716,6 +716,20 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
 }
 
 /**
+ * 契約終了卸（wholesaler_status='end'）による新規請求・再請求を拒否する共通ヘルパー。
+ * sendInvoiceData / resubmitInvoiceData / bulkResubmitInvoiceData / resubmitWithoutChanges
+ * の各 BE 公開関数から呼び出し、判定条件とエラー文言を一元化する（文言・判定条件変更時の修正漏れ防止）。
+ * @param {Object} accountInfo - getServerAccountInfo_() の戻り値（wholesaler_status を保持）
+ * @param {string} [actionLabel='再請求'] - エラーメッセージに埋め込む操作名（例: '新規請求'）
+ * @throws {Error} 契約終了卸（end）の場合
+ */
+function assertWholesalerActive_(accountInfo, actionLabel) {
+  if (accountInfo.wholesaler_status === 'end') {
+    throw new Error('契約が終了しているため、' + (actionLabel || '再請求') + 'ができません。');
+  }
+}
+
+/**
  * 差し戻し・否認後の修正CSV再送信。
  * 既存の wholesaler_invoices.id（parentInvoiceId）はそのまま使い、
  * store_invoices を新規INSERT、旧レコードの is_latest を FALSE に更新する。
@@ -739,10 +753,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     const accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
 
-    // ── 契約終了卸の再請求ブロック ───────────────────────────────────────
-    if (accountInfo.wholesaler_status === 'end') {
-      throw new Error('契約が終了しているため、再請求ができません。');
-    }
+    assertWholesalerActive_(accountInfo);
 
     if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!utf8CsvBase64) throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -1100,10 +1111,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     const accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
 
-    // ── 契約終了卸の再請求ブロック ───────────────────────────────────────
-    if (accountInfo.wholesaler_status === 'end') {
-      throw new Error('契約が終了しているため、再請求ができません。');
-    }
+    assertWholesalerActive_(accountInfo);
 
     if (!rawCsvBase64)     throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!utf8CsvBase64)    throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -1310,10 +1318,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
     logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', merchantTotals_count=' + (summaryData && summaryData.merchantTotals ? summaryData.merchantTotals.length : 0));
     const mappings    = accountInfo.merchant_mappings || [];
 
-    // ── 契約終了卸の新規請求ブロック ──────────────────────────────────────
-    if (accountInfo.wholesaler_status === 'end') {
-      throw new Error('契約が終了しているため、新規請求ができません。');
-    }
+    assertWholesalerActive_(accountInfo, '新規請求');
 
     // ── 入力バリデーション ────────────────────────────────────────────────
     if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -1470,10 +1475,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     logInfo_('Invoice', 'resubmitWithoutChanges 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
-    // ── 契約終了卸の再請求ブロック ───────────────────────────────────────
-    if (accountInfo.wholesaler_status === 'end') {
-      throw new Error('契約が終了しているため、再請求ができません。');
-    }
+    assertWholesalerActive_(accountInfo);
 
     if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
     if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');

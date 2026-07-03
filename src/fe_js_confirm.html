@@ -323,7 +323,13 @@ btnFinalSubmit.addEventListener('click', () => {
             const banner = document.createElement('div');
             banner.className = 'backoffice-remark__error-banner';
             banner.id = errId;
-            banner.innerHTML = '<i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i><span>「【必須】加盟店との合意内容」の項目が空欄です。</span>';
+            const bannerIcon = document.createElement('i');
+            bannerIcon.className = 'fa-solid fa-circle-exclamation';
+            bannerIcon.setAttribute('aria-hidden', 'true');
+            const bannerText = document.createElement('span');
+            bannerText.textContent = '「【必須】加盟店との合意内容」の項目が空欄です。';
+            banner.appendChild(bannerIcon);
+            banner.appendChild(bannerText);
             leftDiv.insertBefore(banner, leftDiv.firstChild);
           }
           // 対象アコーディオンを開く

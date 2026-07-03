@@ -196,7 +196,7 @@ function checkWholesalerEndStatus_() {
     if (actionsEl.querySelector('.detail-action-btn__period-expired-msg')) return;
     const msgEl = document.createElement('p');
     msgEl.className = 'detail-action-btn__period-expired-msg';
-    msgEl.textContent = '契約終了のため再請求できません';
+    msgEl.textContent = endMsg;
     actionsEl.appendChild(msgEl);
   });
 
@@ -211,7 +211,7 @@ function checkWholesalerEndStatus_() {
     if (parentActions2 && !parentActions2.querySelector('.detail-action-btn__period-expired-msg')) {
       const msgEl2 = document.createElement('p');
       msgEl2.className = 'detail-action-btn__period-expired-msg';
-      msgEl2.textContent = '契約終了のため再請求できません';
+      msgEl2.textContent = endMsg;
       parentActions2.appendChild(msgEl2);
     }
   }
@@ -1005,6 +1005,12 @@ function renderDetailLines_(lines, container) {
           // 差し戻し・否認を問わず、CSVに含まれない要対応加盟店は「警告（アラート）」とし、
           // 確認画面へ進めるようにする。含まれなかった加盟店はこの再請求では対象外（スキップ）。
           const actionRequiredCcSet = new Set();
+          // 同一 customer_code に対して同じ警告メッセージを複数回出さないための重複防止ガード。
+          // リレーションテーブル（wholesaler_merchants）の重複行や、返却・否認の両方に同一店舗が
+          // 含まれる等の理由で _detailActionRequiredMallCodes に同一 customer_code へ解決される
+          // mallCode が複数含まれていても、警告は customer_code ごとに1回のみ表示する。
+          const warnedEndCcSet = new Set();
+          const warnedMissingCcSet = new Set();
           (_detailActionRequiredMallCodes || []).forEach(function (mallCode) {
             const cc = mallToCustomer[String(mallCode)];
             if (!cc) return;
@@ -1012,7 +1018,8 @@ function renderDetailLines_(lines, container) {
             let storeName = mallToStoreName[String(mallCode)] || '';
             // (2) end 店舗は再請求対象外。CSV に含まれていれば警告し、要対応集合には加えない（=スキップ）。
             if (endCcSet.has(cc)) {
-              if (csvCustomerCodes[cc]) {
+              if (csvCustomerCodes[cc] && !warnedEndCcSet.has(cc)) {
+                warnedEndCcSet.add(cc);
                 if (!storeName) {
                   const endStore = (_detailEndStores || []).find(function (s) { return String(s.customer_code) === cc; });
                   if (endStore) storeName = endStore.store_name || '';
@@ -1022,7 +1029,8 @@ function renderDetailLines_(lines, container) {
               return;
             }
             actionRequiredCcSet.add(cc);
-            if (!csvCustomerCodes[cc]) {
+            if (!csvCustomerCodes[cc] && !warnedMissingCcSet.has(cc)) {
+              warnedMissingCcSet.add(cc);
               bulkWarnings.push('要対応の加盟店（顧客コード: ' + cc + (storeName ? ' / ' + storeName : '') + '）のデータがCSVに含まれていません。この加盟店の再請求は行われませんが、よろしいですか？');
             }
           });

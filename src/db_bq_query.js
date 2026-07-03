@@ -26,6 +26,12 @@
 function fetchAccountInfoByEmail_(email) {
   const config = getConfig_();
   const sql =
+    'WITH latest_merchants AS ( ' +
+    '  SELECT customer_code, mall_code, wholesaler_id, ' +
+    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY registration_at DESC) AS rn ' +
+    '  FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` ' +
+    '  WHERE deleted_at IS NULL ' +
+    ') ' +
     'SELECT ' +
     '  wu.id                   AS wholesaler_user_id, ' +
     '  wu.wholesaler_id, ' +
@@ -40,8 +46,8 @@ function fetchAccountInfoByEmail_(email) {
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_user` AS wu ' +
     'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` AS w ' +
     '  ON w.id = wu.wholesaler_id AND w.wholesaler_status IN (\'active\', \'end\') ' +
-    'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` AS wm ' +
-    '  ON wm.wholesaler_id = wu.wholesaler_id AND wm.deleted_at IS NULL ' +
+    'LEFT JOIN latest_merchants AS wm ' +
+    '  ON wm.wholesaler_id = wu.wholesaler_id AND wm.rn = 1 ' +
     'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
     '  ON s.mall_code = wm.mall_code AND s.store_status = \'active\' ' +
     'WHERE wu.wholesaler_email = @email ' +
