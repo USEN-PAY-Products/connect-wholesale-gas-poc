@@ -323,6 +323,7 @@ btnFinalSubmit.addEventListener('click', () => {
             const banner = document.createElement('div');
             banner.className = 'backoffice-remark__error-banner';
             banner.id = errId;
+            banner.setAttribute('role', 'alert');
             const bannerIcon = document.createElement('i');
             bannerIcon.className = 'fa-solid fa-circle-exclamation';
             bannerIcon.setAttribute('aria-hidden', 'true');
