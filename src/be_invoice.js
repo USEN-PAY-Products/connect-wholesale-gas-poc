@@ -739,6 +739,11 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     const accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
 
+    // ── 契約終了卸の再請求ブロック ───────────────────────────────────────
+    if (accountInfo.wholesaler_status === 'end') {
+      throw new Error('契約が終了しているため、再請求ができません。');
+    }
+
     if (!rawCsvBase64)  throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!utf8CsvBase64) throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!parentInvoiceId) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
@@ -1094,6 +1099,11 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
   try {
     const accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
+
+    // ── 契約終了卸の再請求ブロック ───────────────────────────────────────
+    if (accountInfo.wholesaler_status === 'end') {
+      throw new Error('契約が終了しているため、再請求ができません。');
+    }
 
     if (!rawCsvBase64)     throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
     if (!utf8CsvBase64)    throw new Error('CSVデータの送信に失敗しました。ファイルを再度選択してアップロードしてください。');
@@ -1459,6 +1469,11 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     const accountInfo  = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'resubmitWithoutChanges 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
+
+    // ── 契約終了卸の再請求ブロック ───────────────────────────────────────
+    if (accountInfo.wholesaler_status === 'end') {
+      throw new Error('契約が終了しているため、再請求ができません。');
+    }
 
     if (!storeInvoiceId)  throw new Error('storeInvoiceId が指定されていません');
     if (!parentInvoiceId) throw new Error('parentInvoiceId が指定されていません');

@@ -206,12 +206,25 @@ button { cursor: pointer; font-family: inherit; }
   position: absolute;
   top: calc(100% + 12px);
   right: 0;
-  min-width: 160px;
+  width: 160px;
   background: #fff;
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   z-index: 200;
   padding: 4px 0;
+}
+
+/* ドロップダウン内の会社名全文表示（現状の横幅を維持したまま折り返す） */
+.header-store-dropdown__company {
+  padding: 10px 16px;
+  border-bottom: 1px solid #eee;
+  color: #333;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 .header-store-dropdown__item {
@@ -1415,6 +1428,24 @@ button { cursor: pointer; font-family: inherit; }
   flex-direction: column;
   gap: 12px;
 }
+/* 否認: 合意内容が未入力のまま登録しようとした場合の警告バナー（否認理由の直前に表示） */
+.backoffice-remark__error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #FDECEA;
+  border: 1px solid #F5C2C0;
+  border-radius: 6px;
+  color: #E53935;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.backoffice-remark__error-banner i {
+  font-size: 16px;
+  flex-shrink: 0;
+}
 .backoffice-remark__disputed-reason {
   display: flex;
   align-items: flex-start;
@@ -2135,10 +2166,6 @@ button { cursor: pointer; font-family: inherit; }
 .badge--denial {
   background: #DF4C4C;
   color: #fff;
-}
-.badge--pending {
-  background: #FFF3E0;
-  color: #E65100;
 }
 
 .btn-detail-link {

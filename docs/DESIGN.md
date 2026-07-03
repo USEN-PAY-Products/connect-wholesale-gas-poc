@@ -296,7 +296,6 @@ body { font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif; font-size: 14px
 | 未対応 | `.badge--none` | `#B4B4B4` | `#fff` |
 | 要再提出 | `.badge--resubmit` | `#FF7846` | `#fff` |
 | 否認 | `.badge--denial` | `#DF4C4C` | `#fff` |
-| 未検閲 | `.badge--pending` | `#FFF3E0` | `#E65100` |
 
 ### 3.7 アコーディオン
 

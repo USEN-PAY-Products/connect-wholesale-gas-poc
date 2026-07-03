@@ -121,6 +121,7 @@ function renderDetailPage_(data) {
   renderDetailSummary_(data.summary);
   renderDetailStoreList_(data.stores || []);
   checkReuploadDeadline_();
+  checkWholesalerEndStatus_();
 }
 
 /**
@@ -164,6 +165,48 @@ function checkReuploadDeadline_() {
       msgEl.className = 'detail-action-btn__period-expired-msg';
       msgEl.textContent = '異議申立期間が終了しています';
       parentActions.appendChild(msgEl);
+    }
+  }
+}
+
+/**
+ * 卸ステータス（wholesaler_status）が 'end'（契約終了）かを確認し、
+ * 契約終了なら「修正ファイルをアップ」「変更なしで再請求」「CSV一括アップロード」ボタンを無効化する。
+ * 過去請求の参照・取り下げ（withdraw）は契約終了後も可能なため対象外。
+ */
+function checkWholesalerEndStatus_() {
+  const wholesalerStatus = sessionStorage.getItem('shiire_wholesaler_status');
+  if (wholesalerStatus !== 'end') return;
+
+  const endMsg = '仕入れコネクトの契約が終了しているため、再請求できません。';
+
+  // 個別ボタン（修正ファイルをアップ / 変更なしで再請求）　※取り下げ（withdraw）は対象外
+  document.querySelectorAll('[data-action="reupload"], [data-action="resubmit"]').forEach(function(btn) {
+    btn.disabled = true;
+    btn.title    = endMsg;
+    btn.style.opacity = '0.5';
+  });
+  // 各 .backoffice-remark__actions に契約終了メッセージを追加（異議申立期限切れメッセージとの重複防止）
+  document.querySelectorAll('.backoffice-remark__actions').forEach(function(actionsEl) {
+    if (actionsEl.querySelector('.detail-action-btn__period-expired-msg')) return;
+    const msgEl = document.createElement('p');
+    msgEl.className = 'detail-action-btn__period-expired-msg';
+    msgEl.textContent = '契約終了のため再請求できません';
+    actionsEl.appendChild(msgEl);
+  });
+
+  // 一括再送信ボタン（CSV一括アップロード）
+  const bulkBtn2 = document.getElementById('detailBtnUploadCsv');
+  if (bulkBtn2) {
+    bulkBtn2.disabled = true;
+    bulkBtn2.title    = endMsg;
+    bulkBtn2.style.opacity = '0.5';
+    const parentActions2 = bulkBtn2.parentElement;
+    if (parentActions2 && !parentActions2.querySelector('.detail-action-btn__period-expired-msg')) {
+      const msgEl2 = document.createElement('p');
+      msgEl2.className = 'detail-action-btn__period-expired-msg';
+      msgEl2.textContent = '契約終了のため再請求できません';
+      parentActions2.appendChild(msgEl2);
     }
   }
 }
@@ -544,17 +587,26 @@ function buildDetailAccordion_(store, openByDefault) {
     body.appendChild(withdrawnRow);
   }
 
-  // 確認中・承認済み・未検収（normalグループ）: 合意内容（読取専用）
-  // wholesaler_handover が登録済みの行のみ表示
-  if (!isReturned && !isDisputed && !isWithdrawn && store.wholesaler_handover) {
+  // 確認中・承認済み・未検収（normalグループ）: 否認理由（読取専用）+ 合意内容（読取専用）
+  // 過去に否認され store_disputed_reason が登録されている場合や、
+  // wholesaler_handover が登録済みの場合のみ、それぞれの行を表示する
+  if (!isReturned && !isDisputed && !isWithdrawn && (store.store_disputed_reason || store.wholesaler_handover)) {
     const handoverRow = document.createElement('div');
     handoverRow.className = 'store-accordion__backoffice-remark';
     handoverRow.innerHTML =
       '<div class="backoffice-remark__disputed-left">' +
-        '<div class="backoffice-remark__disputed-handover">' +
-          '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
-          '<div class="backoffice-remark__handover-readonly">' + escapeHtml(store.wholesaler_handover || '') + '</div>' +
-        '</div>' +
+        (store.store_disputed_reason
+          ? '<div class="backoffice-remark__disputed-reason">' +
+              '<span class="backoffice-remark__label">・ 否認理由</span>' +
+              '<span class="backoffice-remark__reason-text">' + escapeHtml(store.store_disputed_reason || '') + '</span>' +
+            '</div>'
+          : '') +
+        (store.wholesaler_handover
+          ? '<div class="backoffice-remark__disputed-handover">' +
+              '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
+              '<div class="backoffice-remark__handover-readonly">' + escapeHtml(store.wholesaler_handover || '') + '</div>' +
+            '</div>'
+          : '') +
       '</div>';
     body.appendChild(handoverRow);
   }
@@ -1506,6 +1558,7 @@ function renderDetailLines_(lines, container) {
           rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
           closeModal();
           _detailCurrentInvoiceId = null;
+          _detailPendingToastMsg = '登録完了しました。';
           initDetailPage(parentInvoiceId);
         })
         .withFailureHandler(function (err) {
@@ -1521,6 +1574,7 @@ function renderDetailLines_(lines, container) {
         rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
         closeModal();
         _detailCurrentInvoiceId = null;
+        _detailPendingToastMsg = '登録完了しました。';
         initDetailPage(parentInvoiceId);
       }, 1500);
     }
@@ -1712,6 +1766,7 @@ function renderDetailLines_(lines, container) {
               return;
             }
             _detailCurrentInvoiceId = null;
+            _detailPendingToastMsg = '登録完了しました。';
             initDetailPage(parentInvoiceId);
           })
           .withFailureHandler(function (err) {
@@ -1724,6 +1779,7 @@ function renderDetailLines_(lines, container) {
         setTimeout(function () {
           hideLoadingOverlay();
           _detailCurrentInvoiceId = null;
+          _detailPendingToastMsg = '登録完了しました。';
           initDetailPage(parentInvoiceId);
         }, 1500);
       }

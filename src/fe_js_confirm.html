@@ -310,21 +310,21 @@ btnFinalSubmit.addEventListener('click', () => {
       if (cc && (!handovers[cc] || !handovers[cc].trim())) missingCodes.push(cc);
     });
     if (missingCodes.length > 0) {
-      // 未入力の handover textarea にエラー表示
+      // 未入力の handover textarea にエラー表示（アコーディオン内・否認理由の直前に警告バナーを表示）
       document.querySelectorAll('.confirm-handover-input[data-customer-code]').forEach(function (ta) {
         const cc = ta.dataset.customerCode;
-        const parentDiv = ta.closest('.backoffice-remark__disputed-handover');
+        const leftDiv = ta.closest('.backoffice-remark__disputed-left');
         if (missingCodes.indexOf(cc) !== -1) {
           ta.classList.add('confirm-handover-input--error');
           ta.setAttribute('aria-invalid', 'true');
           const errId = 'handover-err-' + cc;
           ta.setAttribute('aria-describedby', errId);
-          if (!ta.nextElementSibling || !ta.nextElementSibling.classList.contains('handover-validation-error')) {
-            const errSpan = document.createElement('div');
-            errSpan.className = 'handover-validation-error';
-            errSpan.id = errId;
-            errSpan.textContent = '※ 加盟店との合意内容を記入してください';
-            ta.insertAdjacentElement('afterend', errSpan);
+          if (leftDiv && !leftDiv.querySelector('.backoffice-remark__error-banner')) {
+            const banner = document.createElement('div');
+            banner.className = 'backoffice-remark__error-banner';
+            banner.id = errId;
+            banner.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i><span>「【必須】加盟店との合意内容」の項目が空欄です。</span>';
+            leftDiv.insertBefore(banner, leftDiv.firstChild);
           }
           // 対象アコーディオンを開く
           const accordion = ta.closest('.store-accordion');
@@ -337,9 +337,9 @@ btnFinalSubmit.addEventListener('click', () => {
           ta.classList.remove('confirm-handover-input--error');
           ta.removeAttribute('aria-invalid');
           ta.removeAttribute('aria-describedby');
-          if (parentDiv) {
-            const errEl = parentDiv.querySelector('.handover-validation-error');
-            if (errEl) errEl.remove();
+          if (leftDiv) {
+            const bannerEl = leftDiv.querySelector('.backoffice-remark__error-banner');
+            if (bannerEl) bannerEl.remove();
           }
         }
       });
@@ -374,7 +374,7 @@ btnFinalSubmit.addEventListener('click', () => {
           // 詳細画面への遷移直後はローディングオーバーレイ（z-index 9999）が
           // トースト（z-index 100）を覆い隠すため、_detailPendingToastMsg に退避し
           // 詳細データ取得・再描画完了後（initDetailPage 内）に表示する。
-          _detailPendingToastMsg = '登録完了しました';
+          _detailPendingToastMsg = '登録完了しました。';
           location.hash = '#detail?invoiceId=' + parentInvoiceId;
         })
         .withFailureHandler(function (err) {
@@ -395,7 +395,7 @@ btnFinalSubmit.addEventListener('click', () => {
         rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
         _isResubmitConfirm = false;
         _detailCurrentInvoiceId = null;
-        _detailPendingToastMsg = '登録完了しました';
+        _detailPendingToastMsg = '登録完了しました。';
         location.hash = '#detail?invoiceId=' + parentInvoiceId;
       }, 1500);
     }
@@ -436,7 +436,7 @@ function onSubmitSuccess(result) {
   hideLoadingOverlay();
   location.hash = '#home';
 
-  showToast('登録完了しました', 'success');
+  showToast('登録完了しました。', 'success');
 }
 
 /**
@@ -774,8 +774,9 @@ function renderConfirmPage() {
           handoverTa.classList.remove('confirm-handover-input--error');
           handoverTa.removeAttribute('aria-invalid');
           handoverTa.removeAttribute('aria-describedby');
-          const errEl = handoverTa.nextElementSibling;
-          if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
+          const leftDiv = handoverTa.closest('.backoffice-remark__disputed-left');
+          const bannerEl = leftDiv && leftDiv.querySelector('.backoffice-remark__error-banner');
+          if (bannerEl) bannerEl.remove();
         });
       }
       body.appendChild(handoverDiv);

@@ -123,6 +123,22 @@ function getSessionToken_() {
 }
 
 /**
+ * ヘッダー表示用に、12文字以上の会社名を先頭10文字＋「...」＋末尾3文字に短縮する。
+ * 例: 「株式会社あいうえおかきくけこさしすせそ」→「株式会社あいうえおか...せそ」
+ * 短縮前の全文はヘッダーのドロップダウン内に別途表示する。
+ * @param {string} name
+ * @returns {string}
+ */
+function truncateWholesalerNameForHeader_(name) {
+  const str = String(name || '');
+  const THRESHOLD = 12;
+  const HEAD = 10;
+  const TAIL = 3;
+  if (str.length < THRESHOLD) return str;
+  return str.slice(0, HEAD) + '...' + str.slice(str.length - TAIL);
+}
+
+/**
  * アカウント情報APIのレスポンスを SessionStorage に保存する。
  * @param {Object} data - getAccountInfo() のレスポンス data フィールド
  */
@@ -142,8 +158,12 @@ function saveAccountInfo(data) {
   }
   // DOM更新は sessionStorage 保存の成否に関わらず実行する
   try {
+    const fullName = data.wholesaler_name || '―';
     const headerName = document.getElementById('headerWholesalerName');
-    if (headerName) headerName.textContent = data.wholesaler_name || '―';
+    if (headerName) headerName.textContent = truncateWholesalerNameForHeader_(fullName);
+    // ドロップダウン内には省略しない全文を表示する
+    const dropdownName = document.getElementById('headerStoreDropdownCompanyName');
+    if (dropdownName) dropdownName.textContent = fullName;
   } catch (e) {
     console.warn('[account] ヘッダー企業名の更新に失敗しました:', e);
   }
