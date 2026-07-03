@@ -123,19 +123,23 @@ function getSessionToken_() {
 }
 
 /**
- * ヘッダー表示用に、12文字以上の会社名を先頭10文字＋「...」＋末尾3文字に短縮する。
- * 例: 「株式会社あいうえおかきくけこさしすせそ」→「株式会社あいうえおか...せそ」
+ * ヘッダー表示用に、会社名を先頭10文字＋「...」＋末尾3文字（計16文字）に短縮する。
+ * 短縮後の文字数が元の文字数より長くなってしまう場合は短縮せず、そのまま返す
+ * （HEAD+ELLIPSIS+TAIL=16文字以下の会社名は短縮しても文字数が減らない/増えるため対象外）。
+ * 例: 「株式会社あいうえおかきくけこさしすせそ」（17文字以上）→「株式会社あいうえおか...せそ」（16文字）
  * 短縮前の全文はヘッダーのドロップダウン内に別途表示する。
  * @param {string} name
  * @returns {string}
  */
 function truncateWholesalerNameForHeader_(name) {
   const str = String(name || '');
-  const THRESHOLD = 12;
   const HEAD = 10;
   const TAIL = 3;
-  if (str.length < THRESHOLD) return str;
-  return str.slice(0, HEAD) + '...' + str.slice(str.length - TAIL);
+  const ELLIPSIS = '...';
+  const truncatedLength = HEAD + ELLIPSIS.length + TAIL; // 16
+  // 短縮後の文字数（truncatedLength）が元の文字数以上の場合は短縮の意味がないため、そのまま返す
+  if (str.length <= truncatedLength) return str;
+  return str.slice(0, HEAD) + ELLIPSIS + str.slice(str.length - TAIL);
 }
 
 /**
