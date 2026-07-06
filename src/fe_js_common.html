@@ -19,6 +19,25 @@ function generateClientErrorId_() {
 }
 
 /**
+ * エラーレポート送信用に URL からセッショントークンをマスクする。
+ * getSessionToken_() が読み取る2箇所（LPが付与するクエリ ?token=xxx、
+ * および後方互換のフラグメント #token=xxx）の両方をマスク対象とする。
+ * トークンはセッション認証に使える秘密情報のため、Slack通知本文に
+ * そのまま含めると漏えいにつながる（値のみ ["***"] に置換し、
+ * URL構造自体はデバッグ用に残す）。
+ *
+ * @param {string} url
+ * @returns {string} token= の値をマスクした URL
+ */
+function sanitizeUrlForErrorReport_(url) {
+  try {
+    return String(url || '').replace(/([?&#]token=)[^&]*/gi, '$1***');
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
  * ランタイムエラーを be_slack.js の reportClientError() へ中継する。
  * Who(卸情報)は FE 側にアカウント情報を保持するグローバル変数が存在しないため、
  * 既存の saveAccountInfo() が保存した SessionStorage の値をそのまま読む。
@@ -31,11 +50,12 @@ function generateClientErrorId_() {
 function reportClientError_(message, stack) {
   try {
     const clientErrorId = generateClientErrorId_();
+    const rawUrl = (typeof location !== 'undefined' ? location.href : '');
     const payload = {
       clientErrorId:  clientErrorId,
       message:        String(message || '(no message)'),
       stack:          String(stack || ''),
-      url:            (typeof location !== 'undefined' ? location.href : ''),
+      url:            sanitizeUrlForErrorReport_(rawUrl),
       ua:             (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
       wholesalerId:   sessionStorage.getItem('shiire_wholesaler_id')   || '',
       wholesalerName: sessionStorage.getItem('shiire_wholesaler_name') || '',
