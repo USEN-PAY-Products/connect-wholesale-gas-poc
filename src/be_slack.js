@@ -370,6 +370,20 @@ function escapeSlackText_(text) {
 // =============================================================================
 
 /**
+ * reportClientError() が受け取る payload.clientErrorId の許容パターン
+ * （英数字・ハイフン・アンダースコアのみ、1〜32文字）。
+ * FE の generateClientErrorId_() は8桁の16進文字列を生成するが、payload はブラウザ側で
+ * 自由に書き換え可能な入力のため、この前提が崩れた値がそのまま来る可能性がある。
+ * 特に空白を含む値を送られると、normalizeMessageForDedup_() の
+ * "[FE] <clientErrorId> " 接頭辞除去が /^\[FE\]\s+\S+\s+/（\S+ = 空白を含まない
+ * 前提）を使っているため除去が正しく行われず、同一エラーでも呼び出しごとに異なる
+ * 重複抑制キーになってしまう（＝重複抑制を容易に回避され、Slack通知スパムを
+ * 誘発し得る）。このパターンに一致しない値は信用せず、reportClientError() 内で
+ * サーバ側生成の8桁hex IDにフォールバックする。
+ */
+const CLIENT_ERROR_ID_PATTERN_ = /^[A-Za-z0-9_-]{1,32}$/;
+
+/**
  * フロントエンドの window.onerror / unhandledrejection から
  * google.script.run 経由で呼ばれる公開関数。受け取った内容を
  * logError_('FE', ...) に合流させ、以降は BE と同じ通知経路に乗せる。
@@ -384,6 +398,9 @@ function escapeSlackText_(text) {
  * 同様にブラウザ側は任意の長さの文字列を送信できるため、message/stack/url/ua に加え
  * wholesalerId/wholesalerName も、値がある場合のみ長さ上限（100文字）で切り詰めてから
  * context へ格納する（Slack Webhook送信ペイロードの肥大化による送信遅延・失敗を防ぐため）。
+ * clientErrorId のみは他フィールドと異なり、切り詰めではなく CLIENT_ERROR_ID_PATTERN_ に
+ * よる形式検証を行い、不一致の場合はサーバ側生成IDに全面的に差し替える（詳細は
+ * CLIENT_ERROR_ID_PATTERN_ のJSDoc参照）。
  *
  * @param {{ clientErrorId?: string, message?: string, stack?: string, url?: string, ua?: string, wholesalerId?: string, wholesalerName?: string }} payload
  * @param {string} [sessionToken] - 現状は未使用（Who は FE(sessionStorage) 由来の値をそのまま使う。
@@ -394,7 +411,14 @@ function escapeSlackText_(text) {
 function reportClientError(payload, sessionToken) {
   try {
     const p = payload || {};
-    const clientErrorId = String(p.clientErrorId || Utilities.getUuid().slice(0, 8)).slice(0, 32);
+    // payload.clientErrorId はブラウザ側で自由な文字列に書き換え可能なため、
+    // CLIENT_ERROR_ID_PATTERN_ に一致しない値（空白・Slack特殊記法・空文字・
+    // 過剰な長さ等）は信用せず、サーバ側生成の8桁hex IDに差し替える
+    // （重複抑制回避によるSlack通知スパムの防止）。
+    const rawClientErrorId = String(p.clientErrorId || '');
+    const clientErrorId = CLIENT_ERROR_ID_PATTERN_.test(rawClientErrorId)
+      ? rawClientErrorId
+      : Utilities.getUuid().slice(0, 8);
     const rawMessage = String(p.message || '(no message)').slice(0, 500);
     const message = '[FE] ' + clientErrorId + ' ' + rawMessage;
 

@@ -34,6 +34,11 @@
 //  14. reportClientError は wholesalerId/wholesalerName を message/stack/url/ua 同様
 //      長さ上限（100文字）で切り詰めてから context へ格納する（Slack Webhook送信ペイロード
 //      肥大化防止。falsy値はnullのまま維持される）
+//  15. reportClientError は payload.clientErrorId が CLIENT_ERROR_ID_PATTERN_
+//      （英数字・ハイフン・アンダースコアのみ、1〜32文字）に一致しない場合
+//      （空白混入・Slack特殊記法・過剰な長さ等）、信用せずサーバ側生成IDに
+//      差し替える（空白混入による normalizeMessageForDedup_ の重複抑制回避＝
+//      Slack通知スパムを防止する）
 // =============================================================================
 
 'use strict';
@@ -1055,4 +1060,121 @@ test('reportClientError: wholesalerId/wholesalerName が100文字以下の場合
   const text = sentPayload.blocks[0].text.text;
   assert.match(text, /wholesaler_id=789/);
   assert.match(text, /通常の卸名株式会社/);
+});
+
+// =============================================================================
+// 検証15: reportClientError の payload.clientErrorId 検証（不正値のサーバ側フォールバック）
+//
+// payload.clientErrorId はブラウザ側で自由に書き換え可能な入力のため、
+// normalizeMessageForDedup_() が前提とする「空白を含まない」（\S+）という制約から
+// 外れた値（空白混入・Slack特殊記法・過剰な長さ等）を送られると、"[FE] <clientErrorId> "
+// 接頭辞の除去が正しく行われず、同一エラーでも呼び出しごとに異なる重複抑制キーになって
+// しまう（＝重複抑制を容易に回避され、Slack通知スパムを誘発し得る）。
+// CLIENT_ERROR_ID_PATTERN_（英数字・ハイフン・アンダースコアのみ、1〜32文字）に
+// 一致しない値は、reportClientError() 内でサーバ側生成の8桁hex IDに差し替えられる。
+// なお、テスト環境の Utilities.getUuid() モックは常に固定値
+// '00000000-0000-0000-0000-000000000000' を返すため、フォールバック後のIDは
+// 常に '00000000' になる（本テストではこれを利用し、フォールバックの発生自体と、
+// フォールバック後は正しく重複抑制が機能することの両方を確認する）。
+// =============================================================================
+
+test('reportClientError: clientErrorIdに空白が含まれる場合、生の値は使われずサーバ側生成IDに差し替えられる', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  sandbox.reportClientError({
+    clientErrorId: 'evil id',
+    message: 'テストエラー',
+  }, null);
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, /evil id/, '空白を含む不正なclientErrorIdがそのまま本文に使われてはいけない');
+  assert.match(text, /\[FE\] 00000000 /, 'サーバ側生成ID（テスト環境では固定値00000000）に差し替えられるべき');
+});
+
+test('reportClientError: 空白混入の不正なclientErrorIdを使ってもSlack通知スパム（重複抑制回避）は成立しない（本修正の主目的）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  // 攻撃者が毎回異なる空白混入clientErrorIdを送り、重複抑制キーをずらそうとするケースを模擬する。
+  // 修正前は \S+ 前提が崩れて正規化に失敗し、3回とも別キー扱いでSlackへ送信されてしまっていた。
+  sandbox.reportClientError({ clientErrorId: 'evil id 1', message: '同一エラー本文' }, null);
+  sandbox.reportClientError({ clientErrorId: 'evil id 2222', message: '同一エラー本文' }, null);
+  sandbox.reportClientError({ clientErrorId: 'totally different spammy id here', message: '同一エラー本文' }, null);
+
+  assert.equal(
+    sandbox.__fetchCalls.length,
+    1,
+    '不正なclientErrorIdはサーバ側生成IDに差し替えられ正しく正規化されるため、同一エラーの連続通知はレートリミットされ1回のみ送信されるはず'
+  );
+});
+
+test('reportClientError: clientErrorIdにSlack特殊記法など空白以外の禁止文字が含まれる場合もサーバ側生成IDに差し替えられる', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  sandbox.reportClientError({
+    clientErrorId: '<!channel>',
+    message: 'テストエラー',
+  }, null);
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, /channel/i, '許可文字（英数字・ハイフン・アンダースコア）以外を含む不正なclientErrorIdが使われてはいけない');
+  assert.match(text, /\[FE\] 00000000 /, 'サーバ側生成IDに差し替えられるべき');
+});
+
+test('reportClientError: clientErrorIdが32文字を超える場合もサーバ側生成IDに差し替えられる', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  const tooLongId = 'a'.repeat(40);
+
+  sandbox.reportClientError({
+    clientErrorId: tooLongId,
+    message: 'テストエラー',
+  }, null);
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, new RegExp('a'.repeat(33)), '32文字を超える不正なclientErrorIdがそのまま使われてはいけない');
+  assert.match(text, /\[FE\] 00000000 /, 'サーバ側生成IDに差し替えられるべき');
+});
+
+test('reportClientError: 有効な形式（英数字のみ・32文字以下）のclientErrorIdはそのまま使われる（回帰確認）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  sandbox.reportClientError({
+    clientErrorId: 'a1b2c3d4',
+    message: 'テストエラー',
+  }, null);
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.match(text, /\[FE\] a1b2c3d4 /, '有効なclientErrorIdはそのまま本文に使われるべき（サーバ側IDに差し替えられない）');
+});
+
+test('reportClientError: clientErrorId が空文字・未指定の場合は従来通りサーバ側生成IDにフォールバックする（回帰確認）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  sandbox.reportClientError({ clientErrorId: '', message: 'エラーA' }, null);
+  sandbox.reportClientError({ message: 'エラーB' }, null); // clientErrorId未指定
+
+  assert.equal(sandbox.__fetchCalls.length, 2, 'messageが異なるため両方送信されるはず');
+  const text1 = JSON.parse(sandbox.__fetchCalls[0].params.payload).blocks[0].text.text;
+  const text2 = JSON.parse(sandbox.__fetchCalls[1].params.payload).blocks[0].text.text;
+  assert.match(text1, /\[FE\] 00000000 /, '空文字のclientErrorIdはサーバ側生成IDにフォールバックするべき（従来通り）');
+  assert.match(text2, /\[FE\] 00000000 /, 'clientErrorId未指定時もサーバ側生成IDにフォールバックするべき（従来通り）');
 });
