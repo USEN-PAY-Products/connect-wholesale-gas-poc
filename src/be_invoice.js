@@ -745,12 +745,13 @@ function assertWholesalerActive_(accountInfo, actionLabel) {
  * @returns {{ status: 'success', data: Object }}
  */
 function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover, sessionToken) {
-  // finally から参照するため try 外で先行宣言（staging の後始末に使用）
+  // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
   let projectId = null;
   let datasetId = null;
+  let accountInfo = null;
   try {
-    const accountInfo = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
 
     assertWholesalerActive_(accountInfo);
@@ -892,7 +893,13 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     logInfo_('Invoice', 'resubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
   } catch (err) {
-    logError_('Invoice', 'resubmitInvoiceData', err);
+    logError_('Invoice', 'resubmitInvoiceData', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      parentInvoiceId: parentInvoiceId,
+      storeInvoiceId: storeInvoiceId,
+      actionLabel: '再請求（CSV再アップロード）',
+    });
     throw err;
   } finally {
     // staging テーブルを DROP（成功・失敗にかかわらず実行）。
@@ -902,7 +909,12 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
       try {
         dropStagingTable_(projectId, datasetId, stagingId);
       } catch (dropErr) {
-        logError_('Invoice', 'resubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
+        logError_('Invoice', 'resubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr, {
+          wholesalerId: accountInfo && accountInfo.wholesaler_id,
+          wholesalerName: accountInfo && accountInfo.wholesaler_name,
+          stagingId: stagingId,
+          actionLabel: '再請求（CSV再アップロード）',
+        });
       }
     }
   }
@@ -1103,12 +1115,13 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
  * @returns {{ status: 'success', data: Object }}
  */
 function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers, sessionToken) {
-  // finally から参照するため try 外で先行宣言（staging の後始末に使用）
+  // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
   let projectId = null;
   let datasetId = null;
+  let accountInfo = null;
   try {
-    const accountInfo = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
 
     assertWholesalerActive_(accountInfo);
@@ -1259,7 +1272,12 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     logInfo_('Invoice', 'bulkResubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
   } catch (err) {
-    logError_('Invoice', 'bulkResubmitInvoiceData', err);
+    logError_('Invoice', 'bulkResubmitInvoiceData', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      parentInvoiceId: parentInvoiceId,
+      actionLabel: '一括再請求（CSV再アップロード）',
+    });
     throw err;
   } finally {
     // staging テーブルを DROP（成功・失敗にかかわらず実行）。
@@ -1269,7 +1287,12 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
       try {
         dropStagingTable_(projectId, datasetId, stagingId);
       } catch (dropErr) {
-        logError_('Invoice', 'bulkResubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
+        logError_('Invoice', 'bulkResubmitInvoiceData staging DROP 失敗（手動削除が必要）', dropErr, {
+          wholesalerId: accountInfo && accountInfo.wholesaler_id,
+          wholesalerName: accountInfo && accountInfo.wholesaler_name,
+          stagingId: stagingId,
+          actionLabel: '一括再請求（CSV再アップロード）',
+        });
       }
     }
   }
@@ -1308,13 +1331,15 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  */
 function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sessionToken) {
   const totalStart = Date.now();
-  // finally から参照するため try 外で先行宣言（staging の後始末に使用）
+  // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
   let projectId = null;
   let datasetId = null;
+  let accountInfo = null;
+  let invoiceUuid = null;
   try {
     // ── サーバー側から卸情報を取得（改ざん不可）──────────────────────────
-    const accountInfo = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', merchantTotals_count=' + (summaryData && summaryData.merchantTotals ? summaryData.merchantTotals.length : 0));
     const mappings    = accountInfo.merchant_mappings || [];
 
@@ -1373,7 +1398,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
     validateTaxAdjustment_(csvText, summaryData, accountInfo.csv_format_rules, accountInfo.tax_rounding_method || 'floor');
 
     // ── UUID 生成（全テーブルの結合キー）──────────────────────────────────
-    const invoiceUuid = Utilities.getUuid();
+    invoiceUuid = Utilities.getUuid();
 
     // 金額桁数バリデーション（DDL制約ベースのサーバー側防御）
     validateAmountDigits_(summaryData);
@@ -1435,7 +1460,12 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
     logInfo_('Invoice', 'sendInvoiceData 完了: invoiceUuid=' + invoiceUuid + ', total=' + (Date.now() - totalStart) + 'ms');
     return success_({ csv_url: csvUrl, invoice_uuid: invoiceUuid });
   } catch (err) {
-    logError_('Invoice', 'sendInvoiceData', err);
+    logError_('Invoice', 'sendInvoiceData', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      invoiceUuid: invoiceUuid,
+      actionLabel: '新規請求登録',
+    });
     throw err;
   } finally {
     // staging テーブルを DROP（成功・失敗にかかわらず実行）。
@@ -1447,7 +1477,13 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
         dropStagingTable_(projectId, datasetId, stagingId);
         logInfo_('Invoice', 'sendInvoiceData staging DROP完了: ' + (Date.now() - dropStart) + 'ms');
       } catch (dropErr) {
-        logError_('Invoice', 'sendInvoiceData staging DROP 失敗（手動削除が必要）', dropErr);
+        logError_('Invoice', 'sendInvoiceData staging DROP 失敗（手動削除が必要）', dropErr, {
+          wholesalerId: accountInfo && accountInfo.wholesaler_id,
+          wholesalerName: accountInfo && accountInfo.wholesaler_name,
+          invoiceUuid: invoiceUuid,
+          stagingId: stagingId,
+          actionLabel: '新規請求登録',
+        });
       }
     }
   }
@@ -1470,10 +1506,13 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
  * @returns {{ status: 'success', data: Object }}
  */
 function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
+  let wholesalerId = null;
   try {
-    const accountInfo  = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'resubmitWithoutChanges 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
-    const wholesalerId = accountInfo.wholesaler_id;
+    wholesalerId = accountInfo.wholesaler_id;
 
     assertWholesalerActive_(accountInfo);
 
@@ -1522,7 +1561,13 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
     logInfo_('Invoice', 'resubmitWithoutChanges 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
-    logError_('Invoice', 'resubmitWithoutChanges', err);
+    logError_('Invoice', 'resubmitWithoutChanges', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      parentInvoiceId: parentInvoiceId,
+      storeInvoiceId: storeInvoiceId,
+      actionLabel: '変更なし再請求',
+    });
     throw err;
   }
 }
@@ -1542,8 +1587,10 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
 function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
-    const accountInfo  = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'withdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
@@ -1656,7 +1703,13 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
     logInfo_('Invoice', 'withdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
-    logError_('Invoice', 'withdrawStoreInvoice', err);
+    logError_('Invoice', 'withdrawStoreInvoice', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      parentInvoiceId: parentInvoiceId,
+      storeInvoiceId: storeInvoiceId,
+      actionLabel: '請求取下げ',
+    });
     throw err;
   }
 }
@@ -1671,8 +1724,10 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
 function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
-    const accountInfo  = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
@@ -1795,7 +1850,13 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken)
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
-    logError_('Invoice', 'undoWithdrawStoreInvoice', err);
+    logError_('Invoice', 'undoWithdrawStoreInvoice', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      parentInvoiceId: parentInvoiceId,
+      storeInvoiceId: storeInvoiceId,
+      actionLabel: '請求取下げの取消',
+    });
     throw err;
   }
 }
@@ -1814,15 +1875,21 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken)
  * @returns {{ status: 'success', data: Array<Object> }}
  */
 function fetchInvoices(sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
-    const accountInfo  = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'fetchInvoices 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
     const wholesalerId = accountInfo.wholesaler_id;
     const result = fetchInvoicesByWholesaler_(wholesalerId);
     logInfo_('Invoice', 'fetchInvoices 完了: 取得件数=' + (result ? result.length : 0));
     return success_(result);
   } catch (err) {
-    logError_('Invoice', 'fetchInvoices', err);
+    logError_('Invoice', 'fetchInvoices', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      actionLabel: '請求一覧取得',
+    });
     throw err;
   }
 }
@@ -1842,9 +1909,11 @@ function fetchInvoices(sessionToken) {
  * @returns {{ status: 'success', data: { summary: Object, stores: Array<Object> } | null }}
  */
 function fetchInvoiceDetail(invoiceId, sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
     if (!invoiceId) throw new Error('invoiceId が指定されていません');
-    const accountInfo  = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
+    accountInfo = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
     logInfo_('Invoice', 'fetchInvoiceDetail 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', invoiceId=' + invoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
     const summary = fetchInvoiceDetailSummary_(invoiceId, wholesalerId);
@@ -1856,7 +1925,12 @@ function fetchInvoiceDetail(invoiceId, sessionToken) {
     logInfo_('Invoice', 'fetchInvoiceDetail 完了: stores_count=' + (stores ? stores.length : 0));
     return success_({ summary: summary, stores: stores });
   } catch (err) {
-    logError_('Invoice', 'fetchInvoiceDetail', err);
+    logError_('Invoice', 'fetchInvoiceDetail', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      invoiceUuid: invoiceId,
+      actionLabel: '請求詳細取得',
+    });
     throw err;
   }
 }
@@ -1870,16 +1944,23 @@ function fetchInvoiceDetail(invoiceId, sessionToken) {
  * @returns {{ status: 'success', data: Array<Object> }}
  */
 function getInvoiceLinesByStore(storeInvoiceId, sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
     if (!storeInvoiceId) throw new Error('storeInvoiceId が指定されていません');
-    const accountInfo  = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
+    accountInfo = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
     logInfo_('Invoice', 'getInvoiceLinesByStore 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
     const result = fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId);
     logInfo_('Invoice', 'getInvoiceLinesByStore 完了: 取得件数=' + (result ? result.length : 0));
     return success_(result);
   } catch (err) {
-    logError_('Invoice', 'getInvoiceLinesByStore', err);
+    logError_('Invoice', 'getInvoiceLinesByStore', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      storeInvoiceId: storeInvoiceId,
+      actionLabel: '請求明細取得',
+    });
     throw err;
   }
 }
@@ -1895,15 +1976,21 @@ function getInvoiceLinesByStore(storeInvoiceId, sessionToken) {
  * @returns {{ status: 'success', data: Array }}
  */
 function fetchScheduleData(sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
-    const accountInfo  = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'fetchScheduleData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
     const wholesalerId = accountInfo.wholesaler_id;
     const rows = fetchBusinessCalendar_(wholesalerId);
     logInfo_('Invoice', 'fetchScheduleData 完了: 取得件数=' + (rows ? rows.length : 0));
     return success_(rows || []);
   } catch (err) {
-    logError_('Invoice', 'fetchScheduleData', err);
+    logError_('Invoice', 'fetchScheduleData', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      actionLabel: 'スケジュール取得',
+    });
     throw err;
   }
 }

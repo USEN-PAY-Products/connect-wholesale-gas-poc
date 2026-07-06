@@ -22,6 +22,8 @@
  * @returns {GoogleAppsScript.Content.TextOutput} JSON
  */
 function doPost(e) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
     const contents = (e && e.postData && e.postData.contents) || '';
     let idToken = '';
@@ -45,13 +47,17 @@ function doPost(e) {
     const email = info.email;
     if (!email) throw new Error('emailなし');
 
-    const accountInfo = getServerAccountInfo_(email);
+    accountInfo = getServerAccountInfo_(email);
     const sessionToken = Utilities.getUuid().replace(/-/g, '');
     CacheService.getScriptCache().put('shiire_session:' + sessionToken, email, 21600); // 6h
     logInfo_('Auth', 'doPost認証成功: wholesaler_id=' + accountInfo.wholesaler_id);
     return jsonOutput_({ status: 'success', sessionToken: sessionToken, data: accountInfo });
   } catch (err) {
-    logError_('Auth', 'doPost', err);
+    logError_('Auth', 'doPost', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      actionLabel: '外部ログイン認証',
+    });
     const msg = String(err.message || '');
     if (msg.startsWith('NOT_REGISTERED:')) {
       // BQ に未登録 → 専用メッセージで区別

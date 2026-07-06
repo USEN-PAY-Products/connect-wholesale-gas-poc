@@ -9,7 +9,8 @@
   "scripts": {
     "push:local": "cp .clasp-local.json .clasp.json && clasp push",
     "push:dev": "cp .clasp-dev.json .clasp.json && clasp push",
-    "push:prod": "cp .clasp-prod.json .clasp.json && clasp push"
+    "push:prod": "cp .clasp-prod.json .clasp.json && clasp push",
+    "test": "node --test test/"
   },
   "engines": {
     "node": ">=20.0.0"

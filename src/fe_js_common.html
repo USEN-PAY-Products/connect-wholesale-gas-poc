@@ -1,4 +1,81 @@
 <script>
+// =============================================================================
+// グローバルエラーハンドラ（ランタイムエラー Slack 通知: FE側リレー）
+// 設計: docs/plan/runtime_error_slack_notification_design.md §8
+// 全 fe_js_*.html 中、本ファイル(fe_js_common.html)が最初に読み込まれるため、
+// 以降にロードされる全JSのエラーを捕捉できるよう、ファイル冒頭に配置する。
+// =============================================================================
+
+/**
+ * Cloud Logging 検索・Slack通知本文への埋め込み用に、8桁hexのランダムIDを生成する。
+ * @returns {string} 8桁の16進文字列
+ */
+function generateClientErrorId_() {
+  let id = '';
+  for (let i = 0; i < 8; i++) {
+    id += Math.floor(Math.random() * 16).toString(16);
+  }
+  return id;
+}
+
+/**
+ * ランタイムエラーを be_slack.js の reportClientError() へ中継する。
+ * Who(卸情報)は FE 側にアカウント情報を保持するグローバル変数が存在しないため、
+ * 既存の saveAccountInfo() が保存した SessionStorage の値をそのまま読む。
+ * failureHandler は console.error のみで、再度エラー通知をトリガーする処理は行わない
+ * （無限ループ防止）。
+ *
+ * @param {string} message
+ * @param {string} [stack]
+ */
+function reportClientError_(message, stack) {
+  try {
+    const clientErrorId = generateClientErrorId_();
+    const payload = {
+      clientErrorId:  clientErrorId,
+      message:        String(message || '(no message)'),
+      stack:          String(stack || ''),
+      url:            (typeof location !== 'undefined' ? location.href : ''),
+      ua:             (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
+      wholesalerId:   sessionStorage.getItem('shiire_wholesaler_id')   || '',
+      wholesalerName: sessionStorage.getItem('shiire_wholesaler_name') || '',
+    };
+    console.error('[error] clientErrorId=' + clientErrorId + ' ' + payload.message);
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withFailureHandler(function (err) {
+          console.error('[error] reportClientError の送信に失敗しました:', err);
+        })
+        .reportClientError(payload, getSessionToken_());
+    }
+  } catch (e) {
+    // グローバルエラーハンドラ自体の失敗はコンソールに残すのみ（アプリの動作に影響を与えない）。
+    console.error('[error] エラーレポート処理自体が失敗しました:', e);
+  }
+}
+
+window.addEventListener('error', function (event) {
+  try {
+    const err = event && event.error;
+    const message = (err && err.message) || (event && event.message) || '(unknown error)';
+    const stack = (err && err.stack) || '';
+    reportClientError_(message, stack);
+  } catch (e) {
+    console.error('[error] window.onerror ハンドラが失敗しました:', e);
+  }
+});
+
+window.addEventListener('unhandledrejection', function (event) {
+  try {
+    const reason = event && event.reason;
+    const message = (reason && reason.message) || String(reason || '(unknown rejection)');
+    const stack = (reason && reason.stack) || '';
+    reportClientError_(message, stack);
+  } catch (e) {
+    console.error('[error] unhandledrejection ハンドラが失敗しました:', e);
+  }
+});
+
 // ---- utils.js ----
 /**
  * sessionStorage の tax_rounding_method に応じて消費税を丸める。
