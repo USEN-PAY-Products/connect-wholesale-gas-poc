@@ -82,8 +82,30 @@ function shouldNotifySlack_(err) {
 const SLACK_DEDUP_TTL_SECONDS_ = 60;
 
 /**
- * 直近 SLACK_DEDUP_TTL_SECONDS_ 秒以内に同一 tag・同一 message の通知が
- * 既に行われたかどうかを CacheService で判定する。
+ * 重複抑制キー生成用に message を正規化する。
+ * FE 由来のメッセージは reportClientError() で
+ * '[FE] <clientErrorId> <rawMessage>' という形式に組み立てられるが、
+ * clientErrorId は呼び出しごとに異なるランダムな値（FE の generateClientErrorId_()、
+ * もしくは未指定時は BE 側で生成する UUID 先頭8桁）のため、これを含めたまま
+ * message.slice(0, 50) で先頭50文字を切り出すと、同一エラーが短時間に連続発生しても
+ * 毎回別キー扱いになり、重複抑制が実質的に機能しない。
+ * tag === 'FE' の場合のみ先頭の '[FE] <clientErrorId> ' 部分を取り除き、
+ * rawMessage 相当の文字列を返す（tag !== 'FE' の場合は message をそのまま返す）。
+ *
+ * @param {string} tag
+ * @param {string} message
+ * @returns {string} 重複抑制キーの生成に使う正規化済み文字列
+ */
+function normalizeMessageForDedup_(tag, message) {
+  const msg = String(message || '');
+  if (tag !== 'FE') return msg;
+  return msg.replace(/^\[FE\]\s+\S+\s+/, '');
+}
+
+/**
+ * 直近 SLACK_DEDUP_TTL_SECONDS_ 秒以内に同一 tag・同一 message
+ * （FE の場合は normalizeMessageForDedup_ で clientErrorId を取り除いた正規化後の文字列）
+ * の通知が既に行われたかどうかを CacheService で判定する。
  * Cache 障害時は「抑制しない」側に倒す（通知の取りこぼしより多少の重複を許容）。
  *
  * @param {string} tag
@@ -92,7 +114,8 @@ const SLACK_DEDUP_TTL_SECONDS_ = 60;
  */
 function isDuplicateRecent_(tag, message) {
   try {
-    const key = 'slack_dedup:' + String(tag) + ':' + String(message).slice(0, 50);
+    const normalized = normalizeMessageForDedup_(tag, message);
+    const key = 'slack_dedup:' + String(tag) + ':' + normalized.slice(0, 50);
     const cache = CacheService.getScriptCache();
     if (cache.get(key)) return true;
     cache.put(key, '1', SLACK_DEDUP_TTL_SECONDS_);
@@ -287,6 +310,32 @@ function notifySlackError_(tag, message, err, context) {
 }
 
 // =============================================================================
+// Slack特殊記法のエスケープ
+// =============================================================================
+
+/**
+ * Slack mrkdwn の特殊記法（<!channel>・<!here> 等のメンション、<@U.../> のような
+ * ユーザー参照、<url|label> 形式のリンク）としての意図しない展開を防ぐため、
+ * Slack公式の推奨に従い &, <, > をエスケープする。
+ * 変換順序が重要（& を最初にエスケープしないと、<, > のエスケープ結果に含まれる
+ * & まで二重エスケープしてしまう）。
+ *
+ * reportClientError() が受け取る payload はブラウザ（クライアント）側で自由に
+ * 内容を書き換えて送信できるため、Error/context に格納する前に本関数を通し、
+ * 値の中に <!channel> や <@U...> のような文字列が含まれていても Slack 側で
+ * メンション/リンクとして解釈されないようにする。
+ *
+ * @param {*} text
+ * @returns {string} エスケープ済み文字列（null/undefined は空文字扱い）
+ */
+function escapeSlackText_(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// =============================================================================
 // FE エラー受信（公開関数）
 // =============================================================================
 
@@ -294,6 +343,11 @@ function notifySlackError_(tag, message, err, context) {
  * フロントエンドの window.onerror / unhandledrejection から
  * google.script.run 経由で呼ばれる公開関数。受け取った内容を
  * logError_('FE', ...) に合流させ、以降は BE と同じ通知経路に乗せる。
+ *
+ * payload の各フィールドはブラウザ側で自由に改ざん可能な入力のため、
+ * Slack mrkdwn 本文に埋め込まれる前提で escapeSlackText_() を通してから
+ * Error/context に格納する（<!channel> や <@U...> のようなメンション/リンク
+ * 注入を防止するため）。
  *
  * @param {{ clientErrorId?: string, message?: string, stack?: string, url?: string, ua?: string, wholesalerId?: string, wholesalerName?: string }} payload
  * @param {string} [sessionToken] - 現状は未使用（Who は FE(sessionStorage) 由来の値をそのまま使う。
@@ -304,19 +358,19 @@ function notifySlackError_(tag, message, err, context) {
 function reportClientError(payload, sessionToken) {
   try {
     const p = payload || {};
-    const clientErrorId = String(p.clientErrorId || Utilities.getUuid().slice(0, 8)).slice(0, 32);
-    const rawMessage = String(p.message || '(no message)').slice(0, 500);
+    const clientErrorId = escapeSlackText_(String(p.clientErrorId || Utilities.getUuid().slice(0, 8)).slice(0, 32));
+    const rawMessage = escapeSlackText_(String(p.message || '(no message)').slice(0, 500));
     const message = '[FE] ' + clientErrorId + ' ' + rawMessage;
 
     const err = new Error(message);
-    err.stack = String(p.stack || '').slice(0, 2000);
+    err.stack = escapeSlackText_(String(p.stack || '').slice(0, 2000));
 
     const context = {
-      wholesalerId:   p.wholesalerId || null,
-      wholesalerName: p.wholesalerName || null,
+      wholesalerId:   p.wholesalerId   ? escapeSlackText_(String(p.wholesalerId))   : null,
+      wholesalerName: p.wholesalerName ? escapeSlackText_(String(p.wholesalerName)) : null,
       actionLabel:    'フロントエンドエラー',
-      url:            String(p.url || '').slice(0, 300),
-      ua:             String(p.ua || '').slice(0, 300),
+      url:            escapeSlackText_(String(p.url || '').slice(0, 300)),
+      ua:             escapeSlackText_(String(p.ua || '').slice(0, 300)),
     };
 
     logError_('FE', message, err, context);
