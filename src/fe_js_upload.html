@@ -334,8 +334,13 @@ function handleFile(file) {
       try {
         const mappings = getMerchantMappings();
         const csvCustomerCodes = new Set(rows.map(r => String(r.customer_code)));
+        // リレーションテーブル（merchant_mappings）に同一 customer_code の重複行が
+        // 混入していた場合でも、同じ警告メッセージを複数回出さないようにする防御。
+        const warnedCustomerCodes = new Set();
         mappings.forEach(m => {
-          if (m.is_active !== false && !csvCustomerCodes.has(String(m.customer_code))) {
+          const cc = String(m.customer_code);
+          if (m.is_active !== false && !csvCustomerCodes.has(cc) && !warnedCustomerCodes.has(cc)) {
+            warnedCustomerCodes.add(cc);
             warnings.push((m.store_name || m.customer_code) + 'の請求明細がありません。');
           }
         });
