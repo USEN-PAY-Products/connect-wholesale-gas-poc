@@ -20,6 +20,12 @@
 //   7. reportClientError が受け取るpayloadのSlack特殊記法（<!channel>等）をエスケープする
 //   8. Cacheが正常な場合、レートリミット（60秒以内の同一tag・同一messageの重複抑制）が
 //      意図通り機能し、tag・messageいずれかが異なる場合は誤って抑制しない
+//   9. buildSlackBlocks_ が ctx.wholesalerId/ctx.wholesalerName をエスケープする
+//      （be_invoice.js 等の BE 呼び出し元から BigQuery 由来の wholesaler_name がそのまま
+//      渡ってくる経路も対象）し、かつ FE 経由（reportClientError）で二重エスケープしない
+//  10. buildSlackBlocks_ が message/err.message/err.stack もエスケープする
+//      （CSVアップロード内容やFE入力由来の例外メッセージも対象）し、
+//      かつ FE 経由（reportClientError）で二重エスケープしない
 // =============================================================================
 
 'use strict';
@@ -412,12 +418,14 @@ test('notifySlackError_: FEタグでも rawMessage が異なれば別エラー�
 });
 
 // =============================================================================
-// 検証7: Slack特殊記法のエスケープ（reportClientError）
+// 検証7: Slack特殊記法のエスケープ（reportClientError 経由の FEパス）
 //
-// reportClientError() が受け取る payload はブラウザ側で自由に改ざん可能なため、
-// message/stack/wholesalerName 等の値に <!channel> や <@U...> のような Slack の
+// reportClientError() が受け取るpayloadはブラウザ側で自由に改ざん可能なため、
+// message/stack 等の値に <!channel> や <@U...> のような Slack の
 // 特殊記法が含まれていても、Slack投稿時にメンション/リンクとして展開されないよう
 // escapeSlackText_() でエスケープしてから Error/context に格納されている必要がある。
+// wholesalerId/wholesalerName のエスケープは buildSlackBlocks_ 側で一元化されているため
+// （検証9で別途確認）、ここでは message/stack のエスケープを中心に検証する。
 // =============================================================================
 
 test('escapeSlackText_: &, <, > をこの順序で正しくエスケープする（&を先に処理しないと二重エスケープする）', () => {
@@ -594,4 +602,182 @@ test('notifySlackError_: Cacheが正常な場合でも、messageが異なれば�
   sandbox.notifySlackError_('Invoice', 'Drive フォルダの作成に失敗しました', err2, {});
 
   assert.equal(sandbox.__fetchCalls.length, 2, 'messageが異なる別エラーはレートリミットされず、両方送信されるべき');
+});
+
+// =============================================================================
+// 検証9: BE側コンテキスト（ctx.wholesalerId / ctx.wholesalerName）のエスケープ
+//
+// be_invoice.js・be_auth.js・be_server.js 等の BE 呼び出し元は、BigQuery から取得した
+// accountInfo.wholesaler_name を一切エスケープせず、そのまま context.wholesalerName として
+// logError_(tag, message, err, context) → notifySlackError_ → buildSlackBlocks_ に渡している。
+// 卸名がDB上で任意の文字列になり得る前提に立つと、<!channel> や <@U...> のような
+// Slack特殊記法が卸名に含まれた場合、buildSlackBlocks_ 側でエスケープしなければ
+// 意図しないメンション/リンク展開（通知荒らし）が起き得る。
+// reportClientError（FEパス）は既にpayload側でmessage/stackをエスケープ済みだが、
+// wholesalerId/wholesalerNameは「呼び出し元では二重エスケープしない」設計に変更したため、
+// ここでは be_invoice.js 等と同様に notifySlackError_ を「BE呼び出し元」として直接叩き、
+// 生のcontextからでもエスケープされることを確認する。
+// =============================================================================
+
+test('notifySlackError_: BE由来context（DB由来のwholesalerName）に <!channel> が含まれてもエスケープされる（be_invoice.js等のBE呼び出しパターンを模擬）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  const err = makeSandboxError(sandbox, 'BigQuery のクエリでエラーが発生しました');
+
+  // be_invoice.js 等の実装同様、wholesalerName は accountInfo.wholesaler_name を
+  // 一切加工せず context にそのまま渡す想定（呼び出し元は何もエスケープしない）。
+  sandbox.notifySlackError_('Invoice', 'BigQuery のクエリでエラーが発生しました', err, {
+    wholesalerId: 123,
+    wholesalerName: '<!channel> 悪意ある卸名',
+    actionLabel: '請求書登録',
+  });
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, /<!channel>/, 'DB由来のwholesalerNameに含まれる生の<!channel>がSlack本文に含まれてはいけない');
+  assert.match(text, /&lt;!channel&gt;/, 'エスケープ済みの &lt;!channel&gt; が本文に含まれるべき');
+});
+
+test('notifySlackError_: BE由来context の wholesalerName に <@U...> メンションが含まれてもエスケープされる', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  const err = makeSandboxError(sandbox, '予期しないエラーが発生しました');
+
+  sandbox.notifySlackError_('Auth', '予期しないエラーが発生しました', err, {
+    wholesalerId: 456,
+    wholesalerName: '<@U99999|なりすまし卸>',
+  });
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, /<@U99999/, '生のユーザーメンション記法がSlack本文に含まれてはいけない');
+  assert.match(text, /&lt;@U99999\|なりすまし卸&gt;/);
+});
+
+test('notifySlackError_: BE由来context の wholesalerId（数値）もエスケープ関数を通しても壊れず正しく表示される', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  const err = makeSandboxError(sandbox, 'BigQuery のクエリでエラーが発生しました');
+
+  // wholesalerId は accountInfo.wholesaler_id 由来で通常は数値（文字列化されていない）。
+  // escapeSlackText_ に数値をそのまま渡しても例外にならず、想定通りの文字列になることを確認する。
+  sandbox.notifySlackError_('Invoice', 'BigQuery のクエリでエラーが発生しました', err, {
+    wholesalerId: 789,
+    wholesalerName: '通常の卸名株式会社',
+  });
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.match(text, /wholesaler_id=789/);
+  assert.match(text, /通常の卸名株式会社/);
+});
+
+test('reportClientError: wholesalerName のエスケープが二重に行われない（buildSlackBlocks_への一元化後の回帰確認）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  sandbox.reportClientError({
+    clientErrorId: 'abcd1234',
+    message: 'テストエラー',
+    wholesalerName: '<@U12345|malicious>',
+  }, null);
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  // 二重エスケープされていれば "&amp;lt;" のような文字列になるはずだが、
+  // buildSlackBlocks_ による一元エスケープ（1回だけ）なのでそれは発生しないはず。
+  assert.doesNotMatch(text, /&amp;lt;/, 'wholesalerNameが二重エスケープされてはいけない（&amp;lt; になっていないこと）');
+  assert.match(text, /&lt;@U12345\|malicious&gt;/, '1回だけエスケープされた &lt;@U12345\|malicious&gt; が含まれるべき');
+});
+// =============================================================================
+// 検証10: エラー内容（message / err.message / err.stack）のエスケープ
+//
+// buildSlackBlocks_ は "❗ エラー内容" 行で err.message / err.stack を、"📍 発生箇所" 行で
+// message を本文に埋め込む。be_invoice.js の validateCsvHeader_ のように、アップロードされた
+// CSVのヘッダーセル値をそのまま Error に埋め込む呼び出しパターンが存在するため、
+// err.message/err.stack に <!channel> や <@U...> のような Slack 特殊記法が
+// 含まれていても、buildSlackBlocks_ でエスケープしなければ意図しないメンション/リンク展開
+// （通知荒らし）が起き得る。
+// reportClientError（FEパス）は既に message/stack を呼び出し側でエスケープしていたが、
+// buildSlackBlocks_ への一元化に伴い reportClientError 側の事前エスケープは削除済み。
+// このセクションでは BE直接呼び出し・FE経由の両方でエスケープされることと、
+// 二重エスケープが起きないことの両方を確認する。
+// =============================================================================
+
+test('notifySlackError_: BE直接呼び出しで err.message に <!channel> が含まれてもエスケープされる（validateCsvHeader_のようにCSVセル値をそのままErrorに埋め込むパターンを模擬）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  // validateCsvHeader_ の実装同様、アップロードされたCSVのセル値をそのまま Error の message に埋め込む想定。
+  const err = makeSandboxError(sandbox, 'CSVの値が不正: 実際="<!channel> 悪意あるCSV値"');
+
+  sandbox.notifySlackError_('Invoice', 'validateCsvHeader_', err, {});
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, /<!channel>/, '生のerr.messageに含まれる<!channel>がSlack本文に含まれてはいけない');
+  assert.match(text, /&lt;!channel&gt;/, 'エスケープ済みの &lt;!channel&gt; がエラー内容に含まれるべき');
+});
+
+test('notifySlackError_: BE直接呼び出しで err.stack に特殊記法が含まれてもエスケープされる', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  const err = makeSandboxError(sandbox, '予期しないエラーが発生しました');
+  err.stack = 'Error: 予期しないエラーが発生しました\n    at <@U99999> (be_invoice.js:100:1)';
+
+  sandbox.notifySlackError_('Invoice', '予期しないエラーが発生しました', err, {});
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, /<@U99999>/, '生のerr.stackに含まれるユーザーメンション記法がSlack本文に含まれてはいけない');
+  assert.match(text, /&lt;@U99999&gt;/, 'エスケープ済みの &lt;@U99999&gt; がエラー内容（スタックトレース）に含まれるべき');
+});
+
+test('notifySlackError_: "発生箇所" 行に埋め込まれる message もエスケープされる（err.messageとは別の埋め込み箇所）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  // err.message と message 引数をあえて異なる値にし、"発生箇所"行（message使用）が
+  // "エラー内容"行（err.message使用）とは独立にエスケープされていることを確認する。
+  const err = makeSandboxError(sandbox, '別のerr.message');
+
+  sandbox.notifySlackError_('Invoice', '<!channel> 発生箇所に埋め込まれるmessage', err, {});
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.doesNotMatch(text, /<!channel>/, '発生箇所に埋め込まれるmessage中の<!channel>もエスケープされなければならない');
+  assert.match(text, /&lt;!channel&gt; 発生箇所/, '発生箇所行にエスケープ済みのmessageが含まれるべき');
+});
+
+test('reportClientError: message/stack のエスケープが二重に行われない（buildSlackBlocks_への一元化後の回帰確認）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  sandbox.reportClientError({
+    clientErrorId: 'abcd1234',
+    message: '<!channel> FEからのエラー',
+    stack: 'Error: <@U12345>\n    at foo (app.js:1:1)',
+  }, null);
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  // 二重エスケープされていれば "&amp;lt;" のような文字列になるはずだが、
+  // buildSlackBlocks_ による一元エスケープ（1回だけ）なのでそれは発生しないはず。
+  assert.doesNotMatch(text, /&amp;lt;/, 'message/stackが二重エスケープされてはいけない（&amp;lt; になっていないこと）');
+  assert.match(text, /&lt;!channel&gt; FEからのエラー/, '発生箇所・エラー内容の両方で1回だけエスケープされたmessageが含まれるべき');
+  assert.match(text, /&lt;@U12345&gt;/, 'スタックトレース内の特殊記法も1回だけエスケープされているべき');
 });

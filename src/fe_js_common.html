@@ -37,12 +37,22 @@ function sanitizeUrlForErrorReport_(url) {
   }
 }
 
+// be_slack.js の reportClientError() 側の切り詰め上限（message: 500文字、stack: 2000文字）と
+// 同じ値。BE側の slice は「Slack本文に載せる見た目」を整えるためのものであり、
+// google.script.run のペイロード送信自体の可否には効かない。特に minify されたコードの
+// スタックトレースは非常に長大になりやすく、そのまま送信すると google.script.run 自体が
+// 失敗・遅延しやすくなるため、FE側でも送信前に同じ上限で事前に切り詰める。
+const CLIENT_ERROR_MESSAGE_MAX_LENGTH_ = 500;
+const CLIENT_ERROR_STACK_MAX_LENGTH_   = 2000;
+
 /**
  * ランタイムエラーを be_slack.js の reportClientError() へ中継する。
  * Who(卸情報)は FE 側にアカウント情報を保持するグローバル変数が存在しないため、
  * 既存の saveAccountInfo() が保存した SessionStorage の値をそのまま読む。
  * failureHandler は console.error のみで、再度エラー通知をトリガーする処理は行わない
  * （無限ループ防止）。
+ * message/stack は CLIENT_ERROR_MESSAGE_MAX_LENGTH_ / CLIENT_ERROR_STACK_MAX_LENGTH_ で
+ * 送信前に切り詰める（BE側と同じ上限。google.script.run 自体の送信失敗・遅延を防ぐため）。
  *
  * @param {string} message
  * @param {string} [stack]
@@ -53,8 +63,8 @@ function reportClientError_(message, stack) {
     const rawUrl = (typeof location !== 'undefined' ? location.href : '');
     const payload = {
       clientErrorId:  clientErrorId,
-      message:        String(message || '(no message)'),
-      stack:          String(stack || ''),
+      message:        String(message || '(no message)').slice(0, CLIENT_ERROR_MESSAGE_MAX_LENGTH_),
+      stack:          String(stack || '').slice(0, CLIENT_ERROR_STACK_MAX_LENGTH_),
       url:            sanitizeUrlForErrorReport_(rawUrl),
       ua:             (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
       wholesalerId:   sessionStorage.getItem('shiire_wholesaler_id')   || '',

@@ -201,6 +201,18 @@ const SLACK_CONTEXT_ID_KEYS_ = ['invoiceUuid', 'stagingId', 'storeInvoiceId', 'p
  * 表示ラベルはすべて日本語（5W1H は設計ドキュメント内の整理軸としてのみ使用し、
  * 本文には英語ラベルを出さない）。
  *
+ * ctx.wholesalerId / ctx.wholesalerName は、be_invoice.js 等の BE 呼び出し元から
+ * BigQuery 由来の accountInfo.wholesaler_name がそのまま渡ってくる経路と、
+ * reportClientError() 経由で FE（ブラウザ改ざん可能な入力）から渡ってくる経路の
+ * 両方が存在する。同様に message・err.message・err.stack も、CSVアップロード内容
+ * （例: validateCsvHeader_ が実際のヘッダーセル値をそのまま Error に埋め込むケース）
+ * や FE からの入力に由来し得るため、任意の Slack 特殊記法を含みうる。
+ * これらは本関数が Slack mrkdwn 本文へ実際に埋め込む唯一の場所であるため、
+ * 埋め込み直前に escapeSlackText_() を通し、値に <!channel> や
+ * <@U...> のような Slack 特殊記法が含まれていてもメンション/リンクとして
+ * 展開されないようにする（呼び出し元側での二重エスケープを避けるため、
+ * エスケープはこの関数の中でのみ行う。呼び出し元でエスケープ済みの値を渡さないこと）。
+ *
  * @param {string} tag
  * @param {string} message
  * @param {*} err
@@ -216,14 +228,17 @@ function buildSlackBlocks_(tag, message, err, context) {
   const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 
   const whoParts = [];
-  if (ctx.wholesalerId)   whoParts.push('wholesaler_id=' + ctx.wholesalerId);
-  if (ctx.wholesalerName) whoParts.push(String(ctx.wholesalerName));
+  if (ctx.wholesalerId)   whoParts.push('wholesaler_id=' + escapeSlackText_(ctx.wholesalerId));
+  if (ctx.wholesalerName) whoParts.push(escapeSlackText_(ctx.wholesalerName));
   const who = whoParts.length > 0 ? whoParts.join(' / ') : '不明';
 
   const what = ctx.actionLabel || String(tag || '不明');
 
-  const errMessage = (err && err.message) ? String(err.message) : String(message || '(不明なエラー)');
-  const errStackLines = (err && err.stack) ? String(err.stack).split('\n').slice(0, 3).join('\n') : '';
+  // message・err.message・err.stack は CSVアップロード内容や FE 入力に由来し得るため、
+  // Slack mrkdwn 本文へ埋め込む直前に escapeSlackText_() を通す。
+  const safeMessage   = escapeSlackText_(message);
+  const errMessage    = escapeSlackText_((err && err.message) ? String(err.message) : String(message || '(不明なエラー)'));
+  const errStackLines = escapeSlackText_((err && err.stack) ? String(err.stack).split('\n').slice(0, 3).join('\n') : '');
   const why = errStackLines ? (errMessage + '\n' + errStackLines) : errMessage;
 
   // 調査のヒント(1): 判明している具体的ID
@@ -257,7 +272,7 @@ function buildSlackBlocks_(tag, message, err, context) {
     title,
     '─────────────────────────────',
     '🕒 発生日時  : ' + now + ' JST / env=' + env,
-    '📍 発生箇所  : ' + String(tag || '不明') + ' / ' + String(message || ''),
+    '📍 発生箇所  : ' + String(tag || '不明') + ' / ' + safeMessage,
     '👤 対象卸    : ' + who,
     '📝 操作      : ' + what,
     '❗ エラー内容: ' + why,
@@ -344,10 +359,13 @@ function escapeSlackText_(text) {
  * google.script.run 経由で呼ばれる公開関数。受け取った内容を
  * logError_('FE', ...) に合流させ、以降は BE と同じ通知経路に乗せる。
  *
- * payload の各フィールドはブラウザ側で自由に改ざん可能な入力のため、
- * Slack mrkdwn 本文に埋め込まれる前提で escapeSlackText_() を通してから
- * Error/context に格納する（<!channel> や <@U...> のようなメンション/リンク
- * 注入を防止するため）。
+ * payload の各フィールドはブラウザ側で自由に改ざん可能な入力のため Slack mrkdwn
+ * 注入のリスクがあるが、エスケープは Slack 本文へ実際に埋め込む buildSlackBlocks_()
+ * 側で一元的に行うため、ここではいずれのフィールドもエスケープせず渡す
+ * （二重エスケープ防止。url/ua は現状 buildSlackBlocks_ で未使用だが、将来表示に
+ * 使う際も同じ理由でそちら側でエスケープすること。Cloud Logging 側の Logger.log
+ * 出力（be_utils.js の logError_）にも生の値を残したいため、Slack向けエスケープは
+ * Slack本文組み立て箇所だけに閉じ込める）。
  *
  * @param {{ clientErrorId?: string, message?: string, stack?: string, url?: string, ua?: string, wholesalerId?: string, wholesalerName?: string }} payload
  * @param {string} [sessionToken] - 現状は未使用（Who は FE(sessionStorage) 由来の値をそのまま使う。
@@ -358,19 +376,19 @@ function escapeSlackText_(text) {
 function reportClientError(payload, sessionToken) {
   try {
     const p = payload || {};
-    const clientErrorId = escapeSlackText_(String(p.clientErrorId || Utilities.getUuid().slice(0, 8)).slice(0, 32));
-    const rawMessage = escapeSlackText_(String(p.message || '(no message)').slice(0, 500));
+    const clientErrorId = String(p.clientErrorId || Utilities.getUuid().slice(0, 8)).slice(0, 32);
+    const rawMessage = String(p.message || '(no message)').slice(0, 500);
     const message = '[FE] ' + clientErrorId + ' ' + rawMessage;
 
     const err = new Error(message);
-    err.stack = escapeSlackText_(String(p.stack || '').slice(0, 2000));
+    err.stack = String(p.stack || '').slice(0, 2000);
 
     const context = {
-      wholesalerId:   p.wholesalerId   ? escapeSlackText_(String(p.wholesalerId))   : null,
-      wholesalerName: p.wholesalerName ? escapeSlackText_(String(p.wholesalerName)) : null,
+      wholesalerId:   p.wholesalerId || null,
+      wholesalerName: p.wholesalerName || null,
       actionLabel:    'フロントエンドエラー',
-      url:            escapeSlackText_(String(p.url || '').slice(0, 300)),
-      ua:             escapeSlackText_(String(p.ua || '').slice(0, 300)),
+      url:            String(p.url || '').slice(0, 300),
+      ua:             String(p.ua || '').slice(0, 300),
     };
 
     logError_('FE', message, err, context);
