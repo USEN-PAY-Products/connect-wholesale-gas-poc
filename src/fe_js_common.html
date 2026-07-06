@@ -25,13 +25,17 @@ function generateClientErrorId_() {
  * トークンはセッション認証に使える秘密情報のため、Slack通知本文に
  * そのまま含めると漏えいにつながる（値のみ ["***"] に置換し、
  * URL構造自体はデバッグ用に残す）。
+ * トークン値は次のクエリ区切り（&）またはフラグメント区切り（#）のいずれか手前まで
+ * とする（[^&#]*）。# を除外しないと、?token=xxx#section=... のように token= の後ろに
+ * & を挟まず # が続くURLで、# 以降のデバッグに有用なフラグメント情報までマスク値に
+ * 巻き込んで消してしまうため。
  *
  * @param {string} url
  * @returns {string} token= の値をマスクした URL
  */
 function sanitizeUrlForErrorReport_(url) {
   try {
-    return String(url || '').replace(/([?&#]token=)[^&]*/gi, '$1***');
+    return String(url || '').replace(/([?&#]token=)[^&#]*/gi, '$1***');
   } catch (e) {
     return '';
   }

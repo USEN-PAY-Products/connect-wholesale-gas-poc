@@ -204,14 +204,17 @@ const SLACK_CONTEXT_ID_KEYS_ = ['invoiceUuid', 'stagingId', 'storeInvoiceId', 'p
  * ctx.wholesalerId / ctx.wholesalerName は、be_invoice.js 等の BE 呼び出し元から
  * BigQuery 由来の accountInfo.wholesaler_name がそのまま渡ってくる経路と、
  * reportClientError() 経由で FE（ブラウザ改ざん可能な入力）から渡ってくる経路の
- * 両方が存在する。同様に message・err.message・err.stack も、CSVアップロード内容
- * （例: validateCsvHeader_ が実際のヘッダーセル値をそのまま Error に埋め込むケース）
- * や FE からの入力に由来し得るため、任意の Slack 特殊記法を含みうる。
+ * 両方が存在する。同様に message・err.message・err.stack、ctx[key]（invoiceUuid・
+ * stagingId・storeInvoiceId・parentInvoiceId）、ctx.actionLabel も、CSVアップロード
+ * 内容（例: validateCsvHeader_ が実際のヘッダーセル値をそのまま Error に埋め込むケース）
+ * や FE からの入力、DB由来の値に由来し得るため、任意の Slack 特殊記法を含みうる。
  * これらは本関数が Slack mrkdwn 本文へ実際に埋め込む唯一の場所であるため、
  * 埋め込み直前に escapeSlackText_() を通し、値に <!channel> や
  * <@U...> のような Slack 特殊記法が含まれていてもメンション/リンクとして
  * 展開されないようにする（呼び出し元側での二重エスケープを避けるため、
- * エスケープはこの関数の中でのみ行う。呼び出し元でエスケープ済みの値を渡さないこと）。
+ * エスケープはこの関数の中でのみ行う。呼び出し元でエスケープ済みの値を渡さないこと。
+ * ただし Cloud Logging 検索リンク用の searchText は ctx[key] の生値を別途参照して
+ * URLエンコードするため、idPairs表示用のエスケープとは独立しており影響しない）。
  *
  * @param {string} tag
  * @param {string} message
@@ -232,7 +235,9 @@ function buildSlackBlocks_(tag, message, err, context) {
   if (ctx.wholesalerName) whoParts.push(escapeSlackText_(ctx.wholesalerName));
   const who = whoParts.length > 0 ? whoParts.join(' / ') : '不明';
 
-  const what = ctx.actionLabel || String(tag || '不明');
+  // ctx.actionLabel は現状すべてのBE呼び出し元で固定の日本語文言（例: '請求書登録'）だが、
+  // 将来外部入力由来の値が渡された場合に備え、他フィールドと同じ方針でエスケープしておく。
+  const what = escapeSlackText_(ctx.actionLabel || String(tag || '不明'));
 
   // message・err.message・err.stack は CSVアップロード内容や FE 入力に由来し得るため、
   // Slack mrkdwn 本文へ埋め込む直前に escapeSlackText_() を通す。
@@ -242,9 +247,14 @@ function buildSlackBlocks_(tag, message, err, context) {
   const why = errStackLines ? (errMessage + '\n' + errStackLines) : errMessage;
 
   // 調査のヒント(1): 判明している具体的ID
+  // ctx[key]（invoiceUuid/stagingId/storeInvoiceId/parentInvoiceId）は be_invoice.js 等の
+  // BE呼び出し元からDB由来の値がそのまま渡ってくるため、表示用に escapeSlackText_() を
+  // 通す（key自体は固定のキー名なのでエスケープ不要）。searchText（下記）は
+  // Cloud Logging検索クエリ専用に ctx[key] の生値を別途参照するため、ここでのエスケープは
+  // 検索リンクの生成には影響しない。
   const idPairs = [];
   SLACK_CONTEXT_ID_KEYS_.forEach(function (key) {
-    if (ctx[key]) idPairs.push(key + ': ' + ctx[key]);
+    if (ctx[key]) idPairs.push(key + ': ' + escapeSlackText_(ctx[key]));
   });
 
   // 調査のヒント(2): tag別の一次切り分けヒント
@@ -294,7 +304,11 @@ function buildSlackBlocks_(tag, message, err, context) {
 
 /**
  * ランタイムエラーを Slack へ通知する。be_utils.js の logError_() からフックされる。
- * 通知要否判定→重複抑制判定→メッセージ組み立て→Slack送信の順に処理する。
+ * 通知要否判定→Webhook設定確認→重複抑制判定→メッセージ組み立て→Slack送信の順に処理する。
+ * Webhook設定確認を重複抑制判定より先に行うのは、isDuplicateRecent_ がCacheへの書き込みを
+ * 伴うため（重複抑制判定を先に行うと、Webhook未設定＝送信不可能なケースでも無駄にCacheキーを
+ * 消費してしまい、後からWebhookを設定した直後の最初の通知が TTL(60秒) 以内という理由だけで
+ * 誤って抑制されてしまう副作用が生じるため）。
  * 全体を単一 try/catch で包み、いかなる内部エラーも外に漏らさない
  * （呼び出し元の logError_ 側にも二重防御の try/catch があるが、ここでも独立して防御する）。
  *
@@ -306,10 +320,11 @@ function buildSlackBlocks_(tag, message, err, context) {
 function notifySlackError_(tag, message, err, context) {
   try {
     if (!shouldNotifySlack_(err)) return;
-    if (isDuplicateRecent_(tag, message)) return;
 
     const webhookUrl = PropertiesService.getScriptProperties().getProperty('SLACK_WEBHOOK_URL');
-    if (!webhookUrl) return; // 未設定環境では何もしない（例外は投げない）
+    if (!webhookUrl) return; // 未設定環境では何もしない（例外は投げない。Cacheも消費しない）
+
+    if (isDuplicateRecent_(tag, message)) return;
 
     const payload = buildSlackBlocks_(tag, message, err, context);
 
@@ -366,6 +381,9 @@ function escapeSlackText_(text) {
  * 使う際も同じ理由でそちら側でエスケープすること。Cloud Logging 側の Logger.log
  * 出力（be_utils.js の logError_）にも生の値を残したいため、Slack向けエスケープは
  * Slack本文組み立て箇所だけに閉じ込める）。
+ * 同様にブラウザ側は任意の長さの文字列を送信できるため、message/stack/url/ua に加え
+ * wholesalerId/wholesalerName も、値がある場合のみ長さ上限（100文字）で切り詰めてから
+ * context へ格納する（Slack Webhook送信ペイロードの肥大化による送信遅延・失敗を防ぐため）。
  *
  * @param {{ clientErrorId?: string, message?: string, stack?: string, url?: string, ua?: string, wholesalerId?: string, wholesalerName?: string }} payload
  * @param {string} [sessionToken] - 現状は未使用（Who は FE(sessionStorage) 由来の値をそのまま使う。
@@ -383,9 +401,12 @@ function reportClientError(payload, sessionToken) {
     const err = new Error(message);
     err.stack = String(p.stack || '').slice(0, 2000);
 
+    // wholesalerId/wholesalerName は message/stack/url/ua 同様、値がある場合のみ
+    // 長さ上限（100文字）で切り詰める。falsy値（未送信等）はそのまま null を維持し、
+    // buildSlackBlocks_ 側のtruthyチェックで「不明」表示にフォールバックさせる。
     const context = {
-      wholesalerId:   p.wholesalerId || null,
-      wholesalerName: p.wholesalerName || null,
+      wholesalerId:   p.wholesalerId   ? String(p.wholesalerId).slice(0, 100)   : null,
+      wholesalerName: p.wholesalerName ? String(p.wholesalerName).slice(0, 100) : null,
       actionLabel:    'フロントエンドエラー',
       url:            String(p.url || '').slice(0, 300),
       ua:             String(p.ua || '').slice(0, 300),
