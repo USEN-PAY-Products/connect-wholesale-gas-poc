@@ -402,10 +402,18 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
     '  s.tax_amount,',
     '  s.invoice_detail_remark',
     'FROM ' + stagingRef + ' s',
-    'JOIN ' + merchantsRef + ' wm',
+    '-- wholesaler_merchants に customer_code+wholesaler_id の重複行があっても',
+    '-- invoice_lines が水増しされないよう、customer_code 単位で最新1件のみに絞り込む',
+    '-- registration_at が同一の場合の非決定性を避けるため、id(UUID v7)の降順もタイブレークに含める',
+    'JOIN (',
+    '  SELECT customer_code, mall_code,',
+    '    ROW_NUMBER() OVER (PARTITION BY customer_code ORDER BY registration_at DESC, id DESC) AS rn',
+    '  FROM ' + merchantsRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    '    AND deleted_at IS NULL',
+    ') wm',
     '  ON wm.customer_code = s.customer_code',
-    '  AND wm.wholesaler_id = ' + wsId,
-    '  AND wm.deleted_at IS NULL',
+    '  AND wm.rn = 1',
     'JOIN ' + storeRef + ' si',
     '  ON si.mall_code = wm.mall_code',
     "  AND si.wholesaler_invoice_id = '" + invoiceUuid + "';",
@@ -684,10 +692,18 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '  s.tax_amount,',
     '  s.invoice_detail_remark',
     'FROM ' + stagingRef + ' s',
-    'JOIN ' + merchantsRef + ' wm',
+    '-- wholesaler_merchants に customer_code+wholesaler_id の重複行があっても',
+    '-- invoice_lines が水増しされないよう、customer_code 単位で最新1件のみに絞り込む',
+    '-- registration_at が同一の場合の非決定性を避けるため、id(UUID v7)の降順もタイブレークに含める',
+    'JOIN (',
+    '  SELECT customer_code, mall_code,',
+    '    ROW_NUMBER() OVER (PARTITION BY customer_code ORDER BY registration_at DESC, id DESC) AS rn',
+    '  FROM ' + merchantsRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    '    AND deleted_at IS NULL',
+    ') wm',
     '  ON wm.customer_code = s.customer_code',
-    '  AND wm.wholesaler_id = ' + wsId,
-    '  AND wm.deleted_at IS NULL',
+    '  AND wm.rn = 1',
     'JOIN ' + storeRef + ' si',
     '  ON si.id IN (' + childUuids.join(', ') + ')',
     '  AND si.mall_code = wm.mall_code;',
@@ -1073,10 +1089,18 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '  s.tax_amount,',
     '  s.invoice_detail_remark',
     'FROM ' + stagingRef + ' s',
-    'JOIN ' + merchantsRef + ' wm',
+    '-- wholesaler_merchants に customer_code+wholesaler_id の重複行があっても',
+    '-- invoice_lines が水増しされないよう、customer_code 単位で最新1件のみに絞り込む',
+    '-- registration_at が同一の場合の非決定性を避けるため、id(UUID v7)の降順もタイブレークに含める',
+    'JOIN (',
+    '  SELECT customer_code, mall_code,',
+    '    ROW_NUMBER() OVER (PARTITION BY customer_code ORDER BY registration_at DESC, id DESC) AS rn',
+    '  FROM ' + merchantsRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    '    AND deleted_at IS NULL',
+    ') wm',
     '  ON wm.customer_code = s.customer_code',
-    '  AND wm.wholesaler_id = ' + wsId,
-    '  AND wm.deleted_at IS NULL',
+    '  AND wm.rn = 1',
     'JOIN ' + storeRef + ' si',
     '  ON si.id IN (' + childUuids.join(', ') + ')',
     '  AND si.mall_code = wm.mall_code;',
@@ -1156,6 +1180,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     // store 由来の customer_code↔mall_code マップを構築（end 店舗含む）
     const storeRows = fetchStoreInvoicesByParent_(parentInvoiceId, accountInfo.wholesaler_id);
     const customerToMall = {};
+    const customerToStoreInvoiceId = {};
     const storeBasedMappings = [];
     const managedNameByCustomer = {};
     const endMallCodeSet = {}; // mall_code → true（取引終了店舗）
@@ -1164,6 +1189,10 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
         customerToMall[String(s.customer_code)] = String(s.mall_code);
         managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
+      }
+      if (s.customer_code && s.store_invoice_id) {
+        // CSVに含まれる加盟店のみを対象に金額を差し引くためのマップ（今回の再請求対象外の要対応店舗を巻き込まないため）
+        customerToStoreInvoiceId[String(s.customer_code)] = String(s.store_invoice_id);
       }
       if (s.mall_code && s.store_status === 'end') {
         endMallCodeSet[String(s.mall_code)] = true;
@@ -1248,9 +1277,20 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     waitForLoadJob_(projectId, jobId, location);
 
     // 最新の wholesaler_invoices と旧対象 store_invoices の金額を取得（再計算用）
+    // NOTE: 「要対応」全体ではなく、今回のCSVに実際に含まれる加盟店のみを対象にする。
+    //       （CSVに含まれない要対応店舗（例: 一部の加盟店のみを再請求する場合の対象外店舗）を
+    //         誤って差し引いてしまうと、wholesaler_invoices の金額が対象外店舗の分だけズレるため）
     const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
     if (!latestWi) throw new Error('請求情報が見つかりませんでした。ページを再読み込みしてください。');
-    const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, null);
+    const targetStoreInvoiceIds = summaryData.merchantTotals
+      .map(function (m) { return customerToStoreInvoiceId[String(m.customerCode)] || ''; })
+      .filter(function (id) { return id !== ''; });
+    // 安全策: 万一 targetStoreInvoiceIds が空になると fetchTargetStoreInvoiceAmounts_ が
+    // 「全要対応」を対象にする従来（バグ）挙動にフォールバックしてしまうため、明示的に停止する。
+    if (targetStoreInvoiceIds.length === 0) {
+      throw new Error('対象の加盟店請求情報が見つかりませんでした。ページを再読み込みしてください。');
+    }
+    const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, targetStoreInvoiceIds);
 
     // トランザクション SQL 実行
     let sql;

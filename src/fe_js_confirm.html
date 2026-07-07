@@ -262,7 +262,7 @@ btnFinalSubmit.addEventListener('click', () => {
   if (overLimitRemarks.length > 0) {
     hideLoadingOverlay();
     resetSubmitButton();
-    showToast('加盟店別請求書備考は250文字以内で入力してください。', 'error');
+    showToast('請求書備考は250文字以内で入力してください。', 'error');
     return;
   }
 
@@ -742,20 +742,8 @@ function renderConfirmPage() {
     const body = document.createElement('div');
     body.className = 'store-accordion__body';
 
-    // 備考 input（加盟店への備考）
-    const remarksDiv = document.createElement('div');
-    remarksDiv.className = 'store-accordion__remarks';
-    remarksDiv.innerHTML =
-      `<label class="remarks-label">・ 加盟店別請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>` +
-      `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="※加盟店請求書に表示される備考情報を記載ください。" rows="2" maxlength="250"></textarea>`;
-    // 再送信モード: 詳細画面で入力済みの備考をプリセット
-    if (_isResubmitConfirm && _resubmitRemarks[customerCode]) {
-      const remarksTa = remarksDiv.querySelector('textarea');
-      if (remarksTa) remarksTa.value = _resubmitRemarks[customerCode];
-    }
-    body.appendChild(remarksDiv);
-
     // 再送信モード: 否認店舗の handover 入力欄を追加（詳細画面の否認セクションと同じデザイン）
+    // ※ 請求書備考より上に表示する（詳細画面・個別再請求モーダルと表示順を統一）
     if (_isResubmitConfirm && _resubmitDisputedCodes.indexOf(customerCode) !== -1) {
       const handoverDiv = document.createElement('div');
       handoverDiv.className = 'store-accordion__backoffice-remark';
@@ -788,6 +776,19 @@ function renderConfirmPage() {
       }
       body.appendChild(handoverDiv);
     }
+
+    // 備考 input（加盟店への備考）
+    const remarksDiv = document.createElement('div');
+    remarksDiv.className = 'store-accordion__remarks';
+    remarksDiv.innerHTML =
+      `<label class="remarks-label">・ 請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>` +
+      `<textarea class="remarks-input" data-customer-code="${escapeHtml(customerCode)}" placeholder="※加盟店請求書に表示される備考情報を記載ください。" rows="2" maxlength="250"></textarea>`;
+    // 再送信モード: 詳細画面で入力済みの備考をプリセット
+    if (_isResubmitConfirm && _resubmitRemarks[customerCode]) {
+      const remarksTa = remarksDiv.querySelector('textarea');
+      if (remarksTa) remarksTa.value = _resubmitRemarks[customerCode];
+    }
+    body.appendChild(remarksDiv);
 
     // 明細アコーディオン（ネスト）
     const detailAccordion = document.createElement('div');

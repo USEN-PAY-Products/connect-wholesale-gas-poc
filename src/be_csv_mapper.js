@@ -368,7 +368,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
   // ここに列挙した識別子のみ INSERT SELECT に使用する。
   // ⚠️ invoice_lines にカラムを追加した場合はここも合わせて更新すること。
   //
-  // ホワイトリスト外の system_column（例: slip_number, merchant_name 等）は
+  // ホワイトリスト外の system_column（例: merchant_name 等）は
   // エラーにせずスキップする。卸のCSVには invoice_lines に保存しない列が含まれることが
   // 多く、都度 ALLOWED_SYSTEM_COLUMNS を更新するのは運用コストが高いため。
   // 未知の値は SQL に埋め込まれないため SQL インジェクションのリスクはない。
@@ -376,6 +376,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     'customer_code',          // wholesaler_merchants JOIN キー（INSERT不要）
     'transaction_date',       // invoice_lines.transaction_date
     'item_name',              // invoice_lines.item_name
+    'item_code',              // invoice_lines.item_code（CSVに存在する場合のパススルー用。無ければNULL登録）
     'quantity',               // invoice_lines.quantity
     'quantity_unit',          // invoice_lines.quantity_unit
     'unit_price',             // invoice_lines.unit_price
@@ -383,6 +384,7 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     'tax_rate',               // invoice_lines.tax_category
     'tax_amount',             // invoice_lines.line_tax_amount（CSVに存在する場合のパススルー用）
     'invoice_detail_remark',  // invoice_lines.line_note
+    'slip_number',            // invoice_lines.slip_number（CSVに存在する場合のパススルー用。無ければNULL登録）
   ]);
 
   columns.forEach(function(col) {
@@ -635,10 +637,18 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     'SELECT',
     selectParts.join('\n'),
     'FROM ' + stagingRef + ' s',
-    'JOIN ' + merchantsRef + ' wm',
+    '-- wholesaler_merchants に customer_code+wholesaler_id の重複行があっても',
+    '-- invoice_lines が水増しされないよう、customer_code 単位で最新1件のみに絞り込む',
+    '-- registration_at が同一の場合の非決定性を避けるため、id(UUID v7)の降順もタイブレークに含める',
+    'JOIN (',
+    '  SELECT customer_code, mall_code,',
+    '    ROW_NUMBER() OVER (PARTITION BY customer_code ORDER BY registration_at DESC, id DESC) AS rn',
+    '  FROM ' + merchantsRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    '    AND deleted_at IS NULL',
+    ') wm',
     '  ON wm.customer_code = ' + custCodeFieldRef,
-    '  AND wm.wholesaler_id = ' + wsId,
-    '  AND wm.deleted_at IS NULL',
+    '  AND wm.rn = 1',
   ].concat(storeJoinLines).join('\n');
 
   Logger.log(

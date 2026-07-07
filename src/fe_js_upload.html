@@ -349,7 +349,8 @@ function handleFile(file) {
           const cc = String(m.customer_code);
           if (m.is_active !== false && !csvCustomerCodes.has(cc) && !warnedCustomerCodes.has(cc)) {
             warnedCustomerCodes.add(cc);
-            warnings.push((m.store_name || m.customer_code) + 'の請求明細がありません。');
+            // 詳細画面（差し戻し→一括再アップロード）の警告文言と統一
+            warnings.push('加盟店（顧客コード: ' + cc + (m.store_name ? ' / ' + m.store_name : '') + '）のデータがCSVに含まれていません。この加盟店の請求は行われませんが、よろしいですか？');
           }
         });
       } catch (e) {
