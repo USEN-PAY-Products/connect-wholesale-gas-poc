@@ -4,7 +4,7 @@
 // 請求データ関連の公開関数（フロントから google.script.run で呼ばれる）を管理する。
 //
 // 公開関数:
-//   sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks)
+//   sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, sessionToken)
 //   fetchInvoices()            ← サーバー側で wholesaler_id を確定（引数不要）
 //   fetchInvoiceDetail(invoiceId)
 //   fetchScheduleData()        ← business_calendar からスケジュール取得
@@ -1937,7 +1937,12 @@ function fetchInvoiceDetail(invoiceId, sessionToken) {
     logError_('Invoice', 'fetchInvoiceDetail', err, {
       wholesalerId: accountInfo && accountInfo.wholesaler_id,
       wholesalerName: accountInfo && accountInfo.wholesaler_name,
-      invoiceUuid: invoiceId,
+      // invoiceId は呼び出し元パラメータ名であり、実体は fetchInvoiceDetailSummary_ 内の
+      // SQL（WHERE wi.id = @invoice_id OR wi.wholesaler_invoice_id = @invoice_id）が示す通り
+      // wi.id（内部UUID）/ wi.wholesaler_invoice_id（別形式のID）のどちらでもあり得るため、
+      // 「invoiceUuid」という誤解を招くキー名ではなく、SLACK_CONTEXT_ID_KEYS_ に既存の
+      // parentInvoiceId（大元の wholesaler_invoices を指すIDという意味）を使う。
+      parentInvoiceId: invoiceId,
       actionLabel: '請求詳細取得',
     });
     throw err;
@@ -2045,6 +2050,6 @@ function testSendInvoice_() {
   };
   const remarks = { 'C001': 'テスト備考（手動入力）' };
 
-  const result = sendInvoiceData(dummyRawBase64, dummyUtf8Base64, summaryData, remarks);
+  const result = sendInvoiceData(dummyRawBase64, dummyUtf8Base64, 'test.csv', summaryData, remarks);
   Logger.log('テスト結果: ' + JSON.stringify(result));
 }
