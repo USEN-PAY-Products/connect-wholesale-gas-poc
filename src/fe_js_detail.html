@@ -1336,8 +1336,9 @@ function renderDetailLines_(lines, container) {
           hInput.classList.remove('confirm-handover-input--error');
           hInput.removeAttribute('aria-invalid');
           hInput.removeAttribute('aria-describedby');
-          const errEl = hInput.nextElementSibling;
-          if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
+          const leftDiv = hInput.closest('.backoffice-remark__disputed-left');
+          const bannerEl = leftDiv && leftDiv.querySelector('.backoffice-remark__error-banner');
+          if (bannerEl) bannerEl.remove();
         });
       }
     }, 0);
@@ -1434,19 +1435,13 @@ function renderDetailLines_(lines, container) {
             parentCol.appendChild(errMsg);
           }
           if (errMsg) errMsg.textContent = '※±1円まで';
-          if (previewSubmit) previewSubmit.disabled = true;
+          // ボタンの活性/非活性は誓約チェックボックスの状態のみで決める（確認画面と挙動を統一）。
+          // ±1円を超える調整があっても登録ボタン押下時にエラーメッセージで止める。
         } else {
           el.classList.remove('amount-input--error');
           el.removeAttribute('aria-invalid');
           el.removeAttribute('aria-describedby');
           if (errMsg) errMsg.remove();
-          // 他方のinputもエラーでなければ誓約チェック状態でボタンを復活
-          const otherEl = (el === tax10Input) ? tax8Input : tax10Input;
-          const otherOrig = Number((otherEl ? otherEl.dataset.orig : 0) || 0);
-          const otherCur  = Math.trunc(Number(otherEl ? otherEl.value : 0) || 0);
-          if (Math.abs(otherCur - otherOrig) <= 1 && previewOath && previewOath.checked) {
-            if (previewSubmit) previewSubmit.disabled = false;
-          }
         }
       });
     });
@@ -1459,13 +1454,9 @@ function renderDetailLines_(lines, container) {
     previewOath.dataset.changeBound = '1';
     previewOath.addEventListener('change', function () {
       if (!previewSubmit) return;
-      if (!previewOath.checked) {
-        previewSubmit.disabled = true;
-        return;
-      }
-      // 税額±1円エラーが残っている場合は有効化しない
-      const hasError = previewBody && previewBody.querySelector('.amount-input--error');
-      previewSubmit.disabled = !!hasError;
+      // ボタンの活性/非活性は誓約チェックボックスの状態のみで決める（確認画面の checkConfirm と同じ挙動）。
+      // ±1円バリデーションは登録ボタン押下時にエラーメッセージで行う。
+      previewSubmit.disabled = !previewOath.checked;
     });
   }
 
@@ -1484,13 +1475,22 @@ function renderDetailLines_(lines, container) {
       if (handoverInput) {
         handoverInput.classList.add('confirm-handover-input--error');
         handoverInput.setAttribute('aria-invalid', 'true');
-        handoverInput.setAttribute('aria-describedby', 'previewHandoverErr');
-        if (!handoverInput.nextElementSibling || !handoverInput.nextElementSibling.classList.contains('handover-validation-error')) {
-          const errSpan = document.createElement('div');
-          errSpan.className = 'handover-validation-error';
-          errSpan.id = 'previewHandoverErr';
-          errSpan.textContent = '※ 加盟店との合意内容を記入してください';
-          handoverInput.insertAdjacentElement('afterend', errSpan);
+        const errId = 'previewHandoverErr';
+        handoverInput.setAttribute('aria-describedby', errId);
+        const leftDiv = handoverInput.closest('.backoffice-remark__disputed-left');
+        if (leftDiv && !leftDiv.querySelector('.backoffice-remark__error-banner')) {
+          const banner = document.createElement('div');
+          banner.className = 'backoffice-remark__error-banner';
+          banner.id = errId;
+          banner.setAttribute('role', 'alert');
+          const bannerIcon = document.createElement('i');
+          bannerIcon.className = 'fa-solid fa-circle-exclamation';
+          bannerIcon.setAttribute('aria-hidden', 'true');
+          const bannerText = document.createElement('span');
+          bannerText.textContent = '「【必須】加盟店との合意内容」の項目が空欄です。';
+          banner.appendChild(bannerIcon);
+          banner.appendChild(bannerText);
+          leftDiv.insertBefore(banner, leftDiv.firstChild);
         }
         handoverInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
         handoverInput.focus();
@@ -1510,21 +1510,21 @@ function renderDetailLines_(lines, container) {
       }
     });
     if (taxAdjustErr.length > 0) {
-      alert('⚠ ' + taxAdjustErr.join('\n'));
+      showToast('⚠ ' + taxAdjustErr.join('\n'), 'error');
       return;
     }
     if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
-      alert('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。');
+      showToast('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。', 'error');
       return;
     }
     const parentInvoiceId = _detailCurrentInvoiceId;
     if (!parentInvoiceId) {
-      alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+      showToast('請求IDが取得できませんでした。ページを再読み込みしてください。', 'error');
       return;
     }
     const storeInvoiceId = _targetStoreInvoiceId;
     if (!storeInvoiceId) {
-      alert('対象の加盟店請求IDが取得できませんでした。');
+      showToast('対象の加盟店請求IDが取得できませんでした。', 'error');
       return;
     }
     // summaryData を構築（税額は input の値で上書き）
@@ -1556,7 +1556,7 @@ function renderDetailLines_(lines, container) {
     // ── 金額桁数バリデーション（確認画面と同じ共通関数） ───────────────────────
     const digitErrors = validateAmountDigits_(summaryData);
     if (digitErrors.length > 0) {
-      alert('⚠ ' + digitErrors.join('\n'));
+      showToast('⚠ ' + digitErrors.join('\n'), 'error');
       return;
     }
 
@@ -1566,7 +1566,7 @@ function renderDetailLines_(lines, container) {
         .withSuccessHandler(function (result) {
           hideLoadingOverlay();
           if (result && result.status === 'error') {
-            alert('登録に失敗しました: ' + (result.message || '不明なエラー'));
+            showToast('登録に失敗しました: ' + (result.message || '不明なエラー'), 'error');
             return;
           }
           rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
@@ -1577,7 +1577,7 @@ function renderDetailLines_(lines, container) {
         })
         .withFailureHandler(function (err) {
           hideLoadingOverlay();
-          alert('登録に失敗しました: ' + (err.message || err));
+          showToast('登録に失敗しました: ' + (err.message || err), 'error');
         })
         .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks,
                              parentInvoiceId, storeInvoiceId, handoverVal, getSessionToken_());
