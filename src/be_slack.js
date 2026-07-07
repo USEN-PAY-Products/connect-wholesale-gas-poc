@@ -312,6 +312,12 @@ function buildSlackBlocks_(tag, message, err, context) {
  * 全体を単一 try/catch で包み、いかなる内部エラーも外に漏らさない
  * （呼び出し元の logError_ 側にも二重防御の try/catch があるが、ここでも独立して防御する）。
  *
+ * UrlFetchApp.fetch() は muteHttpExceptions: true のため、Slack側が 4xx/5xx
+ * （Webhook URL失効・ペイロード不正・レート制限超過等）を返しても例外を投げず、
+ * 何も分からないままサイレントに終わってしまう。これに気づけるよう、応答コードが
+ * 2xx以外の場合のみ Logger.log で警告を残す（送信失敗の再試行・例外伝播は行わない。
+ * あくまで Cloud Logging から後で気づけるようにすることのみが目的）。
+ *
  * @param {string} tag
  * @param {string} message
  * @param {*} [err]
@@ -328,12 +334,20 @@ function notifySlackError_(tag, message, err, context) {
 
     const payload = buildSlackBlocks_(tag, message, err, context);
 
-    UrlFetchApp.fetch(webhookUrl, {
+    const response = UrlFetchApp.fetch(webhookUrl, {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify(payload),
       muteHttpExceptions: true,
     });
+
+    const responseCode = response.getResponseCode();
+    if (responseCode < 200 || responseCode >= 300) {
+      Logger.log(
+        '[WARN][Slack] Webhook送信がエラー応答を返しました（HTTP ' + responseCode + '）: ' +
+        sanitizeLogMessage_(response.getContentText())
+      );
+    }
   } catch (_) {
     // 通知処理自体のいかなる想定漏れも、呼び出し元（logError_）へは絶対に伝播させない。
   }

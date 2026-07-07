@@ -41,6 +41,28 @@ function sanitizeUrlForErrorReport_(url) {
   }
 }
 
+/**
+ * sessionStorage.getItem() を安全に呼び出すためのラッパー。
+ * プライベートブラウジングモードやブラウザのストレージ制限により、
+ * sessionStorage へのアクセス自体が例外（SecurityError 等）を投げる環境が存在する。
+ * reportClientError_() はこの関数を含む全体を try/catch で囲んでいるが、
+ * ここで例外を吸収せず投げてしまうと、message/stack 等の他フィールドが
+ * 正しく組み立てられる状況であっても、その時点で外側の catch に落ちて
+ * Slack通知本体（google.script.run.reportClientError の呼び出し）が
+ * 一切送信されなくなってしまう。そのため sessionStorage アクセスのみを
+ * 個別に保護し、失敗時は空文字にフォールバックすることで、
+ * 通知処理自体は継続させる。
+ * @param {string} key
+ * @returns {string} 取得できた値。取得できない場合は空文字
+ */
+function getSessionItemSafe_(key) {
+  try {
+    return sessionStorage.getItem(key) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 // be_slack.js の reportClientError() 側の切り詰め上限（message: 500文字、stack: 2000文字）と
 // 同じ値。BE側の slice は「Slack本文に載せる見た目」を整えるためのものであり、
 // google.script.run のペイロード送信自体の可否には効かない。特に minify されたコードの
@@ -71,8 +93,8 @@ function reportClientError_(message, stack) {
       stack:          String(stack || '').slice(0, CLIENT_ERROR_STACK_MAX_LENGTH_),
       url:            sanitizeUrlForErrorReport_(rawUrl),
       ua:             (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
-      wholesalerId:   sessionStorage.getItem('shiire_wholesaler_id')   || '',
-      wholesalerName: sessionStorage.getItem('shiire_wholesaler_name') || '',
+      wholesalerId:   getSessionItemSafe_('shiire_wholesaler_id'),
+      wholesalerName: getSessionItemSafe_('shiire_wholesaler_name'),
     };
     console.error('[error] clientErrorId=' + clientErrorId + ' ' + payload.message);
     if (typeof google !== 'undefined' && google.script && google.script.run) {
