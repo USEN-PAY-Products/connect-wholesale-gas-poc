@@ -637,10 +637,17 @@ function buildInvoiceLinesSelectSql_(csvFormatRules, stagingRef, invoiceUuid, ws
     'SELECT',
     selectParts.join('\n'),
     'FROM ' + stagingRef + ' s',
-    'JOIN ' + merchantsRef + ' wm',
+    '-- wholesaler_merchants に customer_code+wholesaler_id の重複行があっても',
+    '-- invoice_lines が水増しされないよう、customer_code 単位で最新1件のみに絞り込む',
+    'JOIN (',
+    '  SELECT customer_code, mall_code,',
+    '    ROW_NUMBER() OVER (PARTITION BY customer_code ORDER BY registration_at DESC) AS rn',
+    '  FROM ' + merchantsRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    '    AND deleted_at IS NULL',
+    ') wm',
     '  ON wm.customer_code = ' + custCodeFieldRef,
-    '  AND wm.wholesaler_id = ' + wsId,
-    '  AND wm.deleted_at IS NULL',
+    '  AND wm.rn = 1',
   ].concat(storeJoinLines).join('\n');
 
   Logger.log(
