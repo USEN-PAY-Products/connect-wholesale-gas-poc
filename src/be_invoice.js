@@ -736,6 +736,7 @@ function assertWholesalerActive_(accountInfo, actionLabel) {
  *
  * @param {string}      rawCsvBase64      - 元CSVのBase64
  * @param {string}      utf8CsvBase64     - UTF-8変換済みCSVのBase64
+ * @param {string}      [fileName]        - アップロードされた元CSVファイル名（Slack通知の調査用。省略可）
  * @param {Object}      summaryData       - { wholesalerTotal, merchantTotals }
  * @param {Object}      remarks           - { [customerCode]: string }
  * @param {string}      parentInvoiceId   - wholesaler_invoices.id（詳細画面のID）
@@ -744,7 +745,7 @@ function assertWholesalerActive_(accountInfo, actionLabel) {
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object }}
  */
-function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover, sessionToken) {
+function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover, sessionToken) {
   // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
   let projectId = null;
@@ -855,8 +856,8 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
     const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
     const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
-    const fileName    = formatTimestamp_(now) + '_resubmit.csv';
-    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
+    const driveFileName = formatTimestamp_(now) + '_resubmit.csv';
+    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, driveFileName);
     const csvFile     = monthFolder.createFile(saveBlob);
     const csvUrl      = csvFile.getUrl();
     Logger.log('[Drive] resubmit 保存完了: ' + csvUrl);
@@ -898,6 +899,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
       wholesalerName: accountInfo && accountInfo.wholesaler_name,
       parentInvoiceId: parentInvoiceId,
       storeInvoiceId: storeInvoiceId,
+      fileName: fileName,
       actionLabel: '再請求（CSV再アップロード）',
     });
     throw err;
@@ -913,6 +915,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, 
           wholesalerId: accountInfo && accountInfo.wholesaler_id,
           wholesalerName: accountInfo && accountInfo.wholesaler_name,
           stagingId: stagingId,
+          fileName: fileName,
           actionLabel: '再請求（CSV再アップロード）',
         });
       }
@@ -1108,13 +1111,14 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
  *
  * @param {string} rawCsvBase64   - 元CSVのBase64
  * @param {string} utf8CsvBase64  - UTF-8変換済みCSVのBase64
+ * @param {string} [fileName]     - アップロードされた元CSVファイル名（Slack通知の調査用。省略可）
  * @param {Object} summaryData    - { wholesalerTotal, merchantTotals }
  * @param {Object} remarks        - { [customerCode]: string }
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object }}
  */
-function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers, sessionToken) {
+function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, parentInvoiceId, handovers, sessionToken) {
   // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
   let projectId = null;
@@ -1233,8 +1237,8 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
     const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
     const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
-    const fileName    = formatTimestamp_(now) + '_bulk_resubmit.csv';
-    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
+    const driveFileName = formatTimestamp_(now) + '_bulk_resubmit.csv';
+    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, driveFileName);
     const csvFile     = monthFolder.createFile(saveBlob);
     const csvUrl      = csvFile.getUrl();
     Logger.log('[Drive] bulk_resubmit 保存完了: ' + csvUrl);
@@ -1276,6 +1280,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
       wholesalerId: accountInfo && accountInfo.wholesaler_id,
       wholesalerName: accountInfo && accountInfo.wholesaler_name,
       parentInvoiceId: parentInvoiceId,
+      fileName: fileName,
       actionLabel: '一括再請求（CSV再アップロード）',
     });
     throw err;
@@ -1291,6 +1296,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
           wholesalerId: accountInfo && accountInfo.wholesaler_id,
           wholesalerName: accountInfo && accountInfo.wholesaler_name,
           stagingId: stagingId,
+          fileName: fileName,
           actionLabel: '一括再請求（CSV再アップロード）',
         });
       }
@@ -1323,13 +1329,14 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remar
  *
  * @param {string} rawCsvBase64  - 元CSVのBase64（元ファイルのバイト列そのまま。Drive保存に使用）
  * @param {string} utf8CsvBase64 - UTF-8変換済みCSVのBase64（ヘッダー検証・BQ Load Jobに使用）
+ * @param {string} [fileName]   - アップロードされた元CSVファイル名（Slack通知の調査用。省略可）
  * @param {Object} summaryData - フロント確定値 { wholesalerTotal: {...}, merchantTotals: [...] }
  * @param {Object} remarks     - 加盟店別備考 { [customerCode]: string }
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: { csv_url: string, invoice_uuid: string } }}
  * @throws {Error} Drive 操作または BQ 書き込み失敗時
  */
-function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sessionToken) {
+function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, sessionToken) {
   const totalStart = Date.now();
   // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
@@ -1419,8 +1426,8 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
     const folderName  = accountInfo.wholesaler_id + '_' + accountInfo.wholesaler_name;
     const userFolder  = getOrCreateSubFolder_(rootFolder, folderName);
     const monthFolder = getOrCreateSubFolder_(userFolder, formatYearMonth_(now));
-    const fileName    = formatTimestamp_(now) + '_original.csv';
-    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, fileName);
+    const driveFileName = formatTimestamp_(now) + '_original.csv';
+    const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, driveFileName);
     const csvFile     = monthFolder.createFile(saveBlob);
     const csvUrl      = csvFile.getUrl();
     logInfo_('Invoice', 'sendInvoiceData Drive保存完了: ' + (Date.now() - driveStart) + 'ms, url=' + csvUrl);
@@ -1464,6 +1471,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
       wholesalerId: accountInfo && accountInfo.wholesaler_id,
       wholesalerName: accountInfo && accountInfo.wholesaler_name,
       invoiceUuid: invoiceUuid,
+      fileName: fileName,
       actionLabel: '新規請求登録',
     });
     throw err;
@@ -1482,6 +1490,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, sess
           wholesalerName: accountInfo && accountInfo.wholesaler_name,
           invoiceUuid: invoiceUuid,
           stagingId: stagingId,
+          fileName: fileName,
           actionLabel: '新規請求登録',
         });
       }

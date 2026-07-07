@@ -177,6 +177,11 @@ function jstNow_() {
  */
 (function initTooltipPositioning() {
   document.addEventListener('mouseenter', function (e) {
+    // e.target は常に Element とは限らない（ブラウザ翻訳機能によるテキストノード分割・
+    // 拡張機能等が合成発火するイベント等で Text ノードや document 自体になることがある）。
+    // Element でない場合に closest() を呼ぶと「e.target.closest is not a function」で
+    // 例外になり Slack にノイズ通知が飛ぶため、ここで確実に弾く。
+    if (!(e.target instanceof Element)) return;
     const wrap = e.target.closest('.detail-meta-help-wrap');
     if (!wrap) return;
     const tooltip = wrap.querySelector('.detail-meta-tooltip');

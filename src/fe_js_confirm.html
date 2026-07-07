@@ -375,7 +375,7 @@ btnFinalSubmit.addEventListener('click', () => {
             showToast('登録に失敗しました: ' + (result.message || '不明なエラー'), 'error');
             return;
           }
-          rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+          rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null; selectedFileName = null;
           _isResubmitConfirm = false;
           _detailCurrentInvoiceId = null;
           // 詳細画面への遷移直後はローディングオーバーレイ（z-index 9999）が
@@ -389,7 +389,7 @@ btnFinalSubmit.addEventListener('click', () => {
           resetSubmitButton();
           showToast('登録に失敗しました: ' + (err.message || err), 'error');
         })
-        .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, parentInvoiceId, handovers, getSessionToken_());
+        .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks, parentInvoiceId, handovers, getSessionToken_());
     } else {
       console.warn('[bulkResubmit] google.script.run が利用できません（モック）');
       console.log('[resubmit] parentInvoiceId:', parentInvoiceId);
@@ -399,7 +399,7 @@ btnFinalSubmit.addEventListener('click', () => {
       setTimeout(function () {
         hideLoadingOverlay();
         resetSubmitButton();
-        rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+        rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null; selectedFileName = null;
         _isResubmitConfirm = false;
         _detailCurrentInvoiceId = null;
         _detailPendingToastMsg = '登録完了しました。';
@@ -412,7 +412,7 @@ btnFinalSubmit.addEventListener('click', () => {
       .withFailureHandler(onSubmitFailure)
       // rawCsvBase64: Drive 保存用（元ファイルのバイト列そのまま）
       // utf8CsvBase64: BQ Load Job 用（UTF-8 に変換済み）
-      .sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks, getSessionToken_());
+      .sendInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks, getSessionToken_());
   } else {
     // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
     console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');

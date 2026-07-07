@@ -47,12 +47,30 @@ const SLACK_EXCLUDE_SUBSTRINGS_ = [
   'CSVに該当データが存在しないため税額を検証できません',
   'の調整が±1円を超えています',
   '桁）を超えています',
+  // ── ここから下: FE(ブラウザ)由来の「ノイズ」除外 ──────────────────────────
+  // 業務エラーではなく、ブラウザ自体の仕様上スタックトレース等の有用な情報が
+  // 一切取れない定型メッセージ。調査のしようがなく、通知しても対応不能なノイズに
+  // しかならないため、ここで一括除外する（多くのエラー監視SaaS: Sentry/Bugsnag等の
+  // デフォルト除外リストにも同様の定番パターンとして含まれる、業界共通のノイズ）。
+  //   - 'Script error.': クロスオリジン/不透明化されたスクリプトのエラーである場合に
+  //     ブラウザがwindow.onerrorへ渡す定型プレースホルダ。event.error が null になり
+  //     message/stackとも実質空になる（reportClientError_ 側で err.stack も空文字送信）。
+  //   - 'ResizeObserver loop': 本アプリはResizeObserverを使用していないが、将来の
+  //     機能追加や埋め込みリソースが内部的に使う可能性に備えた予防的エントリ
+  //     （'ResizeObserver loop limit exceeded' 'ResizeObserver loop completed with
+  //     undelivered notifications.' の両方の亜種を前方一致気味にカバーする）。
+  'Script error.',
+  'ResizeObserver loop',
 ];
+
 
 /**
  * 与えられたエラーが Slack 通知対象（システムエラー）かどうかを判定する。
  * ホワイトリスト方式（除外リストのみ管理）とし、除外パターンに該当しない限り
  * 通知対象とする（＝将来の実装漏れは「誤って通知される」側に倒す安全設計）。
+ * 除外対象は大きく2種類: (1) 業務エラー（ユーザー起因・対応不要な既知の失敗）、
+ * (2) ブラウザ由来の調査不能なノイズ（'Script error.' 等。詳細は
+ * SLACK_EXCLUDE_SUBSTRINGS_ 内のコメント参照）。
  *
  * @param {*} err - Error オブジェクト、または任意の値（省略可）
  * @returns {boolean} true: 通知する / false: 通知しない
@@ -198,16 +216,20 @@ const SLACK_CONTEXT_ID_KEYS_ = ['invoiceUuid', 'stagingId', 'storeInvoiceId', 'p
 
 /**
  * Slack 通知本文（Block Kit 形式）を組み立てる。
- * 表示ラベルはすべて日本語（5W1H は設計ドキュメント内の整理軸としてのみ使用し、
- * 本文には英語ラベルを出さない）。
+ * 表示ラベルはすべて日本語。5W1H（いつ・どこで・誰が・何を・なぜ・どう対応するか）は
+ * 設計ドキュメント内の情報整理軸として使うのみで、本文側は絵文字の羅列や罫線・
+ * 全角記号による装飾を避け、"ラベル: 値" の短い行を並べるだけの簡潔な体裁にする
+ * （1行ごとに絵文字を置く・罫線で囲む・見出し＋箇条書きで手順書のように書く、
+ * といった体裁は記号の情報量が多すぎて逆に読みにくくなるため採用しない）。
  *
  * ctx.wholesalerId / ctx.wholesalerName は、be_invoice.js 等の BE 呼び出し元から
  * BigQuery 由来の accountInfo.wholesaler_name がそのまま渡ってくる経路と、
  * reportClientError() 経由で FE（ブラウザ改ざん可能な入力）から渡ってくる経路の
  * 両方が存在する。同様に message・err.message・err.stack、ctx[key]（invoiceUuid・
- * stagingId・storeInvoiceId・parentInvoiceId）、ctx.actionLabel も、CSVアップロード
- * 内容（例: validateCsvHeader_ が実際のヘッダーセル値をそのまま Error に埋め込むケース）
- * や FE からの入力、DB由来の値に由来し得るため、任意の Slack 特殊記法を含みうる。
+ * stagingId・storeInvoiceId・parentInvoiceId）、ctx.actionLabel・ctx.fileName も、
+ * CSVアップロード内容（例: validateCsvHeader_ が実際のヘッダーセル値をそのまま Error に
+ * 埋め込むケースや、ユーザーが任意に付けた元CSVファイル名そのもの）や FE からの入力、
+ * DB由来の値に由来し得るため、任意の Slack 特殊記法を含みうる。
  * これらは本関数が Slack mrkdwn 本文へ実際に埋め込む唯一の場所であるため、
  * 埋め込み直前に escapeSlackText_() を通し、値に <!channel> や
  * <@U...> のような Slack 特殊記法が含まれていてもメンション/リンクとして
@@ -219,7 +241,7 @@ const SLACK_CONTEXT_ID_KEYS_ = ['invoiceUuid', 'stagingId', 'storeInvoiceId', 'p
  * @param {string} tag
  * @param {string} message
  * @param {*} err
- * @param {Object} [context] - { wholesalerId, wholesalerName, actionLabel, invoiceUuid, stagingId, storeInvoiceId, parentInvoiceId, ... }
+ * @param {Object} [context] - { wholesalerId, wholesalerName, actionLabel, fileName, invoiceUuid, stagingId, storeInvoiceId, parentInvoiceId, ... }
  * @returns {{ text: string, blocks: Array<Object> }}
  */
 function buildSlackBlocks_(tag, message, err, context) {
@@ -244,50 +266,66 @@ function buildSlackBlocks_(tag, message, err, context) {
   const safeMessage   = escapeSlackText_(message);
   const errMessage    = escapeSlackText_((err && err.message) ? String(err.message) : String(message || '(不明なエラー)'));
   const errStackLines = escapeSlackText_((err && err.stack) ? String(err.stack).split('\n').slice(0, 3).join('\n') : '');
-  const why = errStackLines ? (errMessage + '\n' + errStackLines) : errMessage;
 
-  // 調査のヒント(1): 判明している具体的ID
-  // ctx[key]（invoiceUuid/stagingId/storeInvoiceId/parentInvoiceId）は be_invoice.js 等の
-  // BE呼び出し元からDB由来の値がそのまま渡ってくるため、表示用に escapeSlackText_() を
-  // 通す（key自体は固定のキー名なのでエスケープ不要）。searchText（下記）は
-  // Cloud Logging検索クエリ専用に ctx[key] の生値を別途参照するため、ここでのエスケープは
-  // 検索リンクの生成には影響しない。
+  // 判明している具体的ID（invoiceUuid/stagingId/storeInvoiceId/parentInvoiceId）。
+  // ctx[key] は be_invoice.js 等の BE 呼び出し元からDB由来の値がそのまま渡ってくるため、
+  // 表示用に escapeSlackText_() を通す（key自体は固定のキー名なのでエスケープ不要）。
+  // searchText（下記）は Cloud Logging検索クエリ専用に ctx[key] の生値を別途参照するため、
+  // ここでのエスケープは検索リンクの生成には影響しない。
   const idPairs = [];
   SLACK_CONTEXT_ID_KEYS_.forEach(function (key) {
     if (ctx[key]) idPairs.push(key + ': ' + escapeSlackText_(ctx[key]));
   });
 
-  // 調査のヒント(2): tag別の一次切り分けヒント
   const hintLine = buildInvestigationHint_(tag, message);
 
-  // 調査のヒント(3)(4): Cloud Logging / GAS実行ログへのディープリンク
   const searchText = idPairs.length > 0
     ? SLACK_CONTEXT_ID_KEYS_.map(function (key) { return ctx[key]; }).filter(Boolean).join(' ')
     : String(message || '');
   const loggingUrl    = buildCloudLoggingUrl_(searchText, gcpProjectId);
   const executionsUrl = buildGasExecutionsUrl_();
 
-  const howLines = [];
-  if (idPairs.length > 0) howLines.push('・' + idPairs.join(' / '));
-  if (hintLine)            howLines.push('・' + hintLine);
-  const linkParts = [];
-  if (loggingUrl)    linkParts.push('<' + loggingUrl + '|🔍 Cloud Logging で確認>');
-  if (executionsUrl) linkParts.push('<' + executionsUrl + '|⚙️ GAS実行ログを開く>');
-  if (linkParts.length > 0) howLines.push(linkParts.join('   '));
-
   const sourceLabel = tag === 'FE' ? '[FE]' : '[BE]';
-  const title = '🔴 ' + sourceLabel + ' 【ランタイムエラー】' + what + 'に失敗';
 
-  const lines = [
-    title,
-    '─────────────────────────────',
-    '🕒 発生日時  : ' + now + ' JST / env=' + env,
-    '📍 発生箇所  : ' + String(tag || '不明') + ' / ' + safeMessage,
-    '👤 対象卸    : ' + who,
-    '📝 操作      : ' + what,
-    '❗ エラー内容: ' + why,
-    '🛠 調査のヒント:',
-  ].concat(howLines.map(function (l) { return '   ' + l; }));
+  // タイトルは「何が失敗したか」が一目でわかれば十分。絵文字は先頭に1つだけとし、
+  // 【】のような装飾や罫線は使わない（1行ごとに絵文字を並べ、罫線で囲むだけの見た目は
+  // 情報よりも記号のほうが目立ってしまい、かえって読みにくいため廃止した）。
+  const title = '🔴 ' + sourceLabel + ' ' + what + 'に失敗';
+
+  // 詳細情報は "ラベル: 値" 形式に統一する。従来はラベルを全角スペースで手動整列していたが、
+  // Slackのmrkdwnはプロポーショナルフォントで描画されるため実際には桁が揃わない
+  // （見た目上の整列は諦め、コロンの前後は通常の半角スペース1つに統一する）。
+  const detailLines = [
+    '対象卸: ' + who,
+    '操作: ' + what,
+  ];
+  // ファイル名はCSVアップロード系（sendInvoiceData/resubmitInvoiceData/bulkResubmitInvoiceData）
+  // からのみ渡ってくる想定の任意項目。未指定の呼び出し元では従来通り行自体を出さない。
+  if (ctx.fileName) {
+    detailLines.push('ファイル名: ' + escapeSlackText_(ctx.fileName));
+  }
+  detailLines.push(
+    '発生箇所: ' + String(tag || '不明') + ' / ' + safeMessage,
+    'エラー内容: ' + errMessage + (errStackLines ? '\n' + errStackLines : '')
+  );
+  if (idPairs.length > 0) {
+    detailLines.push('ID: ' + idPairs.join(' / '));
+  }
+
+  // 末尾のヒント・リンクも「調査のヒント:」のような見出しや「・」の箇条書き記号は使わず、
+  // 文章として自然に添える程度にとどめる。
+  const footerLines = [];
+  if (hintLine) footerLines.push(hintLine);
+  const linkParts = [];
+  if (loggingUrl)    linkParts.push('<' + loggingUrl + '|🔍 Cloud Logging>');
+  if (executionsUrl) linkParts.push('<' + executionsUrl + '|⚙️ 実行ログ>');
+  if (linkParts.length > 0) footerLines.push(linkParts.join('   '));
+
+  const lines = [title, now + ' JST (env=' + env + ')', ''].concat(detailLines);
+  if (footerLines.length > 0) {
+    lines.push('');
+    lines.push(footerLines.join('\n'));
+  }
 
   const text = lines.join('\n');
   return {

@@ -33,6 +33,14 @@ let rawCsvBase64 = null;
 let utf8CsvBase64 = null;
 
 /**
+ * 選択されたCSVファイルの元のファイル名（file.name）。
+ * 送信失敗時のSlack通知（logError_ の context.fileName）に含めるためだけに保持する。
+ * ⚠️ Driveへの保存ファイル名はサーバー側でタイムスタンプから別途生成するため、
+ *    この値はDrive保存には使用しない（あくまで通知の調査用表示に限定）。
+ */
+let selectedFileName = null;
+
+/**
  * handleFile() の MIN_ANALYZE_MS 待機用タイマーID。
  * 連続ファイル選択時に前回のタイマーをキャンセルして競合を防ぐ。
  */
@@ -359,6 +367,7 @@ function handleFile(file) {
       //       内容が一致しない。障害調査・監査で原本から再現する際は空行除去分の差分がある点に留意。
       utf8CsvBase64 = stringToBase64Utf8_(removeEmptyLines_(text));
       parsedData    = rows;
+      selectedFileName = file.name;
       // parsedData のみ sessionStorage に保存（確認画面の表示用。リロード後は送信不可）
       try {
         sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows));
@@ -370,6 +379,7 @@ function handleFile(file) {
       rawCsvBase64  = null;
       utf8CsvBase64 = null;
       parsedData    = null;
+      selectedFileName = null;
       try {
         sessionStorage.removeItem('shiire_parsedData');
       } catch (e) {
@@ -477,6 +487,7 @@ function resetPage() {
   rawCsvBase64  = null;
   utf8CsvBase64 = null;
   parsedData    = null;
+  selectedFileName = null;
   homeInitialized = false; // 登録完了後に #home へ戻ったとき請求一覧を再取得する
   try {
     sessionStorage.removeItem('shiire_parsedData');
