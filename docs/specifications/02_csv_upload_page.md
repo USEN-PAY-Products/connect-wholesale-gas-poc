@@ -254,7 +254,7 @@ flowchart TD
 
 #### nl2space_(str)
 
-手入力値（加盟店別請求書備考・加盟店との合意内容）に含まれる改行・制御文字を半角スペースに変換するユーティリティ。確認画面・詳細モーダルの `collectRemarks_()` / `collectHandovers_()` 等で、BE 送信前に適用する（BQ の単一引用符リテラルの構文エラー対策）。
+手入力値（請求書備考・加盟店との合意内容）に含まれる改行・制御文字を半角スペースに変換するユーティリティ。確認画面・詳細モーダルの `collectRemarks_()` / `collectHandovers_()` 等で、BE 送信前に適用する（BQ の単一引用符リテラルの構文エラー対策）。
 
 #### removeEmptyLines_(text)
 

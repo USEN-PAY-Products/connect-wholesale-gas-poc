@@ -623,12 +623,12 @@ function buildDetailAccordion_(store, openByDefault) {
   if (isReturned || isDisputed) {
     // 要対応: 編集可能
     remarksDiv.innerHTML =
-      '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
+      '<label class="remarks-label">・ 請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
       '<input type="text" class="remarks-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   } else {
     // 確認中・承認済み・取下げ済み: 読み取り専用
     remarksDiv.innerHTML =
-      '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
+      '<label class="remarks-label">・ 請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
       '<input type="text" class="remarks-input remarks-input--readonly" readonly placeholder="備考なし" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   }
   body.appendChild(remarksDiv);
@@ -1342,9 +1342,9 @@ function renderDetailLines_(lines, container) {
       }
     }, 0);
 
-    // 加盟店請求書備考（詳細画面と同じ remarks スタイル）
+    // 請求書備考（詳細画面と同じ remarks スタイル）
     html += '<div class="store-accordion__remarks">';
-    html += '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>';
+    html += '<label class="remarks-label">・ 請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>';
     html += '<input type="text" class="remarks-input" id="previewRemarksInput" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(remarksVal) + '" />';
     html += '</div>';
 
