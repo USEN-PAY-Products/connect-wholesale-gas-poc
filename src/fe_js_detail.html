@@ -1510,7 +1510,12 @@ function renderDetailLines_(lines, container) {
       }
     });
     if (taxAdjustErr.length > 0) {
-      showToast('⚠ ' + taxAdjustErr.join('\n'), 'error');
+      // showToast は textContent に message を代入するため '\n' では改行が視覚化されない。
+      // 2件目以降は body 引数（innerHTML描画）で <br> 改行して表示する。
+      const taxAdjustBody = taxAdjustErr.length > 1
+        ? taxAdjustErr.slice(1).map(escapeHtml).join('<br>')
+        : undefined;
+      showToast('⚠ ' + taxAdjustErr[0], 'error', undefined, taxAdjustBody);
       return;
     }
     if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
@@ -1556,7 +1561,13 @@ function renderDetailLines_(lines, container) {
     // ── 金額桁数バリデーション（確認画面と同じ共通関数） ───────────────────────
     const digitErrors = validateAmountDigits_(summaryData);
     if (digitErrors.length > 0) {
-      showToast('⚠ ' + digitErrors.join('\n'), 'error');
+      // showToast は textContent に message を代入するため '\n' では改行が視覚化されない。
+      // 2件目以降は body 引数（innerHTML描画）で <br> 改行して表示する。
+      // customerCode はCSV由来の値のため escapeHtml でエスケープする。
+      const digitErrorsBody = digitErrors.length > 1
+        ? digitErrors.slice(1).map(escapeHtml).join('<br>')
+        : undefined;
+      showToast('⚠ ' + digitErrors[0], 'error', undefined, digitErrorsBody);
       return;
     }
 
