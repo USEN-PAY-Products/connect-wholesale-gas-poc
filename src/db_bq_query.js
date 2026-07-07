@@ -28,7 +28,8 @@ function fetchAccountInfoByEmail_(email) {
   const sql =
     'WITH latest_merchants AS ( ' +
     '  SELECT customer_code, mall_code, wholesaler_id, ' +
-    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY registration_at DESC) AS rn ' +
+    // registration_at が同一の場合の非決定性を避けるため、id(UUID v7)の降順もタイブレークに含める
+    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY registration_at DESC, id DESC) AS rn ' +
     '  FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` ' +
     '  WHERE deleted_at IS NULL ' +
     ') ' +
@@ -197,7 +198,8 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
   const sql =
     'WITH latest_merchants AS ( ' +
     '  SELECT mall_code, customer_code, ' +
-    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY registration_at DESC) AS rn ' +
+    // registration_at が同一の場合の非決定性を避けるため、id(UUID v7)の降順もタイブレークに含める
+    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY registration_at DESC, id DESC) AS rn ' +
     '  FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` ' +
     '  WHERE wholesaler_id = @wholesaler_id ' +
     '    AND deleted_at IS NULL ' +
