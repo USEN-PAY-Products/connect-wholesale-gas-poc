@@ -1415,9 +1415,10 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, rem
     }
 
     // ── 当月重複チェック（同一卸が当月に既に新規請求書を登録済みかチェック）──
-    if (hasCurrentMonthInvoice_(accountInfo.wholesaler_id)) {
-      throw new Error('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
-    }
+    // 一旦コメントアウト（MYP-4240）
+    // if (hasCurrentMonthInvoice_(accountInfo.wholesaler_id)) {
+    //   throw new Error('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
+    // }
 
     // ── csv_format_rules から staging スキーマを生成 ────────────────────────
     // null（デフォルト卸）→ loadCsvToBq_ が STAGING_SCHEMA_（固定9列・名前付きカラム）を使用

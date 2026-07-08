@@ -634,6 +634,13 @@ function navigate() {
     _objectionEndAt = null;
   }
 
+  if (targetId !== 'pageHome') {
+    // TOP画面以外に遷移したら、次回 #home 復帰時に請求一覧を再取得できるようにする
+    // （詳細画面で再請求・取下げ等を行った直後に「一覧に戻る」で戻っても、
+    //   古いキャッシュのまま表示され続けてしまう不具合の対策）
+    homeInitialized = false;
+  }
+
   if (targetId !== 'pageConfirm') {
     // 確認画面以外に遷移したら再送信フラグをリセット
     _isResubmitConfirm = false;

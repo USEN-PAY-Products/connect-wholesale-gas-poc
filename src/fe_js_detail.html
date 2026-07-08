@@ -129,6 +129,21 @@ function renderDetailPage_(data) {
  * 期限切れなら「修正ファイルをアップ」「変更なしで再請求」「請求取り下げ」「CSV一括アップロード」ボタンを無効化する。
  */
 function checkReuploadDeadline_() {
+  // CSV一括アップロードボタン（detailBtnUploadCsv）はページ内に1つだけ存在する静的要素で、
+  // 個別ボタン（アコーディオン内の reupload/resubmit/withdraw）と異なり請求書を切り替えても
+  // DOM が再生成されない。そのため、以前に表示した別の請求書（異議申立期間が期限切れ）で
+  // 無効化された状態が、その後に表示した期限内の請求書にも残ってしまう不具合があった。
+  // ここで毎回いったんリセットしてから、現在表示中の請求書の期限で判定し直す。
+  const bulkBtn = document.getElementById('detailBtnUploadCsv');
+  if (bulkBtn) {
+    bulkBtn.disabled = false;
+    bulkBtn.title    = '';
+    bulkBtn.style.opacity = '';
+    const parentActionsForReset = bulkBtn.parentElement;
+    const oldMsg = parentActionsForReset && parentActionsForReset.querySelector('.detail-action-btn__period-expired-msg');
+    if (oldMsg) oldMsg.remove();
+  }
+
   if (!_objectionEndAt) return;
   const today = jstNow_().ymd;
   const endAt = String(_objectionEndAt).slice(0, 10);
@@ -153,7 +168,6 @@ function checkReuploadDeadline_() {
   });
 
   // 一括再送信ボタン（CSV一括アップロード）
-  const bulkBtn = document.getElementById('detailBtnUploadCsv');
   if (bulkBtn) {
     bulkBtn.disabled = true;
     bulkBtn.title    = expiredMsg;
