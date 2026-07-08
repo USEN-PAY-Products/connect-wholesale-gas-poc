@@ -117,6 +117,16 @@ function createSandbox(options) {
   };
   const parentSummary = Object.prototype.hasOwnProperty.call(opts, 'parentSummary') ? opts.parentSummary : null;
 
+  // cancelWithdrawRequest 用スタブの戻り値（デフォルトは「取り消し可能な正常系」。
+  // 個別テストで opts 経由で上書きし、対象なし・期間切れ等の分岐を再現する）。
+  const cancelWithdrawStoreRow = Object.prototype.hasOwnProperty.call(opts, 'cancelWithdrawStoreRow')
+    ? opts.cancelWithdrawStoreRow
+    : { id: 'dummy-store-invoice-id', invoice_status: 'DISPUTED', backoffice_review_status: 'WITHDRAW_REQUESTED' };
+  // デフォルトは business_calendar に該当行なし（= 異議申立期間の制限なし）。
+  const objectionPeriodRow = Object.prototype.hasOwnProperty.call(opts, 'objectionPeriodRow')
+    ? opts.objectionPeriodRow
+    : null;
+
   const fetchTargetStoreInvoiceAmountsCalls = [];
   const runTransactionSqlCalls = [];
   const mappedSqlCalls = [];
@@ -143,6 +153,7 @@ function createSandbox(options) {
       logErrorCalls.push({ domain: domain, action: action, err: err, context: context });
     },
     success_: function (data) { return { status: 'success', data: data }; },
+    error_: function (message, data) { return { status: 'error', message: message, data: data || null }; },
     getOrCreateSubFolder_: function () {
       return {
         createFile: function () {
@@ -199,6 +210,8 @@ function createSandbox(options) {
       return row ? row.mall_code : null;
     },
     fetchLatestWholesalerInvoice_: function () { return latestWi; },
+    fetchStoreInvoiceForCancelWithdrawRequest_: function () { return cancelWithdrawStoreRow; },
+    fetchObjectionPeriodEndDate_: function () { return objectionPeriodRow; },
     fetchTargetStoreInvoiceAmounts_: function (rootInvoiceId, wholesalerId, storeInvoiceIds) {
       fetchTargetStoreInvoiceAmountsCalls.push({
         rootInvoiceId: rootInvoiceId,
@@ -755,6 +768,173 @@ test('resubmitInvoiceData: 旧レコードの否認理由(store_disputed_reason)
     sql.includes('   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,'),
     'INSERT列リストにstore_disputed_reasonが追加されていること'
   );
+});
+
+// =============================================================================
+// 検証12〜14: cancelWithdrawRequest（取り下げ依頼の取り消し）
+//
+// 背景:
+//   cancelWithdrawRequest は (1) 事前バリデーション（対象行・最新WI取得）、
+//   (2) 異議申立期間（OBJECTION_PERIOD）の期限判定、(3) BEGIN TRANSACTION +
+//   @@row_count = 0 検知（並行更新・事前バリデーション後の状態変化を検知）の
+//   3つの分岐を組み合わせた構造になっている。これらはいずれも期限切れ時のエラー
+//   メッセージや並行更新時の挙動という仕様上重要な分岐であり、これまでユニットテストが
+//   一切存在しなかった（test/ 配下に cancelWithdrawRequest を直接呼ぶテストは未整備）。
+//   本テストは以下の3パターンを検証する:
+//     (a) 異議申立期間内での成功（MERCHANT_CONFIRMATION_REQUESTED に戻すUPDATEが実行される）
+//     (b) 異議申立期間終了済みの場合、SQLを実行せず error_() を返す
+//     (c) UPDATE が @@row_count = 0（並行更新等）で失敗した場合、例外を投げず
+//         業務エラー（error_()）として返す
+// =============================================================================
+
+const CANCEL_WITHDRAW_STORE_INVOICE_ID = '33333333-3333-3333-3333-333333333333';
+
+test('cancelWithdrawRequest: 異議申立期間内であれば MERCHANT_CONFIRMATION_REQUESTED に戻して成功する', () => {
+  const sandbox = createSandbox({
+    cancelWithdrawStoreRow: {
+      id: CANCEL_WITHDRAW_STORE_INVOICE_ID,
+      invoice_status: 'DISPUTED',
+      backoffice_review_status: 'WITHDRAW_REQUESTED',
+    },
+    // Utilities.formatDate スタブは常に '2026-07-07' を返すため、それより後の日付なら「期間内」。
+    objectionPeriodRow: { end_at: '2026-07-31' },
+  });
+
+  const result = sandbox.cancelWithdrawRequest(CANCEL_WITHDRAW_STORE_INVOICE_ID, PARENT_INVOICE_ID, 'dummy-session-token');
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.store_invoice_id, CANCEL_WITHDRAW_STORE_INVOICE_ID);
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1, 'UPDATEが1回実行されること');
+
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("SET backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'"), 'MERCHANT_CONFIRMATION_REQUESTEDに戻すUPDATEであること（PENDING_REVIEWではない）');
+  assert.ok(sql.includes("WHERE id = '" + CANCEL_WITHDRAW_STORE_INVOICE_ID + "'"), '対象の store_invoice_id で絞り込むこと');
+  assert.ok(sql.includes("AND backoffice_review_status = 'WITHDRAW_REQUESTED'"), '元のステータスがWITHDRAW_REQUESTEDであることを条件に含むこと');
+  assert.ok(sql.includes("AND invoice_status = 'DISPUTED'"), 'invoice_status=DISPUTEDを条件に含むこと');
+  assert.ok(sql.includes('BEGIN TRANSACTION;') && sql.includes('COMMIT;'), 'BEGIN TRANSACTION〜COMMITで包んだSQLであること');
+  assert.ok(sql.includes('IF @@row_count = 0 THEN'), '@@row_count検証を含むこと');
+});
+
+test('cancelWithdrawRequest: 異議申立期間が終了している場合はSQLを実行せずerror_を返す', () => {
+  const sandbox = createSandbox({
+    cancelWithdrawStoreRow: {
+      id: CANCEL_WITHDRAW_STORE_INVOICE_ID,
+      invoice_status: 'DISPUTED',
+      backoffice_review_status: 'WITHDRAW_REQUESTED',
+    },
+    // Utilities.formatDate スタブは常に '2026-07-07' を返すため、それより前の日付なら「期間終了済み」。
+    objectionPeriodRow: { end_at: '2026-07-01' },
+  });
+
+  const result = sandbox.cancelWithdrawRequest(CANCEL_WITHDRAW_STORE_INVOICE_ID, PARENT_INVOICE_ID, 'dummy-session-token');
+
+  assert.equal(result.status, 'error');
+  assert.equal(result.message, '異議申立期間が終了しているため、取り下げ依頼の取り消しはできません。');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 0, '期間切れの場合はUPDATE自体が実行されないこと');
+  assert.equal(sandbox.__logErrorCalls.length, 0, '業務エラーはSlack通知（logError_）対象外であること');
+});
+
+test('cancelWithdrawRequest: UPDATEが@@row_count=0（並行更新等）で失敗した場合は例外を投げず業務エラーを返す', () => {
+  const sandbox = createSandbox({
+    cancelWithdrawStoreRow: {
+      id: CANCEL_WITHDRAW_STORE_INVOICE_ID,
+      invoice_status: 'DISPUTED',
+      backoffice_review_status: 'WITHDRAW_REQUESTED',
+    },
+    // 異議申立期間の制約なし（business_calendarに該当行なし）を想定し、SQL実行まで進めるようにする。
+    objectionPeriodRow: null,
+  });
+
+  // runTransactionSql_ を上書きし、BQが RAISE USING MESSAGE = '他の操作と競合した...' で
+  // 失敗したときの実際の挙動（runTransactionSql_ が例外をthrowする）を再現する。
+  const runTransactionSqlCalls = [];
+  sandbox.runTransactionSql_ = function (projectId, sql) {
+    runTransactionSqlCalls.push({ projectId: projectId, sql: sql });
+    throw new Error('[BQ] トランザクションエラー: 他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。');
+  };
+
+  let thrown = null;
+  let result = null;
+  try {
+    result = sandbox.cancelWithdrawRequest(CANCEL_WITHDRAW_STORE_INVOICE_ID, PARENT_INVOICE_ID, 'dummy-session-token');
+  } catch (e) {
+    thrown = e;
+  }
+
+  assert.equal(thrown, null, '@@row_count=0のRAISEは業務エラーに変換され、例外としては再スローされないこと');
+  assert.ok(result, 'error_ の戻り値が得られること');
+  assert.equal(result.status, 'error');
+  assert.equal(result.message, '対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+  assert.equal(runTransactionSqlCalls.length, 1, 'UPDATE（失敗するもの）は1回は実行されていること');
+  assert.equal(sandbox.__logErrorCalls.length, 0, '業務エラーとして処理されるためSlack通知（logError_）対象外であること');
+});
+
+// =============================================================================
+// 検証15〜16: withdrawStoreInvoice（請求取り下げ依頼）
+//
+// 背景:
+//   withdrawStoreInvoice は cancelWithdrawRequest と異なり事前バリデーション
+//   （DB問い合わせによる対象行の存在確認）を行わず、UUID形式チェックの後、
+//   直接 BEGIN TRANSACTION 〜 COMMIT + @@row_count = 0 検知の1文UPDATEを実行する
+//   構造になっている。@@row_count = 0（並行更新や画面表示後の状態変化で対象行が
+//   0件だった場合）を検知しなければ、対象0件でもBQ上はエラーにならず成功扱いとなり、
+//   画面上は成功トーストが出るのに実際は何も更新されない不整合が起こり得るため、
+//   この検知とerror_()への変換は仕様上重要な振る舞いである。これまでユニットテストが
+//   一切存在しなかった（test/ 配下に withdrawStoreInvoice を直接呼ぶテストは未整備）。
+//   本テストは以下の2パターンを検証する:
+//     (a) 正常系: WITHDRAW_REQUESTED への更新SQLが正しく組み立てられ実行される
+//     (b) UPDATE が @@row_count = 0（並行更新等）で失敗した場合、例外を投げず
+//         業務エラー（error_()）として返す
+// =============================================================================
+
+const WITHDRAW_STORE_INVOICE_ID = '44444444-4444-4444-4444-444444444444';
+
+test('withdrawStoreInvoice: 正常系でWITHDRAW_REQUESTEDへの更新SQLが実行され成功する', () => {
+  const sandbox = createSandbox();
+
+  const result = sandbox.withdrawStoreInvoice(WITHDRAW_STORE_INVOICE_ID, PARENT_INVOICE_ID, 'dummy-session-token');
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.store_invoice_id, WITHDRAW_STORE_INVOICE_ID);
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1, 'UPDATEが1回実行されること');
+
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("SET backoffice_review_status = 'WITHDRAW_REQUESTED'"), 'WITHDRAW_REQUESTEDに更新するUPDATEであること');
+  assert.ok(sql.includes("WHERE id = '" + WITHDRAW_STORE_INVOICE_ID + "'"), '対象の store_invoice_id で絞り込むこと');
+  assert.ok(sql.includes("AND invoice_status = 'DISPUTED'"), 'invoice_status=DISPUTEDを条件に含むこと');
+  assert.ok(
+    sql.includes("AND backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')"),
+    'FEのボタン表示条件と揃えたbackoffice_review_status制限を含むこと（API直叩き対策）'
+  );
+  assert.ok(sql.includes('BEGIN TRANSACTION;') && sql.includes('COMMIT;'), 'BEGIN TRANSACTION〜COMMITで包んだSQLであること');
+  assert.ok(sql.includes('IF @@row_count = 0 THEN'), '@@row_count検証を含むこと');
+});
+
+test('withdrawStoreInvoice: UPDATEが@@row_count=0（並行更新等）で失敗した場合は例外を投げず業務エラーを返す', () => {
+  const sandbox = createSandbox();
+
+  // runTransactionSql_ を上書きし、BQが RAISE USING MESSAGE = '他の操作と競合した...' で
+  // 失敗したときの実際の挙動（runTransactionSql_ が例外をthrowする）を再現する。
+  const runTransactionSqlCalls = [];
+  sandbox.runTransactionSql_ = function (projectId, sql) {
+    runTransactionSqlCalls.push({ projectId: projectId, sql: sql });
+    throw new Error('[BQ] トランザクションエラー: 他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。');
+  };
+
+  let thrown = null;
+  let result = null;
+  try {
+    result = sandbox.withdrawStoreInvoice(WITHDRAW_STORE_INVOICE_ID, PARENT_INVOICE_ID, 'dummy-session-token');
+  } catch (e) {
+    thrown = e;
+  }
+
+  assert.equal(thrown, null, '@@row_count=0のRAISEは業務エラーに変換され、例外としては再スローされないこと');
+  assert.ok(result, 'error_ の戻り値が得られること');
+  assert.equal(result.status, 'error');
+  assert.equal(result.message, '対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+  assert.equal(runTransactionSqlCalls.length, 1, 'UPDATE（失敗するもの）は1回は実行されていること');
+  assert.equal(sandbox.__logErrorCalls.length, 0, '業務エラーとして処理されるためSlack通知（logError_）対象外であること');
 });
 
 test('bulkResubmitInvoiceData: 旧レコードの否認理由(store_disputed_reason)がcustomerCode単位で新規INSERTのSQLに引き継がれる', () => {
