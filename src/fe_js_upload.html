@@ -324,18 +324,17 @@ function handleFile(file) {
     }
 
     // ── 当月重複チェック（sessionStorage キャッシュ参照）────────────────
-    // 一旦コメントアウト（MYP-4240）
-    // try {
-    //   const cachedInvoices = JSON.parse(sessionStorage.getItem('shiire_invoices_cache') || '[]');
-    //   const jstDup = jstNow_();
-    //   const currentYM = jstDup.year + '/' + String(jstDup.month).padStart(2, '0');
-    //   const hasCurrentMonth = cachedInvoices.some(inv => inv.created_at && inv.created_at.startsWith(currentYM));
-    //   if (hasCurrentMonth) {
-    //     errors.push('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
-    //   }
-    // } catch (e) {
-    //   console.warn('[upload] 当月重複チェックに失敗しました:', e);
-    // }
+    try {
+      const cachedInvoices = JSON.parse(sessionStorage.getItem('shiire_invoices_cache') || '[]');
+      const jstDup = jstNow_();
+      const currentYM = jstDup.year + '/' + String(jstDup.month).padStart(2, '0');
+      const hasCurrentMonth = cachedInvoices.some(inv => inv.created_at && inv.created_at.startsWith(currentYM));
+      if (hasCurrentMonth) {
+        errors.push('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
+      }
+    } catch (e) {
+      console.warn('[upload] 当月重複チェックに失敗しました:', e);
+    }
 
     // ── 加盟店網羅性チェック（アラート: 非ブロッキング）────────────────────
     // 当月重複チェック等の既存のブロッキングエラー（errors）がある場合、

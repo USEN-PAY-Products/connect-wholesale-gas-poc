@@ -330,11 +330,8 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
   if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'DISPUTED') {
     return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認差戻</span>';
   }
-  // 否認差戻: RETURNED + DISPUTED
-  if (backofficeStatus === 'RETURNED' && invoiceStatus === 'DISPUTED') {
-    return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認差戻</span>';
-  }
-  // 差戻し: RETURNED（DISPUTED でない）
+  // 差戻し: RETURNED（invoice_status が DISPUTED かどうかは問わない。
+  // BOが差し戻し済み（RETURNED）であれば否認の有無に関わらず「差戻し」バッジに統一する）
   if (backofficeStatus === 'RETURNED') {
     return '<span class="detail-status-badge badge--returned"><i class="fa-solid fa-rotate-left"></i> 差戻し</span>';
   }
@@ -554,7 +551,7 @@ function buildDetailAccordion_(store, openByDefault) {
           '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
           '<textarea class="backoffice-remark__handover-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="【必須】否認に対する加盟店との合意事項と変更された内容を記載ください。">' + escapeHtml(store.wholesaler_handover || '') + '</textarea>' +
         '</div>' +
-        // USEN PAY社からのコメント（否認差戻し RETURNED + DISPUTED のときのみ・読み取り専用）
+        // USEN PAY社からのコメント（否認 RETURNED + DISPUTED のときのみ・読み取り専用）
         (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED'
           ? '<div class="backoffice-remark__disputed-handover">' +
               '<span class="backoffice-remark__label">・ USEN PAY社<br>からのコメント</span>' +
@@ -564,7 +561,7 @@ function buildDetailAccordion_(store, openByDefault) {
       '</div>' +
       '<div class="backoffice-remark__actions' + (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED' ? ' backoffice-remark__actions--shifted' : '') + '">' +
       (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
-        ? '<span class="detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
+        ? '<span class="btn detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
         : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
           '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
           '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 変更なしで再請求</button>'
