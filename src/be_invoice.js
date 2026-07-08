@@ -570,6 +570,7 @@ function recalcWholesalerTotal_(merchantTotals) {
  * @param {Object} summaryData
  * @param {Object} remarks
  * @param {string|null} wholesalerHandover - 否認の場合の加盟店との合意内容
+ * @param {string|null} storeDisputedReason - 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason。再請求後も表示を維持するため）
  * @param {Object} accountInfo
  * @param {Object} mallCodeMap
  * @param {string} csvUrl
@@ -577,7 +578,7 @@ function recalcWholesalerTotal_(merchantTotals) {
  * @param {string} datasetId
  * @returns {string}
  */
-function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks, wholesalerHandover, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
+function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks, wholesalerHandover, storeDisputedReason, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
@@ -620,6 +621,9 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
   const handoverSql = wholesalerHandover
     ? "'" + esc(wholesalerHandover) + "'"
     : 'NULL';
+  const disputedReasonSql = storeDisputedReason
+    ? "'" + esc(storeDisputedReason) + "'"
+    : 'NULL';
 
   const childUuids = [];
   const childValues = summaryData.merchantTotals.map((m) => {
@@ -635,7 +639,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
-      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -672,7 +676,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '   total_amount, subtotal_amount, tax_amount,',
     '   standard_tax_target_amount, standard_tax_amount,',
     '   reduced_tax_target_amount, reduced_tax_amount,',
-    '   non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
     '   backoffice_review_status, is_latest,',
     '   final_updated_by, created_at)',
     'VALUES',
@@ -814,6 +818,9 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
         endMallCodeSet[String(s.mall_code)] = true;
       }
     });
+    // 再請求後も否認理由の表示を維持するため、対象 storeInvoiceId の旧レコードから否認理由を引き継ぐ
+    const targetStoreRow = storeRows.find(function (s) { return String(s.store_invoice_id) === String(storeInvoiceId); });
+    const storeDisputedReason = targetStoreRow ? (targetStoreRow.store_disputed_reason || null) : null;
 
     // ── BE防御(1): 対象加盟店が取引終了（end）なら再請求不可 ──
     if (endMallCodeSet[String(targetMallCode)]) {
@@ -893,6 +900,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
       sql = buildMappedResubmitTransactionSql_({
         parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
         wholesalerHandover: wholesalerHandover || null,
+        storeDisputedReason,
         accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         csvFormatRules: accountInfo.csv_format_rules,
         latestWi, oldStoreAmounts,
@@ -900,7 +908,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
     } else {
       sql = buildResubmitTransactionSql_(
         parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
-        wholesalerHandover || null, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        wholesalerHandover || null, storeDisputedReason, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         latestWi, oldStoreAmounts
       );
     }
@@ -951,6 +959,8 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
  * @param {string}  stagingId
  * @param {Object}  summaryData
  * @param {Object}  remarks
+ * @param {Object}  handovers        - { [customerCode]: string } 否認時の加盟店との合意内容
+ * @param {Object}  disputedReasons  - { [customerCode]: string } 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason）
  * @param {Object}  accountInfo
  * @param {Object}  mallCodeMap
  * @param {string}  csvUrl
@@ -960,7 +970,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
  * @param {Object}  oldStoreAmounts  - 旧要対応 store_invoices の合計金額
  * @returns {string} SQL
  */
-function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryData, remarks, handovers, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
+function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryData, remarks, handovers, disputedReasons, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
@@ -1005,6 +1015,8 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     const handover  = handovers[String(m.customerCode)] || '';
     const handoverSql = handover ? "'" + esc(handover) + "'" : 'NULL';
+    const disputedReason = (disputedReasons || {})[String(m.customerCode)] || '';
+    const disputedReasonSql = disputedReason ? "'" + esc(disputedReason) + "'" : 'NULL';
     const managedNameSql = m.managedStoreName ? "'" + esc(m.managedStoreName) + "'" : 'NULL';
     return (
       "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
@@ -1012,7 +1024,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
-      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -1069,7 +1081,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '   total_amount, subtotal_amount, tax_amount,',
     '   standard_tax_target_amount, standard_tax_amount,',
     '   reduced_tax_target_amount, reduced_tax_amount,',
-    '   non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
     '   backoffice_review_status, is_latest,',
     '   final_updated_by, created_at)',
     'VALUES',
@@ -1183,12 +1195,14 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     const customerToStoreInvoiceId = {};
     const storeBasedMappings = [];
     const managedNameByCustomer = {};
+    const disputedReasonByCustomer = {}; // customer_code → 旧レコードの否認理由（再請求後も表示を維持するため引き継ぐ）
     const endMallCodeSet = {}; // mall_code → true（取引終了店舗）
     const withdrawRequestedMallCodeSet = {}; // mall_code → true（取り下げ依頼中店舗）
     storeRows.forEach(function (s) {
       if (s.customer_code && s.mall_code) {
         customerToMall[String(s.customer_code)] = String(s.mall_code);
         managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
+        disputedReasonByCustomer[String(s.customer_code)] = s.store_disputed_reason || '';
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
       }
       if (s.customer_code && s.store_invoice_id) {
@@ -1302,6 +1316,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
       sql = buildMappedBulkResubmitTransactionSql_({
         parentInvoiceId, stagingId, summaryData, remarks,
         handovers: handovers || {},
+        disputedReasons: disputedReasonByCustomer,
         accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         csvFormatRules: accountInfo.csv_format_rules,
         latestWi, oldStoreAmounts,
@@ -1309,7 +1324,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     } else {
       sql = buildBulkResubmitTransactionSql_(
         parentInvoiceId, stagingId, summaryData, remarks,
-        handovers || {},
+        handovers || {}, disputedReasonByCustomer,
         accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         latestWi, oldStoreAmounts
       );

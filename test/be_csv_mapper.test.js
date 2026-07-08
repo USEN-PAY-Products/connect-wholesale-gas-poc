@@ -45,9 +45,17 @@ const BE_CSV_MAPPER_SRC = fs.readFileSync(BE_CSV_MAPPER_PATH, 'utf8');
  * @returns {vm.Context}
  */
 function createSandbox() {
+  let uuidCounter = 0;
   const sandbox = {
     console: console,
     Logger: { log: function () {} },
+    Utilities: {
+      getUuid: function () {
+        uuidCounter += 1;
+        return 'aaaaaaaa-aaaa-aaaa-aaaa-' + String(uuidCounter).padStart(12, '0');
+      },
+    },
+    logError_: function () {},
   };
   vm.createContext(sandbox);
   vm.runInContext(BE_CSV_MAPPER_SRC, sandbox, { filename: 'be_csv_mapper.js' });
@@ -227,5 +235,111 @@ test('buildInvoiceLinesSelectSql_: invoice_lines JOIN は wholesaler_merchants �
     !result.selectSql.includes('JOIN ' + MERCHANTS_REF + ' wm'),
     '旧来の素の直接JOINが残っていないこと'
   );
+});
+
+// =============================================================================
+// 検証6〜7: カスタムCSV形式の卸向け再請求（個別・一括）で、否認理由
+//           (store_disputed_reason) がINSERT列・VALUESに正しく反映されること
+//           （再請求時に否認理由が引き継がれない不具合の修正）。
+//
+// 背景:
+//   固定カラム形式向けの buildResubmitTransactionSql_ / buildBulkResubmitTransactionSql_
+//   （be_invoice.js）だけでなく、カスタムCSV形式向けの本ファイルの
+//   buildMappedResubmitTransactionSql_ / buildMappedBulkResubmitTransactionSql_ も、
+//   新規INSERTする store_invoices の列リストに store_disputed_reason が
+//   含まれていなかったため、否認理由が引き継がれず常にNULLになっていた。
+// =============================================================================
+
+const RESUBMIT_ACCOUNT_INFO = {
+  wholesaler_id: WHOLESALER_ID,
+  wholesaler_user_id: '99999999-9999-9999-9999-999999999999',
+  fee_rate: 3,
+  tax_rounding_method: 'floor',
+};
+
+const RESUBMIT_LATEST_WI = {
+  wholesaler_invoice_date: '2026-07-01',
+  wholesaler_total_amount: 5000, wholesaler_subtotal_amount: 4500, wholesaler_tax_amount: 500,
+  wholesaler_standard_tax_target_amount: 4500, wholesaler_standard_tax_amount: 500,
+  wholesaler_reduced_tax_target_amount: 0, wholesaler_reduced_tax_amount: 0,
+  wholesaler_non_taxable_amount: 0,
+};
+
+const RESUBMIT_OLD_STORE_AMOUNTS = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 };
+
+test('buildMappedResubmitTransactionSql_: 否認理由(storeDisputedReason)がINSERT列とVALUESに反映される', () => {
+  const sandbox = createSandbox();
+  const columns = buildBaseColumns();
+  const summaryData = {
+    wholesalerTotal: {
+      totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100,
+      exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0,
+    },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  const sql = sandbox.buildMappedResubmitTransactionSql_({
+    parentInvoiceId: INVOICE_UUID,
+    storeInvoiceId: '22222222-2222-2222-2222-222222222222',
+    stagingId: 'staging_test_0001',
+    summaryData: summaryData,
+    remarks: {},
+    wholesalerHandover: null,
+    storeDisputedReason: '数量に誤りがあったため否認します',
+    accountInfo: RESUBMIT_ACCOUNT_INFO,
+    mallCodeMap: {},
+    csvUrl: 'https://example.test/dummy.csv',
+    projectId: 'test-project',
+    datasetId: 'test_dataset',
+    csvFormatRules: { has_header: true, columns: columns },
+    latestWi: RESUBMIT_LATEST_WI,
+    oldStoreAmounts: RESUBMIT_OLD_STORE_AMOUNTS,
+  });
+
+  assert.ok(
+    sql.includes('  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,'),
+    'INSERT列にstore_disputed_reasonが追加されていること'
+  );
+  assert.ok(sql.includes("'数量に誤りがあったため否認します'"), 'VALUESに否認理由の値が含まれること');
+});
+
+test('buildMappedBulkResubmitTransactionSql_: 加盟店ごとの否認理由(disputedReasons)がINSERT列とVALUESに反映される', () => {
+  const sandbox = createSandbox();
+  const columns = buildBaseColumns();
+  const summaryData = {
+    wholesalerTotal: {
+      totalAmount: 3300, subtotalAmount: 3000, taxAmount: 300,
+      exTax10: 3000, tax10: 300, exTax8: 0, tax8: 0,
+    },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+      { customerCode: 'CUST002', totalAmount: 2200, subtotalAmount: 2000, taxAmount: 200, exTax10: 2000, tax10: 200, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  const sql = sandbox.buildMappedBulkResubmitTransactionSql_({
+    parentInvoiceId: INVOICE_UUID,
+    stagingId: 'staging_test_0001',
+    summaryData: summaryData,
+    remarks: {},
+    handovers: {},
+    disputedReasons: { CUST001: '数量に誤りがあったため否認します' },
+    accountInfo: RESUBMIT_ACCOUNT_INFO,
+    mallCodeMap: {},
+    csvUrl: 'https://example.test/dummy.csv',
+    projectId: 'test-project',
+    datasetId: 'test_dataset',
+    csvFormatRules: { has_header: true, columns: columns },
+    latestWi: RESUBMIT_LATEST_WI,
+    oldStoreAmounts: RESUBMIT_OLD_STORE_AMOUNTS,
+  });
+
+  assert.ok(
+    sql.includes('  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,'),
+    'INSERT列にstore_disputed_reasonが追加されていること'
+  );
+  assert.ok(sql.includes("'数量に誤りがあったため否認します'"), 'CUST001の否認理由がVALUESに含まれること');
 });
 

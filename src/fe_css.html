@@ -264,7 +264,10 @@ button { cursor: pointer; font-family: inherit; }
   border-radius: 6px;
   font-size: 13px;
   box-shadow: 0 2px 8px rgba(0,0,0,.15);
-  z-index: 100;
+  /* グローバル通知のため、個別再請求モーダル（.detail-upload-modal: z-index 1000）等の
+     モーダル・オーバーレイより必ず手前に表示されるよう、既存の最大値（.loading-overlay /
+     .detail-meta-tooltip: 9999）より大きい値にする。 */
+  z-index: 10000;
   width: calc(100% - 64px);
   max-width: 1200px;
   white-space: nowrap;
