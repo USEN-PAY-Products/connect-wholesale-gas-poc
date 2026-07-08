@@ -557,6 +557,19 @@ function buildDetailAccordion_(store, openByDefault) {
       ) +
       '</div>';
     body.appendChild(disputedRow);
+
+    // 合意内容入力時にエラー表示（バナー）をクリアする（確認画面・個別再請求モーダルと同じ挙動）
+    const disputedHandoverInput = disputedRow.querySelector('.backoffice-remark__handover-input[data-customer-code]');
+    if (disputedHandoverInput) {
+      disputedHandoverInput.addEventListener('input', function () {
+        disputedHandoverInput.classList.remove('confirm-handover-input--error');
+        disputedHandoverInput.removeAttribute('aria-invalid');
+        disputedHandoverInput.removeAttribute('aria-describedby');
+        const leftDiv = disputedHandoverInput.closest('.backoffice-remark__disputed-left');
+        const bannerEl = leftDiv && leftDiv.querySelector('.backoffice-remark__error-banner');
+        if (bannerEl) bannerEl.remove();
+      });
+    }
   }
 
   // 取下げ済み: 合意内容（読取専用）+ 取下げをやめるボタン
@@ -1783,9 +1796,29 @@ function renderDetailLines_(lines, container) {
       const bodyEl4        = resubmitBtn.closest('.store-accordion__body');
       const handoverInput4 = bodyEl4 && bodyEl4.querySelector('.backoffice-remark__handover-input');
       const wholesalerHandover4 = handoverInput4 ? nl2space_(handoverInput4.value || '') : '';
-      // 否認（handover入力欄がある）の場合、未入力ならエラー
+      // 否認（handover入力欄がある）の場合、未入力ならエラー（確認画面・個別再請求モーダルと同じ警告バナー表示に統一）
       if (handoverInput4 && !wholesalerHandover4.trim()) {
-        showToast('否認された請求を「変更なしで再申請」する場合は、〈加盟店との合意事項〉の項目を記入ください。', 'error', 8000);
+        handoverInput4.classList.add('confirm-handover-input--error');
+        handoverInput4.setAttribute('aria-invalid', 'true');
+        const errId4 = 'handover-err-' + (handoverInput4.dataset.storeInvoiceId || storeInvoiceId);
+        handoverInput4.setAttribute('aria-describedby', errId4);
+        const leftDiv4 = handoverInput4.closest('.backoffice-remark__disputed-left');
+        if (leftDiv4 && !leftDiv4.querySelector('.backoffice-remark__error-banner')) {
+          const banner4 = document.createElement('div');
+          banner4.className = 'backoffice-remark__error-banner';
+          banner4.id = errId4;
+          banner4.setAttribute('role', 'alert');
+          const bannerIcon4 = document.createElement('i');
+          bannerIcon4.className = 'fa-solid fa-circle-exclamation';
+          bannerIcon4.setAttribute('aria-hidden', 'true');
+          const bannerText4 = document.createElement('span');
+          bannerText4.textContent = '「【必須】加盟店との合意内容」の項目が空欄です。';
+          banner4.appendChild(bannerIcon4);
+          banner4.appendChild(bannerText4);
+          leftDiv4.insertBefore(banner4, leftDiv4.firstChild);
+        }
+        handoverInput4.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        handoverInput4.focus();
         return;
       }
       showLoadingOverlay('再請求中...');
