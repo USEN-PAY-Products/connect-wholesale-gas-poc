@@ -1367,7 +1367,7 @@ button { cursor: pointer; font-family: inherit; }
   gap: 8px;
   flex-shrink: 0;
 }
-/* 否認差戻し（RETURNED + DISPUTED）: USEN PAY社コメント欄追加に伴い、ボタン群を否認理由行分下げて合意内容テキストエリアの上端に揃える */
+/* 否認（RETURNED + DISPUTED）: USEN PAY社コメント欄追加に伴い、ボタン群を否認理由行分下げて合意内容テキストエリアの上端に揃える */
 .backoffice-remark__actions--shifted {
   margin-top: 32px;
 }
@@ -1475,7 +1475,7 @@ button { cursor: pointer; font-family: inherit; }
   border-color: #4A7FF5;
   box-shadow: 0 0 0 2px rgba(74,127,245,.15);
 }
-/* USEN PAY社からのコメント（否認差戻し・読み取り専用／サイズは backoffice-remark__handover-input を共用し色・背景のみ上書き） */
+/* USEN PAY社からのコメント（否認・読み取り専用／サイズは backoffice-remark__handover-input を共用し色・背景のみ上書き） */
 .backoffice-remark__pay-comment {
   color: #E53935;
   background: #F9FAFB;
@@ -2534,26 +2534,29 @@ button { cursor: pointer; font-family: inherit; }
   border-color: #0096a5;
 }
 
-/* 取り下げ済み / 再請求済みバッジ */
+/* 取り下げ済み / 再請求済みバッジ（「変更なしで再請求」等のアクションボタンと同一の形状・サイズに統一。
+   実際のボタンは `.backoffice-remark__actions .btn`（詳細度の高い子孫セレクタ）で width:197px / height:36px /
+   padding:8px 16px / border-radius:40px に確定しているため、同じ値を明示して合わせている。
+   色（border-color/background/color）は意図的に修正対象外として --resubmitted 側にのみ残す。 */
 .detail-action-badge {
   display: flex;
-  height: 32px;
-  padding: 0 14px;
+  width: 197px;
+  height: 36px;
+  padding: 8px 16px;
   justify-content: center;
   align-items: center;
-  gap: 6px;
-  border-radius: 6px;
+  gap: 5px;
+  border-radius: 40px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
+  line-height: normal;
   white-space: nowrap;
+  box-shadow: 0 0 6px 0 rgba(0, 0, 0, 0.04);
 }
 .detail-action-badge--resubmitted {
   border: 1px solid #159E85;
   background: #CDF6EF;
   color: #159E85;
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
 }
 /* 取り下げ依頼済みバッジ（3ボタンと同じレイアウト・文字サイズ／色は再請求済みと同じ） */
 .detail-action-badge--withdraw-requested {

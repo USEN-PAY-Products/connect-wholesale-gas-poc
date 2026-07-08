@@ -337,8 +337,11 @@ function handleFile(file) {
     }
 
     // ── 加盟店網羅性チェック（アラート: 非ブロッキング）────────────────────
+    // 当月重複チェック等の既存のブロッキングエラー（errors）がある場合、
+    // どのみち送信できずアラートを表示する意味がないため計算自体をスキップする
+    // （重複チェックエラー時に無関係な加盟店網羅性アラートが一緒に出てしまう問題の対策）。
     const warnings = [];
-    if (rows.length > 0) {
+    if (errors.length === 0 && rows.length > 0) {
       try {
         const mappings = getMerchantMappings();
         const csvCustomerCodes = new Set(rows.map(r => String(r.customer_code)));
@@ -489,7 +492,6 @@ function resetPage() {
   utf8CsvBase64 = null;
   parsedData    = null;
   selectedFileName = null;
-  homeInitialized = false; // 登録完了後に #home へ戻ったとき請求一覧を再取得する
   try {
     sessionStorage.removeItem('shiire_parsedData');
   } catch (e) {
