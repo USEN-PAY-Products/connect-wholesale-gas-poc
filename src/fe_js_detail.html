@@ -623,12 +623,12 @@ function buildDetailAccordion_(store, openByDefault) {
   if (isReturned || isDisputed) {
     // 要対応: 編集可能
     remarksDiv.innerHTML =
-      '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
+      '<label class="remarks-label">・ 請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
       '<input type="text" class="remarks-input" data-store-invoice-id="' + escapeHtml(store.store_invoice_id) + '" data-customer-code="' + escapeHtml(customerCode) + '" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   } else {
     // 確認中・承認済み・取下げ済み: 読み取り専用
     remarksDiv.innerHTML =
-      '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
+      '<label class="remarks-label">・ 請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>' +
       '<input type="text" class="remarks-input remarks-input--readonly" readonly placeholder="備考なし" value="' + escapeHtml(store.wholesaler_remark || '') + '" />';
   }
   body.appendChild(remarksDiv);
@@ -1068,6 +1068,7 @@ function renderDetailLines_(lines, container) {
         //       内容が一致しない。障害調査・監査で原本から再現する際は空行除去分の差分がある点に留意。
         utf8CsvBase64 = stringToBase64Utf8_(removeEmptyLines_(text));
         parsedData    = rows;
+        selectedFileName = file.name;
         try { sessionStorage.setItem('shiire_parsedData', JSON.stringify(rows)); }
         catch (_e) { console.warn('[detailModal] parsedData の sessionStorage 保存に失敗:', _e); }
       }
@@ -1336,15 +1337,16 @@ function renderDetailLines_(lines, container) {
           hInput.classList.remove('confirm-handover-input--error');
           hInput.removeAttribute('aria-invalid');
           hInput.removeAttribute('aria-describedby');
-          const errEl = hInput.nextElementSibling;
-          if (errEl && errEl.classList.contains('handover-validation-error')) errEl.remove();
+          const leftDiv = hInput.closest('.backoffice-remark__disputed-left');
+          const bannerEl = leftDiv && leftDiv.querySelector('.backoffice-remark__error-banner');
+          if (bannerEl) bannerEl.remove();
         });
       }
     }, 0);
 
-    // 加盟店請求書備考（詳細画面と同じ remarks スタイル）
+    // 請求書備考（詳細画面と同じ remarks スタイル）
     html += '<div class="store-accordion__remarks">';
-    html += '<label class="remarks-label">・ 加盟店請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>';
+    html += '<label class="remarks-label">・ 請求書備考 <span class="detail-meta-help-wrap"><i class="fa-solid fa-circle-question detail-meta-help" style="color:#00A7B8"></i><span class="detail-meta-tooltip">加盟店への請求書備考欄に記載されるテキストです。請求における、加盟店への連絡事項を記載ください。</span></span></label>';
     html += '<input type="text" class="remarks-input" id="previewRemarksInput" placeholder="※加盟店請求書に表示される備考情報を記載ください。" value="' + escapeHtml(remarksVal) + '" />';
     html += '</div>';
 
@@ -1434,19 +1436,13 @@ function renderDetailLines_(lines, container) {
             parentCol.appendChild(errMsg);
           }
           if (errMsg) errMsg.textContent = '※±1円まで';
-          if (previewSubmit) previewSubmit.disabled = true;
+          // ボタンの活性/非活性は誓約チェックボックスの状態のみで決める（確認画面と挙動を統一）。
+          // ±1円を超える調整があっても登録ボタン押下時にエラーメッセージで止める。
         } else {
           el.classList.remove('amount-input--error');
           el.removeAttribute('aria-invalid');
           el.removeAttribute('aria-describedby');
           if (errMsg) errMsg.remove();
-          // 他方のinputもエラーでなければ誓約チェック状態でボタンを復活
-          const otherEl = (el === tax10Input) ? tax8Input : tax10Input;
-          const otherOrig = Number((otherEl ? otherEl.dataset.orig : 0) || 0);
-          const otherCur  = Math.trunc(Number(otherEl ? otherEl.value : 0) || 0);
-          if (Math.abs(otherCur - otherOrig) <= 1 && previewOath && previewOath.checked) {
-            if (previewSubmit) previewSubmit.disabled = false;
-          }
         }
       });
     });
@@ -1459,13 +1455,9 @@ function renderDetailLines_(lines, container) {
     previewOath.dataset.changeBound = '1';
     previewOath.addEventListener('change', function () {
       if (!previewSubmit) return;
-      if (!previewOath.checked) {
-        previewSubmit.disabled = true;
-        return;
-      }
-      // 税額±1円エラーが残っている場合は有効化しない
-      const hasError = previewBody && previewBody.querySelector('.amount-input--error');
-      previewSubmit.disabled = !!hasError;
+      // ボタンの活性/非活性は誓約チェックボックスの状態のみで決める（確認画面の checkConfirm と同じ挙動）。
+      // ±1円バリデーションは登録ボタン押下時にエラーメッセージで行う。
+      previewSubmit.disabled = !previewOath.checked;
     });
   }
 
@@ -1484,13 +1476,22 @@ function renderDetailLines_(lines, container) {
       if (handoverInput) {
         handoverInput.classList.add('confirm-handover-input--error');
         handoverInput.setAttribute('aria-invalid', 'true');
-        handoverInput.setAttribute('aria-describedby', 'previewHandoverErr');
-        if (!handoverInput.nextElementSibling || !handoverInput.nextElementSibling.classList.contains('handover-validation-error')) {
-          const errSpan = document.createElement('div');
-          errSpan.className = 'handover-validation-error';
-          errSpan.id = 'previewHandoverErr';
-          errSpan.textContent = '※ 加盟店との合意内容を記入してください';
-          handoverInput.insertAdjacentElement('afterend', errSpan);
+        const errId = 'previewHandoverErr';
+        handoverInput.setAttribute('aria-describedby', errId);
+        const leftDiv = handoverInput.closest('.backoffice-remark__disputed-left');
+        if (leftDiv && !leftDiv.querySelector('.backoffice-remark__error-banner')) {
+          const banner = document.createElement('div');
+          banner.className = 'backoffice-remark__error-banner';
+          banner.id = errId;
+          banner.setAttribute('role', 'alert');
+          const bannerIcon = document.createElement('i');
+          bannerIcon.className = 'fa-solid fa-circle-exclamation';
+          bannerIcon.setAttribute('aria-hidden', 'true');
+          const bannerText = document.createElement('span');
+          bannerText.textContent = '「【必須】加盟店との合意内容」の項目が空欄です。';
+          banner.appendChild(bannerIcon);
+          banner.appendChild(bannerText);
+          leftDiv.insertBefore(banner, leftDiv.firstChild);
         }
         handoverInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
         handoverInput.focus();
@@ -1510,21 +1511,26 @@ function renderDetailLines_(lines, container) {
       }
     });
     if (taxAdjustErr.length > 0) {
-      alert('⚠ ' + taxAdjustErr.join('\n'));
+      // showToast は textContent に message を代入するため '\n' では改行が視覚化されない。
+      // 2件目以降は body 引数（innerHTML描画）で <br> 改行して表示する。
+      const taxAdjustBody = taxAdjustErr.length > 1
+        ? taxAdjustErr.slice(1).map(escapeHtml).join('<br>')
+        : undefined;
+      showToast('⚠ ' + taxAdjustErr[0], 'error', undefined, taxAdjustBody);
       return;
     }
     if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
-      alert('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。');
+      showToast('CSVのバリデーション結果が見つかりません。再度ファイルを選択してください。', 'error');
       return;
     }
     const parentInvoiceId = _detailCurrentInvoiceId;
     if (!parentInvoiceId) {
-      alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
+      showToast('請求IDが取得できませんでした。ページを再読み込みしてください。', 'error');
       return;
     }
     const storeInvoiceId = _targetStoreInvoiceId;
     if (!storeInvoiceId) {
-      alert('対象の加盟店請求IDが取得できませんでした。');
+      showToast('対象の加盟店請求IDが取得できませんでした。', 'error');
       return;
     }
     // summaryData を構築（税額は input の値で上書き）
@@ -1556,7 +1562,13 @@ function renderDetailLines_(lines, container) {
     // ── 金額桁数バリデーション（確認画面と同じ共通関数） ───────────────────────
     const digitErrors = validateAmountDigits_(summaryData);
     if (digitErrors.length > 0) {
-      alert('⚠ ' + digitErrors.join('\n'));
+      // showToast は textContent に message を代入するため '\n' では改行が視覚化されない。
+      // 2件目以降は body 引数（innerHTML描画）で <br> 改行して表示する。
+      // customerCode はCSV由来の値のため escapeHtml でエスケープする。
+      const digitErrorsBody = digitErrors.length > 1
+        ? digitErrors.slice(1).map(escapeHtml).join('<br>')
+        : undefined;
+      showToast('⚠ ' + digitErrors[0], 'error', undefined, digitErrorsBody);
       return;
     }
 
@@ -1566,10 +1578,10 @@ function renderDetailLines_(lines, container) {
         .withSuccessHandler(function (result) {
           hideLoadingOverlay();
           if (result && result.status === 'error') {
-            alert('登録に失敗しました: ' + (result.message || '不明なエラー'));
+            showToast('登録に失敗しました: ' + (result.message || '不明なエラー'), 'error');
             return;
           }
-          rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+          rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null; selectedFileName = null;
           closeModal();
           _detailCurrentInvoiceId = null;
           _detailPendingToastMsg = '登録完了しました。';
@@ -1577,15 +1589,15 @@ function renderDetailLines_(lines, container) {
         })
         .withFailureHandler(function (err) {
           hideLoadingOverlay();
-          alert('登録に失敗しました: ' + (err.message || err));
+          showToast('登録に失敗しました: ' + (err.message || err), 'error');
         })
-        .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks,
+        .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks,
                              parentInvoiceId, storeInvoiceId, handoverVal, getSessionToken_());
     } else {
       console.warn('[modal-reupload-submit] google.script.run が利用できません（モック）');
       setTimeout(function () {
         hideLoadingOverlay();
-        rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null;
+        rawCsvBase64 = null; utf8CsvBase64 = null; parsedData = null; selectedFileName = null;
         closeModal();
         _detailCurrentInvoiceId = null;
         _detailPendingToastMsg = '登録完了しました。';
@@ -1597,6 +1609,12 @@ function renderDetailLines_(lines, container) {
 
   // イベント委譲: reuploadボタン押下 → モーダルを開く
   document.addEventListener('click', function (e) {
+    // e.target は常に Element とは限らない（ブラウザ翻訳機能によるテキストノード分割・
+    // 拡張機能等が合成発火するイベント等で Text ノードや document 自体になることがある）。
+    // Element でない場合に closest() を呼ぶと「e.target.closest is not a function」で
+    // 例外になり Slack にノイズ通知が飛ぶため、ここで確実に弾く
+    // （このハンドラ内の reupload/withdraw/undo-withdraw/resubmit 全ての closest() 呼び出しをまとめて保護する）。
+    if (!(e.target instanceof Element)) return;
     const btn = e.target.closest('[data-action="reupload"]');
     if (btn) {
       const actionsEl = btn.closest('.backoffice-remark__actions');

@@ -35,11 +35,18 @@ function logInfo_(tag, message) {
 
 /**
  * ERRORレベルのログを出力する。
+ * Cloud Logging への記録（Logger.log）は無条件・最優先で必ず実行し、
+ * その後にランタイムエラーの Slack 通知（notifySlackError_、be_slack.js）を
+ * 試みる。Slack 通知側の失敗（未実装漏れ・Webhook未設定・通信エラー等）が
+ * ログ出力自体に影響しないよう、try/catch で二重に防御する
+ * （notifySlackError_ 自身の内部にも同様の防御がある）。
+ *
  * @param {string} tag - ログのカテゴリタグ
  * @param {string} message - ログメッセージ
  * @param {*} [error] - エラーオブジェクトまたは任意の値（文字列・オブジェクト等も可）
+ * @param {Object} [context] - Slack通知用の追加コンテキスト（省略可。例: { wholesalerId, wholesalerName, invoiceUuid, actionLabel }）
  */
-function logError_(tag, message, error) {
+function logError_(tag, message, error, context) {
   let errorDetail;
   if (error == null) {
     errorDetail = message;
@@ -55,6 +62,14 @@ function logError_(tag, message, error) {
     }
   }
   Logger.log('[ERROR][' + tag + '] ' + sanitizeLogMessage_(errorDetail));
+
+  try {
+    notifySlackError_(tag, message, error, context);
+  } catch (_) {
+    // notifySlackError_（be_slack.js）内部の想定漏れによる例外も、
+    // ここで確実に握りつぶす（二重防御）。ログ出力自体は上記で完了済みのため、
+    // Slack通知の失敗がアプリの動作に一切影響しない。
+  }
 }
 
 // =============================================================================

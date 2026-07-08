@@ -1,4 +1,137 @@
 <script>
+// =============================================================================
+// グローバルエラーハンドラ（ランタイムエラー Slack 通知: FE側リレー）
+// 設計: docs/plan/runtime_error_slack_notification_design.md §8
+// 全 fe_js_*.html 中、本ファイル(fe_js_common.html)が最初に読み込まれるため、
+// 以降にロードされる全JSのエラーを捕捉できるよう、ファイル冒頭に配置する。
+// =============================================================================
+
+/**
+ * Cloud Logging 検索・Slack通知本文への埋め込み用に、8桁hexのランダムIDを生成する。
+ * @returns {string} 8桁の16進文字列
+ */
+function generateClientErrorId_() {
+  let id = '';
+  for (let i = 0; i < 8; i++) {
+    id += Math.floor(Math.random() * 16).toString(16);
+  }
+  return id;
+}
+
+/**
+ * エラーレポート送信用に URL からセッショントークンをマスクする。
+ * getSessionToken_() が読み取る2箇所（LPが付与するクエリ ?token=xxx、
+ * および後方互換のフラグメント #token=xxx）の両方をマスク対象とする。
+ * トークンはセッション認証に使える秘密情報のため、Slack通知本文に
+ * そのまま含めると漏えいにつながる（値のみ ["***"] に置換し、
+ * URL構造自体はデバッグ用に残す）。
+ * トークン値は次のクエリ区切り（&）またはフラグメント区切り（#）のいずれか手前まで
+ * とする（[^&#]*）。# を除外しないと、?token=xxx#section=... のように token= の後ろに
+ * & を挟まず # が続くURLで、# 以降のデバッグに有用なフラグメント情報までマスク値に
+ * 巻き込んで消してしまうため。
+ *
+ * @param {string} url
+ * @returns {string} token= の値をマスクした URL
+ */
+function sanitizeUrlForErrorReport_(url) {
+  try {
+    return String(url || '').replace(/([?&#]token=)[^&#]*/gi, '$1***');
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * sessionStorage.getItem() を安全に呼び出すためのラッパー。
+ * プライベートブラウジングモードやブラウザのストレージ制限により、
+ * sessionStorage へのアクセス自体が例外（SecurityError 等）を投げる環境が存在する。
+ * reportClientError_() はこの関数を含む全体を try/catch で囲んでいるが、
+ * ここで例外を吸収せず投げてしまうと、message/stack 等の他フィールドが
+ * 正しく組み立てられる状況であっても、その時点で外側の catch に落ちて
+ * Slack通知本体（google.script.run.reportClientError の呼び出し）が
+ * 一切送信されなくなってしまう。そのため sessionStorage アクセスのみを
+ * 個別に保護し、失敗時は空文字にフォールバックすることで、
+ * 通知処理自体は継続させる。
+ * @param {string} key
+ * @returns {string} 取得できた値。取得できない場合は空文字
+ */
+function getSessionItemSafe_(key) {
+  try {
+    return sessionStorage.getItem(key) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+// be_slack.js の reportClientError() 側の切り詰め上限（message: 500文字、stack: 2000文字）と
+// 同じ値。BE側の slice は「Slack本文に載せる見た目」を整えるためのものであり、
+// google.script.run のペイロード送信自体の可否には効かない。特に minify されたコードの
+// スタックトレースは非常に長大になりやすく、そのまま送信すると google.script.run 自体が
+// 失敗・遅延しやすくなるため、FE側でも送信前に同じ上限で事前に切り詰める。
+const CLIENT_ERROR_MESSAGE_MAX_LENGTH_ = 500;
+const CLIENT_ERROR_STACK_MAX_LENGTH_   = 2000;
+
+/**
+ * ランタイムエラーを be_slack.js の reportClientError() へ中継する。
+ * Who(卸情報)は FE 側にアカウント情報を保持するグローバル変数が存在しないため、
+ * 既存の saveAccountInfo() が保存した SessionStorage の値をそのまま読む。
+ * failureHandler は console.error のみで、再度エラー通知をトリガーする処理は行わない
+ * （無限ループ防止）。
+ * message/stack は CLIENT_ERROR_MESSAGE_MAX_LENGTH_ / CLIENT_ERROR_STACK_MAX_LENGTH_ で
+ * 送信前に切り詰める（BE側と同じ上限。google.script.run 自体の送信失敗・遅延を防ぐため）。
+ *
+ * @param {string} message
+ * @param {string} [stack]
+ */
+function reportClientError_(message, stack) {
+  try {
+    const clientErrorId = generateClientErrorId_();
+    const rawUrl = (typeof location !== 'undefined' ? location.href : '');
+    const payload = {
+      clientErrorId:  clientErrorId,
+      message:        String(message || '(no message)').slice(0, CLIENT_ERROR_MESSAGE_MAX_LENGTH_),
+      stack:          String(stack || '').slice(0, CLIENT_ERROR_STACK_MAX_LENGTH_),
+      url:            sanitizeUrlForErrorReport_(rawUrl),
+      ua:             (typeof navigator !== 'undefined' ? navigator.userAgent : ''),
+      wholesalerId:   getSessionItemSafe_('shiire_wholesaler_id'),
+      wholesalerName: getSessionItemSafe_('shiire_wholesaler_name'),
+    };
+    console.error('[error] clientErrorId=' + clientErrorId + ' ' + payload.message);
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withFailureHandler(function (err) {
+          console.error('[error] reportClientError の送信に失敗しました:', err);
+        })
+        .reportClientError(payload, getSessionToken_());
+    }
+  } catch (e) {
+    // グローバルエラーハンドラ自体の失敗はコンソールに残すのみ（アプリの動作に影響を与えない）。
+    console.error('[error] エラーレポート処理自体が失敗しました:', e);
+  }
+}
+
+window.addEventListener('error', function (event) {
+  try {
+    const err = event && event.error;
+    const message = (err && err.message) || (event && event.message) || '(unknown error)';
+    const stack = (err && err.stack) || '';
+    reportClientError_(message, stack);
+  } catch (e) {
+    console.error('[error] window.onerror ハンドラが失敗しました:', e);
+  }
+});
+
+window.addEventListener('unhandledrejection', function (event) {
+  try {
+    const reason = event && event.reason;
+    const message = (reason && reason.message) || String(reason || '(unknown rejection)');
+    const stack = (reason && reason.stack) || '';
+    reportClientError_(message, stack);
+  } catch (e) {
+    console.error('[error] unhandledrejection ハンドラが失敗しました:', e);
+  }
+});
+
 // ---- utils.js ----
 /**
  * sessionStorage の tax_rounding_method に応じて消費税を丸める。
@@ -44,6 +177,11 @@ function jstNow_() {
  */
 (function initTooltipPositioning() {
   document.addEventListener('mouseenter', function (e) {
+    // e.target は常に Element とは限らない（ブラウザ翻訳機能によるテキストノード分割・
+    // 拡張機能等が合成発火するイベント等で Text ノードや document 自体になることがある）。
+    // Element でない場合に closest() を呼ぶと「e.target.closest is not a function」で
+    // 例外になり Slack にノイズ通知が飛ぶため、ここで確実に弾く。
+    if (!(e.target instanceof Element)) return;
     const wrap = e.target.closest('.detail-meta-help-wrap');
     if (!wrap) return;
     const tooltip = wrap.querySelector('.detail-meta-tooltip');

@@ -52,10 +52,17 @@ function getServerAccountInfo_(email, sessionToken) {
  * @returns {{ status: 'success', data: Object }}
  */
 function getAccountInfo(sessionToken) {
+  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
+  let accountInfo = null;
   try {
-    return success_(getServerAccountInfo_('', sessionToken));
+    accountInfo = getServerAccountInfo_('', sessionToken);
+    return success_(accountInfo);
   } catch (err) {
-    logError_('Auth', 'getAccountInfo', err);
+    logError_('Auth', 'getAccountInfo', err, {
+      wholesalerId: accountInfo && accountInfo.wholesaler_id,
+      wholesalerName: accountInfo && accountInfo.wholesaler_name,
+      actionLabel: 'アカウント情報取得',
+    });
     // UNAUTHORIZED / NOT_REGISTERED はフロントが err.message で認証エラーを判定するためそのまま再throw
     const m = String(err.message || '');
     if (m.startsWith('UNAUTHORIZED:') || m.startsWith('NOT_REGISTERED:')) {
