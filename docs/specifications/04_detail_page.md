@@ -352,7 +352,7 @@ sequenceDiagram
     U->>FE: 「取り下げを依頼する」押下
     FE->>FE: executeWithdraw_()
     FE->>BE: withdrawStoreInvoice(storeInvoiceId, parentInvoiceId)
-    BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='WITHDRAW_REQUESTED'<br/>WHERE id=? AND invoice_status='DISPUTED'
+    BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='WITHDRAW_REQUESTED'<br/>WHERE id=? AND invoice_status='DISPUTED'<br/>AND backoffice_review_status IN ('RETURNED','MERCHANT_CONFIRMATION_REQUESTED')
     BQ-->>BE: OK
     BE-->>FE: success
     FE->>FE: _detailPendingToastMsg = '請求の取り下げを依頼しました。'
@@ -405,7 +405,7 @@ sequenceDiagram
         BE-->>FE: error_('異議申立期間が終了しているため、取り下げ依頼の取り消しはできません。')
         FE-->>U: アラート表示
     else 期間内
-        BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='PENDING_REVIEW'<br/>WHERE id=? AND backoffice_review_status='WITHDRAW_REQUESTED'
+        BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='MERCHANT_CONFIRMATION_REQUESTED'<br/>WHERE id=? AND backoffice_review_status='WITHDRAW_REQUESTED' AND invoice_status='DISPUTED'
         BQ-->>BE: OK
         BE-->>FE: success
         FE->>FE: _detailPendingToastMsg セット
@@ -648,16 +648,15 @@ stateDiagram-v2
 |------|------|
 | 処理 | `backoffice_review_status` → `PENDING_REVIEW` に更新 |
 | 条件 | RETURNED または (MCR + DISPUTED) のレコードのみ |
+| 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証。UPDATE が0行（並行更新・画面表示後の状態変化）なら `RAISE` + `ROLLBACK` し、BE側で `error_()`（業務エラー）に変換して返す（本チェックが無いと、対象0件でも画面上は成功トーストが出てしまう） |
 
 ### 11.4 `withdrawStoreInvoice(storeInvoiceId, parentInvoiceId)`
 
 | 項目 | 内容 |
 |------|------|
 | 処理 | `backoffice_review_status` → `WITHDRAW_REQUESTED` に更新（**依頼のみ**。`invoice_status` は `DISPUTED` のまま変更しない。`wholesaler_invoices` の金額再計算も行わない） |
-| 条件 | `is_latest = TRUE` かつ `invoice_status = 'DISPUTED'` のレコードのみ |
-| 実行方法 | 単純UPDATE（`resubmitWithoutChanges` と同様のパターン） |
-| IDOR保護 | `wholesaler_id` + `wholesaler_invoice_id` フィルタリング |
-| 備考 | BOが依頼を確認し、承認（`WITHDRAWN` 確定）または否認（差戻し）を行うまでは `WITHDRAW_REQUESTED` のまま維持される。承認・否認処理自体は本リポジトリ外（バックオフィス側システム）が担当 |
+| 条件 | `is_latest = TRUE` かつ `invoice_status = 'DISPUTED'` かつ `backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')` のレコードのみ（FEの「請求取り下げ」ボタン表示条件と一致させ、API直叩きで PENDING_REVIEW／WITHDRAW_REQUESTED の行が上書きされないよう防御） |
+| 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証（`resubmitWithoutChanges` と同様のパターン。UPDATE が0行なら `RAISE` + `ROLLBACK` し `error_()` に変換） |
 
 ### 11.5 `cancelWithdrawRequest(storeInvoiceId, parentInvoiceId)`
 
@@ -667,7 +666,7 @@ stateDiagram-v2
 | 条件 | `is_latest = TRUE` かつ `backoffice_review_status = 'WITHDRAW_REQUESTED'` かつ `invoice_status = 'DISPUTED'` のレコードのみ |
 | 事前検証 | `fetchStoreInvoiceForCancelWithdrawRequest_()` + `fetchObjectionPeriodEndDate_()` |
 | 異議申立期間 | `business_calendar` の `OBJECTION_PERIOD` イベントの `end_at` を参照。期間終了後は `error_()` で拒否（以降は自動承認バッチ〈本リポジトリ外〉が処理する想定） |
-| 実行方法 | 単純UPDATE（`resubmitWithoutChanges` と同様のパターン） |
+| 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証（`resubmitWithoutChanges` と同様のパターン。事前バリデーションから UPDATE までの間の並行更新で UPDATE が0行になった場合も `RAISE` + `ROLLBACK` し `error_()` に変換） |
 | IDOR保護 | `wholesaler_id` + `wholesaler_invoice_id` フィルタリング |
 
 ---

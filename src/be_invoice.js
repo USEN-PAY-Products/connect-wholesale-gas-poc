@@ -1567,11 +1567,16 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, rem
  * 否認の場合は wholesaler_handover を更新する。
  * invoice_status（DISPUTED等）はそのまま維持する。
  *
+ * UPDATE は BEGIN TRANSACTION 〜 COMMIT で包み、@@row_count = 0（並行更新や
+ * 画面表示後の状態変化で対象行が0件だった場合）を検知して RAISE + ROLLBACK する。
+ * これが無いと、対象0件でも BQ 上はエラーにならず成功扱いとなり、画面上は成功トーストが
+ * 出るのに実際は何も更新されない不整合が起こり得るため（コードレビュー指摘により追加）。
+ *
  * @param {string}      storeInvoiceId     - 対象の store_invoices.id
  * @param {string}      parentInvoiceId    - 大元の wholesaler_invoices.id
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容（差し戻しの場合はnull）
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
- * @returns {{ status: 'success', data: Object }}
+ * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
 function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, sessionToken) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
@@ -1613,18 +1618,38 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
       handoverSetClause = 'wholesaler_handover = wholesaler_handover';
     }
 
-    const sql =
-      'UPDATE ' + storeRef + ' ' +
-      "SET backoffice_review_status = 'PENDING_REVIEW', " +
-      handoverSetClause + ' ' +
-      "WHERE id = '" + storeInvoiceId + "' " +
-      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "') " +
-      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
-      '  AND is_latest = TRUE ' +
-      "  AND (backoffice_review_status = 'RETURNED' OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED'))";
+    const sql = [
+      'BEGIN TRANSACTION;',
+      '',
+      'UPDATE ' + storeRef,
+      "SET backoffice_review_status = 'PENDING_REVIEW',",
+      '  ' + handoverSetClause,
+      "WHERE id = '" + storeInvoiceId + "'",
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      '  AND wholesaler_id = ' + Number(wholesalerId),
+      '  AND is_latest = TRUE',
+      "  AND (backoffice_review_status = 'RETURNED' OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED'));",
+      '',
+      '-- @@row_count 検証: UPDATE が 0 行なら並行更新／状態変化後と判断しロールバック',
+      'IF @@row_count = 0 THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '\u4ed6\u306e\u64cd\u4f5c\u3068\u7af6\u5408\u3057\u305f\u305f\u3081\u66f4\u65b0\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002';",
+      'END IF;',
+      '',
+      'COMMIT;',
+    ].join('\n');
 
-    Logger.log('[BQ] resubmitWithoutChanges SQL: ' + sql);
-    runTransactionSql_(projectId, sql);
+    Logger.log('[BQ] resubmitWithoutChanges SQL:\n' + sql);
+    try {
+      runTransactionSql_(projectId, sql);
+    } catch (txErr) {
+      // @@row_count = 0 による RAISE（並行更新／状態変化）は業務エラーとして error_() を返す
+      if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
+        logInfo_('Invoice', 'resubmitWithoutChanges: 並行更新等により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
+        return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+      }
+      throw txErr;
+    }
 
     logInfo_('Invoice', 'resubmitWithoutChanges 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
@@ -1653,6 +1678,17 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
  * （バックオフィス側システム）が担当する。異議申立期間（OBJECTION_PERIOD）終了後は
  * 自動承認バッチ（本リポジトリ外）が処理する想定。
  *
+ * BE防御: FEで「請求取り下げ」ボタンが表示されるのは backoffice_review_status が
+ * RETURNED または MERCHANT_CONFIRMATION_REQUESTED のときのみ（PENDING_REVIEW（再請求済み）や
+ * WITHDRAW_REQUESTED（取り下げ依頼中）の行はボタン非表示）のため、SQLの WHERE 句でも
+ * 同じ条件を明示的に課している。API直叩きで PENDING_REVIEW/WITHDRAW_REQUESTED の行まで
+ * WITHDRAW_REQUESTED に上書きできてしまわないようにするための防御。
+ *
+ * また、UPDATE は BEGIN TRANSACTION 〜 COMMIT で包み、@@row_count = 0（並行更新や
+ * 画面表示後の状態変化で対象行が0件だった場合）を検知して RAISE + ROLLBACK する。
+ * これが無いと、対象0件でも BQ 上はエラーにならず成功扱いとなり、画面上は成功トーストが
+ * 出るのに実際は何も更新されない不整合が起こり得るため（コードレビュー指摘により追加）。
+ *
  * @param {string} storeInvoiceId  - 対象の store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
@@ -1680,17 +1716,42 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
     const invRef    = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
 
-    const sql =
-      'UPDATE ' + storeRef + ' ' +
-      "SET backoffice_review_status = 'WITHDRAW_REQUESTED' " +
-      "WHERE id = '" + storeInvoiceId + "' " +
-      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "') " +
-      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
-      '  AND is_latest = TRUE ' +
-      "  AND invoice_status = 'DISPUTED'";
+    const sql = [
+      'BEGIN TRANSACTION;',
+      '',
+      'UPDATE ' + storeRef,
+      "SET backoffice_review_status = 'WITHDRAW_REQUESTED'",
+      "WHERE id = '" + storeInvoiceId + "'",
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      '  AND wholesaler_id = ' + Number(wholesalerId),
+      '  AND is_latest = TRUE',
+      "  AND invoice_status = 'DISPUTED'",
+      // BE防御: FEで「請求取り下げ」ボタンが表示されるのは backoffice_review_status が
+      // RETURNED または MERCHANT_CONFIRMATION_REQUESTED のときのみ（PENDING_REVIEW＝再請求済み、
+      // WITHDRAW_REQUESTED＝取り下げ依頼中 の行はボタン非表示）。API直叩きでこれらの行まで
+      // WITHDRAW_REQUESTED に上書きできてしまわないよう、FEの表示条件と揃えて明示的に絞り込む。
+      "  AND backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED');",
+      '',
+      '-- @@row_count 検証: UPDATE が 0 行なら並行更新／状態変化後と判断しロールバック',
+      'IF @@row_count = 0 THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '\u4ed6\u306e\u64cd\u4f5c\u3068\u7af6\u5408\u3057\u305f\u305f\u3081\u66f4\u65b0\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002';",
+      'END IF;',
+      '',
+      'COMMIT;',
+    ].join('\n');
 
-    Logger.log('[BQ] withdrawStoreInvoice SQL: ' + sql);
-    runTransactionSql_(projectId, sql);
+    Logger.log('[BQ] withdrawStoreInvoice SQL:\n' + sql);
+    try {
+      runTransactionSql_(projectId, sql);
+    } catch (txErr) {
+      // @@row_count = 0 による RAISE（並行更新／状態変化）は業務エラーとして error_() を返す
+      if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
+        logInfo_('Invoice', 'withdrawStoreInvoice: 並行更新等により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
+        return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+      }
+      throw txErr;
+    }
 
     logInfo_('Invoice', 'withdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
@@ -1723,6 +1784,12 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
  *   ステータス「未検収」表示になってしまい、何も再請求していないのに
  *   再請求済みに見えてしまうため誤り（本関数のバグとして発覚・修正済み）。
  * 異議申立期間（OBJECTION_PERIOD）終了後は取り消し不可（以降は自動承認バッチ〈本リポジトリ外〉が処理する）。
+ *
+ * 事前バリデーション（対象行・最新WI・異議申立期間）の後、UPDATE は BEGIN TRANSACTION 〜
+ * COMMIT で包み、@@row_count = 0（事前バリデーションから UPDATE までの間の並行更新で
+ * 対象行が0件になった場合）を検知して RAISE + ROLLBACK する。これが無いと、対象0件でも
+ * BQ 上はエラーにならず成功扱いとなり、画面上は成功トーストが出るのに実際は何も更新されない
+ * 不整合が起こり得るため（コードレビュー指摘により追加）。
  *
  * @param {string} storeInvoiceId  - 対象 store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
@@ -1774,18 +1841,38 @@ function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, sessionToken) {
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
     const invRef    = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
 
-    const sql =
-      'UPDATE ' + storeRef + ' ' +
-      "SET backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' " +
-      "WHERE id = '" + storeInvoiceId + "' " +
-      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "') " +
-      '  AND wholesaler_id = ' + Number(wholesalerId) + ' ' +
-      '  AND is_latest = TRUE ' +
-      "  AND backoffice_review_status = 'WITHDRAW_REQUESTED' " +
-      "  AND invoice_status = 'DISPUTED'";
+    const sql = [
+      'BEGIN TRANSACTION;',
+      '',
+      'UPDATE ' + storeRef,
+      "SET backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
+      "WHERE id = '" + storeInvoiceId + "'",
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      '  AND wholesaler_id = ' + Number(wholesalerId),
+      '  AND is_latest = TRUE',
+      "  AND backoffice_review_status = 'WITHDRAW_REQUESTED'",
+      "  AND invoice_status = 'DISPUTED';",
+      '',
+      '-- @@row_count 検証: UPDATE が 0 行なら並行更新／事前バリデーション後の状態変化と判断しロールバック',
+      'IF @@row_count = 0 THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '\u4ed6\u306e\u64cd\u4f5c\u3068\u7af6\u5408\u3057\u305f\u305f\u3081\u66f4\u65b0\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002';",
+      'END IF;',
+      '',
+      'COMMIT;',
+    ].join('\n');
 
-    Logger.log('[BQ] cancelWithdrawRequest SQL: ' + sql);
-    runTransactionSql_(projectId, sql);
+    Logger.log('[BQ] cancelWithdrawRequest SQL:\n' + sql);
+    try {
+      runTransactionSql_(projectId, sql);
+    } catch (txErr) {
+      // @@row_count = 0 による RAISE（並行更新／事前バリデーション後の状態変化）は業務エラーとして error_() を返す
+      if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
+        logInfo_('Invoice', 'cancelWithdrawRequest: 並行更新等により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
+        return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+      }
+      throw txErr;
+    }
 
     logInfo_('Invoice', 'cancelWithdrawRequest 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
