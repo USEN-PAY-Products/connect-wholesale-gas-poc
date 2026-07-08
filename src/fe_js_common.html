@@ -598,6 +598,11 @@ function navigate() {
   }
 
   if (targetId === 'pageHome') {
+    // TOP画面に戻るたびに必ず請求一覧を再取得する。
+    // BO（バックオフィス）側での承認・否認・差し戻し等はこのブラウザタブの操作とは
+    // 無関係に発生するため、FE側の操作有無に依存せず常に最新化する
+    // （タブを長時間開けっほなしにしていても古い一覧のまま固定されないようにするため）。
+    homeInitialized = false;
     initHomePage();
   }
 
@@ -632,13 +637,6 @@ function navigate() {
     _detailReturnedOnlyMallCodes = [];
     _detailMallToCustomerMap = {};
     _objectionEndAt = null;
-  }
-
-  if (targetId !== 'pageHome') {
-    // TOP画面以外に遷移したら、次回 #home 復帰時に請求一覧を再取得できるようにする
-    // （詳細画面で再請求・取下げ等を行った直後に「一覧に戻る」で戻っても、
-    //   古いキャッシュのまま表示され続けてしまう不具合の対策）
-    homeInitialized = false;
   }
 
   if (targetId !== 'pageConfirm') {

@@ -492,7 +492,6 @@ function resetPage() {
   utf8CsvBase64 = null;
   parsedData    = null;
   selectedFileName = null;
-  homeInitialized = false; // 登録完了後に #home へ戻ったとき請求一覧を再取得する
   try {
     sessionStorage.removeItem('shiire_parsedData');
   } catch (e) {
