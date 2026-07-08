@@ -112,7 +112,9 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '  SELECT ' +
     '    r.root_id, ' +
     '    MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' AND COALESCE(si.invoice_status, \'\') NOT IN (\'APPROVED\', \'WITHDRAWN\') THEN 1 ELSE 0 END) AS has_resubmit, ' +
-    '    MAX(CASE WHEN si.backoffice_review_status = \'MERCHANT_CONFIRMATION_REQUESTED\' AND si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
+    // 否認(DISPUTED)は backoffice_review_status がどの状態（MCR / RETURNED / PENDING_REVIEW[再請求済み] / WITHDRAW_REQUESTED[取り下げ依頼中]）でも
+    // invoice_status='DISPUTED' である限り「否認あり」として扱う（詳細画面の disputed 判定と揃える）。
+    '    MAX(CASE WHEN si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
     '  FROM ranked AS r ' +
     '  INNER JOIN ' + tbl + '.store_invoices` AS si ' +
     '    ON si.wholesaler_invoice_id = r.id ' +
@@ -371,19 +373,19 @@ function fetchWholesalerInvoiceStorageEndDate_(wholesalerId) {
 }
 
 /**
- * 取下げ / 取下げ取り消し時の事前バリデーション用。
- * 指定した store_invoices が存在し、期待するステータスであることを確認する。
+ * 取り下げ依頼の取り消し時の事前バリデーション用。
+ * 指定した store_invoices が存在し、backoffice_review_status が WITHDRAW_REQUESTED
+ * （invoice_status は DISPUTED のまま）であることを確認する。
  *
  * @param {string} storeInvoiceId  - 対象の store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
  * @param {number} wholesalerId    - 卸業者ID
- * @param {string} expectedStatus  - 期待する invoice_status（'DISPUTED' or 'WITHDRAWN'）
  * @returns {Object|null} 該当行のオブジェクト。見つからなければ null
  */
-function fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, expectedStatus) {
+function fetchStoreInvoiceForCancelWithdrawRequest_(storeInvoiceId, parentInvoiceId, wholesalerId) {
   const config = getConfig_();
   const sql =
-    'SELECT id, invoice_status ' +
+    'SELECT id, invoice_status, backoffice_review_status ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` ' +
     'WHERE id = @store_invoice_id ' +
     '  AND wholesaler_invoice_id IN (' +
@@ -392,14 +394,14 @@ function fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesal
     '  ) ' +
     '  AND wholesaler_id = @wholesaler_id ' +
     '  AND is_latest = TRUE ' +
-    '  AND invoice_status = @expected_status ' +
+    "  AND backoffice_review_status = 'WITHDRAW_REQUESTED' " +
+    "  AND invoice_status = 'DISPUTED' " +
     'LIMIT 1';
 
   const params = [
     { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },
     { name: 'invoice_id',       parameterType: { type: 'STRING' }, parameterValue: { value: String(parentInvoiceId) } },
     { name: 'wholesaler_id',    parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
-    { name: 'expected_status',  parameterType: { type: 'STRING' }, parameterValue: { value: String(expectedStatus) } },
   ];
 
   const rows = runQuery_(config.gcpProjectId, sql, params);

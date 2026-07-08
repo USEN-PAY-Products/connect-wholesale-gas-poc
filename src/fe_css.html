@@ -827,12 +827,8 @@ button { cursor: pointer; font-family: inherit; }
   box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.06);
   position: relative;
 }
-#withdrawConfirmModal .modal.modal--warn {
-  width: 505px;
-  background: #FFF1EC;
-  border-color: #FFB499;
-}
-#undoWithdrawConfirmModal .modal.modal--warn {
+#withdrawConfirmModal .modal.modal--warn,
+#cancelWithdrawRequestConfirmModal .modal.modal--warn {
   width: 505px;
   background: #FFF1EC;
   border-color: #FFB499;
@@ -890,7 +886,7 @@ button { cursor: pointer; font-family: inherit; }
   cursor: pointer;
 }
 #withdrawConfirmModal .modal__title--warn,
-#undoWithdrawConfirmModal .modal__title--warn {
+#cancelWithdrawRequestConfirmModal .modal__title--warn {
   color: #FF7846;
   font-size: 16px;
   font-style: normal;
@@ -898,18 +894,18 @@ button { cursor: pointer; font-family: inherit; }
   line-height: 140%;
 }
 #withdrawConfirmModal .modal__title--warn i,
-#undoWithdrawConfirmModal .modal__title--warn i {
+#cancelWithdrawRequestConfirmModal .modal__title--warn i {
   color: #FF7846;
 }
 #withdrawConfirmModal .modal__message--warn,
-#undoWithdrawConfirmModal .modal__message--warn {
+#cancelWithdrawRequestConfirmModal .modal__message--warn {
   font-size: 16px;
   font-style: normal;
   font-weight: 400;
   line-height: 120%;
 }
 #withdrawConfirmModal #withdrawConfirmOk,
-#undoWithdrawConfirmModal #undoWithdrawConfirmOk {
+#cancelWithdrawRequestConfirmModal #cancelWithdrawRequestConfirmOk {
   width: 212px;
   height: 40px;
   background: #00A7B8;
@@ -922,11 +918,11 @@ button { cursor: pointer; font-family: inherit; }
   justify-content: center;
 }
 #withdrawConfirmModal #withdrawConfirmOk:hover,
-#undoWithdrawConfirmModal #undoWithdrawConfirmOk:hover {
+#cancelWithdrawRequestConfirmModal #cancelWithdrawRequestConfirmOk:hover {
   background: #008E9B;
 }
 #withdrawConfirmModal #withdrawConfirmCancel,
-#undoWithdrawConfirmModal #undoWithdrawConfirmCancel {
+#cancelWithdrawRequestConfirmModal #cancelWithdrawRequestConfirmCancel {
   width: 212px;
   height: 40px;
   border-radius: 999px;
@@ -2559,6 +2555,26 @@ button { cursor: pointer; font-family: inherit; }
   font-style: normal;
   font-weight: 400;
 }
+/* 取り下げ依頼済みバッジ（3ボタンと同じレイアウト・文字サイズ／色は再請求済みと同じ） */
+.detail-action-badge--withdraw-requested {
+  display: flex;
+  width: 197px;
+  height: 36px;
+  padding: 8px 16px;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  border-radius: 40px;
+  border: 1px solid #159E85;
+  background: #CDF6EF;
+  color: #159E85;
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: normal;
+  box-shadow: 0 0 6px 0 rgba(0, 0, 0, 0.04);
+  white-space: nowrap;
+}
 
 /* 取下げ済み: 合意内容の読取専用表示 */
 .backoffice-remark__handover-readonly {
@@ -2584,16 +2600,6 @@ button { cursor: pointer; font-family: inherit; }
 }
 .detail-action-btn--withdraw {
   color: #3C3C3C;
-}
-.detail-action-btn--undo-withdraw {
-  font-size: 14px;
-  font-style: normal;
-  font-weight: 400;
-  line-height: normal;
-  height: auto;
-  padding: 8px 16px;
-  border-radius: 40px;
-  gap: 6px;
 }
 .detail-action-btn__icon--danger {
   color: #DF4C4C;

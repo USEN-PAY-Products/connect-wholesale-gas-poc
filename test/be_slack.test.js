@@ -39,6 +39,11 @@
 //      （空白混入・Slack特殊記法・過剰な長さ等）、信用せずサーバ側生成IDに
 //      差し替える（空白混入による normalizeMessageForDedup_ の重複抑制回避＝
 //      Slack通知スパムを防止する）
+//  16. buildSlackBlocks_ は err.stack の1行目が err.message と同一内容を含む場合
+//      （GoogleJsonResponseException 等、GAS/V8の一般的なスタックトレース形式）、
+//      その1行を除去してから表示する（「エラー内容」行とスタックトレース1行目で
+//      同じ文言が重複表示される実運用不具合の回帰確認）。無関係な内容のstack
+//      （FE由来など）はそのまま全行維持する。
 // =============================================================================
 
 'use strict';
@@ -793,6 +798,64 @@ test('reportClientError: message/stack のエスケープが二重に行われ�
   assert.doesNotMatch(text, /&amp;lt;/, 'message/stackが二重エスケープされてはいけない（&amp;lt; になっていないこと）');
   assert.match(text, /&lt;!channel&gt; FEからのエラー/, '発生箇所・エラー内容の両方で1回だけエスケープされたmessageが含まれるべき');
   assert.match(text, /&lt;@U12345&gt;/, 'スタックトレース内の特殊記法も1回だけエスケープされているべき');
+});
+
+// =============================================================================
+// 検証10-b: buildSlackBlocks_ が「エラー内容」行と「スタックトレース」行で
+// 同じメッセージを重複表示しない（実運用のSlack通知で発見された不具合の回帰確認）
+//
+// GoogleJsonResponseException 等、GAS/V8 のエラーは err.stack の1行目が
+// "{ErrorName}: {err.message}" 形式になるため、「エラー内容: {err.message}」の直後に
+// 同一文言を含む1行目がそのまま出力され、同じ内容が2回連続表示されてしまう不具合があった。
+// =============================================================================
+
+test('notifySlackError_: err.stackの1行目がerr.messageと同じ内容の場合、重複行を除去して実際のスタックフレームのみ表示する（実運用で発見された不具合の回帰確認）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  const longMessage = '次のエラーが発生し、bigquery.jobs.query の呼び出しに失敗しました: Query error: Column slip_number is not present in table usenpay-connect-dev.connect_db.invoice_lines at [104:61]';
+  const err = makeSandboxError(sandbox, longMessage);
+  // GoogleJsonResponseException 等、実際のGAS例外のスタックトレースを模擬
+  // （1行目が "{ErrorName}: {message}" で err.message と同一内容を含む）。
+  err.stack = 'GoogleJsonResponseException: ' + longMessage +
+    '\n    at runTransactionSql_ (db_bq_connection:142:32)' +
+    '\n    at sendInvoiceData (be_invoice:1505:5)';
+
+  sandbox.notifySlackError_('Invoice', longMessage, err, { invoiceUuid: 'test-uuid' });
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+
+  // longMessage は "発生箇所"（safeMessage）と "エラー内容"（errMessage）の2箇所で
+  // 表示されるのが正しい（重複除去の対象はスタックトレース1行目のみ）。
+  // それ以上（スタックトレース1行目にも重複して含まれる）出現していないことを確認する。
+  const occurrences = text.split(longMessage).length - 1;
+  assert.equal(occurrences, 2, 'longMessageは「発生箇所」と「エラー内容」の2箇所にのみ出現し、スタックトレース側で重複表示されてはいけない');
+
+  // 実際のスタックフレーム（at ...）は引き続き表示されること
+  assert.match(text, /at runTransactionSql_ \(db_bq_connection:142:32\)/, '実際のスタックフレームは表示され続けるべき');
+  assert.match(text, /at sendInvoiceData \(be_invoice:1505:5\)/, '実際のスタックフレームは表示され続けるべき');
+  // 重複除去後の1行目（GoogleJsonResponseException: ...）自体は残っていないこと
+  assert.doesNotMatch(text, /GoogleJsonResponseException:/, '重複するスタックトレース1行目（ErrorName: message）は除去されるべき');
+});
+
+test('notifySlackError_: err.stackがerr.messageと無関係な内容の場合は何も除去せず全行そのまま表示する（FE等の独自stack形式への安全策）', () => {
+  const sandbox = createSandbox({
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+  const err = makeSandboxError(sandbox, '予期しないエラーが発生しました');
+  // reportClientError のように、err.stack が err.message と無関係な内容で
+  // 上書きされているケース（重複判定にマッチしないため除去されないはず）。
+  err.stack = 'Error: 別の内容\n    at handler (app.js:10:1)';
+
+  sandbox.notifySlackError_('Invoice', '予期しないエラーが発生しました', err, {});
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  const text = sentPayload.blocks[0].text.text;
+  assert.match(text, /Error: 別の内容/, 'err.messageと無関係なスタック1行目は除去されず残るべき');
+  assert.match(text, /at handler \(app\.js:10:1\)/, 'スタックフレームは表示され続けるべき');
 });
 
 // =============================================================================
