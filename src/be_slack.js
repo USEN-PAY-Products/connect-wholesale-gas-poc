@@ -264,8 +264,21 @@ function buildSlackBlocks_(tag, message, err, context) {
   // message・err.message・err.stack は CSVアップロード内容や FE 入力に由来し得るため、
   // Slack mrkdwn 本文へ埋め込む直前に escapeSlackText_() を通す。
   const safeMessage   = escapeSlackText_(message);
-  const errMessage    = escapeSlackText_((err && err.message) ? String(err.message) : String(message || '(不明なエラー)'));
-  const errStackLines = escapeSlackText_((err && err.stack) ? String(err.stack).split('\n').slice(0, 3).join('\n') : '');
+  const rawErrMessage = (err && err.message) ? String(err.message) : String(message || '(不明なエラー)');
+  const errMessage    = escapeSlackText_(rawErrMessage);
+
+  // V8/GAS のスタックトレースは1行目が "{ErrorName}: {err.message}" 形式であることが多く、
+  // そのまま使うと直前の「エラー内容: {errMessage}」と同じ文言が2回連続で表示されてしまう
+  // （例: GoogleJsonResponseException のエラーで実際に発生した重複表示）。
+  // 1行目が err.message と同じ内容を含む場合のみその1行を取り除き、実際のスタックフレーム
+  // （at ... の行）だけを残す。err.stack が独自形式（1行目が err.message を含まない）の
+  // 場合は何も取り除かず従来通り全行を対象にする（reportClientError 経由でスタックを
+  // 手動生成しているFEパス等、必ずしもこの形式に従うとは限らないための安全策）。
+  let stackLines = (err && err.stack) ? String(err.stack).split('\n') : [];
+  if (stackLines.length > 0 && rawErrMessage && stackLines[0].indexOf(rawErrMessage) !== -1) {
+    stackLines = stackLines.slice(1);
+  }
+  const errStackLines = escapeSlackText_(stackLines.slice(0, 3).join('\n'));
 
   // 判明している具体的ID（invoiceUuid/stagingId/storeInvoiceId/parentInvoiceId）。
   // ctx[key] は be_invoice.js 等の BE 呼び出し元からDB由来の値がそのまま渡ってくるため、
