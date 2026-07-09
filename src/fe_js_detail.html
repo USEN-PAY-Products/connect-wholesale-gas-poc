@@ -1582,7 +1582,7 @@ function renderDetailLines_(lines, container) {
       const taxAdjustBody = taxAdjustErr.length > 1
         ? taxAdjustErr.slice(1).map(escapeHtml).join('<br>')
         : undefined;
-      showToast('⚠ ' + taxAdjustErr[0], 'error', undefined, taxAdjustBody);
+      showToast(taxAdjustErr[0], 'error', undefined, taxAdjustBody);
       return;
     }
     if (!rawCsvBase64 || !utf8CsvBase64 || !parsedData) {
@@ -1634,7 +1634,7 @@ function renderDetailLines_(lines, container) {
       const digitErrorsBody = digitErrors.length > 1
         ? digitErrors.slice(1).map(escapeHtml).join('<br>')
         : undefined;
-      showToast('⚠ ' + digitErrors[0], 'error', undefined, digitErrorsBody);
+      showToast(digitErrors[0], 'error', undefined, digitErrorsBody);
       return;
     }
 
