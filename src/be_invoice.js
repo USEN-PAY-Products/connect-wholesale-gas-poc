@@ -736,9 +736,10 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
 }
 
 /**
- * 契約終了卸（wholesaler_status='end'）による新規請求・再請求を拒否する共通ヘルパー。
- * sendInvoiceData / resubmitInvoiceData / bulkResubmitInvoiceData / resubmitWithoutChanges
- * の各 BE 公開関数から呼び出し、判定条件とエラー文言を一元化する（文言・判定条件変更時の修正漏れ防止）。
+ * 契約終了卸（wholesaler_status='end'）による新規請求・再請求・請求取下げ操作を拒否する共通ヘルパー。
+ * sendInvoiceData / resubmitInvoiceData / bulkResubmitInvoiceData / resubmitWithoutChanges /
+ * withdrawStoreInvoice / undoWithdrawStoreInvoice の各 BE 公開関数から呼び出し、
+ * 判定条件とエラー文言を一元化する（文言・判定条件変更時の修正漏れ防止）。
  * @param {Object} accountInfo - getServerAccountInfo_() の戻り値（wholesaler_status を保持）
  * @param {string} [actionLabel='再請求'] - エラーメッセージに埋め込む操作名（例: '新規請求'）
  * @throws {Error} 契約終了卸（end）の場合
@@ -1683,6 +1684,8 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
     logInfo_('Invoice', 'withdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
+    assertWholesalerActive_(accountInfo, '請求取下げ');
+
     if (!storeInvoiceId)  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
     if (!parentInvoiceId) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
 
@@ -1819,6 +1822,8 @@ function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken)
     accountInfo = getServerAccountInfo_('', sessionToken);
     logInfo_('Invoice', 'undoWithdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
+
+    assertWholesalerActive_(accountInfo, '請求取下げの取消');
 
     if (!storeInvoiceId)  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
     if (!parentInvoiceId) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');

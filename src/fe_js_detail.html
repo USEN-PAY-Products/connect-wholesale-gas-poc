@@ -185,28 +185,28 @@ function checkReuploadDeadline_() {
 
 /**
  * 卸ステータス（wholesaler_status）が 'end'（契約終了）かを確認し、
- * 契約終了なら「修正ファイルをアップ」「変更なしで再請求」「CSV一括アップロード」ボタンを無効化する。
- * 過去請求の参照・取り下げ（withdraw）は契約終了後も可能なため対象外。
+ * 契約終了なら「修正ファイルをアップ」「変更なしで再請求」「請求取り下げ」「取下げをやめる」
+ * 「CSV一括アップロード」ボタンを無効化する（過去請求の参照は引き続き可能）。
  */
 function checkWholesalerEndStatus_() {
   const wholesalerStatus = sessionStorage.getItem('shiire_wholesaler_status');
   if (wholesalerStatus !== 'end') return;
 
-  const endMsg = '仕入れコネクトの契約が終了しているため、再請求できません。';
+  const endMsg = '仕入れコネクトの契約が終了しているため、操作できません。';
 
-  // 個別ボタン（修正ファイルをアップ / 変更なしで再請求）　※取り下げ（withdraw）は対象外
+  // 個別ボタン（修正ファイルをアップ / 変更なしで再請求 / 請求取り下げ / 取下げをやめる）
   // 既に他の理由（異議申立期間切れ等）で disabled かつ title 設定済みの場合は上書きしない
   // （tooltip の理由と画面上のメッセージ段落の食い違いを防止するため）
-  document.querySelectorAll('[data-action="reupload"], [data-action="resubmit"]').forEach(function(btn) {
+  document.querySelectorAll('[data-action="reupload"], [data-action="resubmit"], [data-action="withdraw"], [data-action="undo-withdraw"]').forEach(function(btn) {
     if (btn.disabled && btn.title) return;
     btn.disabled = true;
     btn.title    = endMsg;
     btn.style.opacity = '0.5';
   });
-  // 各 .backoffice-remark__actions のうち、reupload/resubmit ボタンが存在する行にのみ契約終了メッセージを追加する
-  // （取下げをやめる等の再請求と無関係な行への誤表示を防止。異議申立期限切れメッセージとの重複も防止）
+  // 各 .backoffice-remark__actions のうち、上記いずれかのボタンが存在する行にのみ契約終了メッセージを追加する
+  // （異議申立期限切れメッセージとの重複も防止）
   document.querySelectorAll('.backoffice-remark__actions').forEach(function(actionsEl) {
-    if (!actionsEl.querySelector('[data-action="reupload"], [data-action="resubmit"]')) return;
+    if (!actionsEl.querySelector('[data-action="reupload"], [data-action="resubmit"], [data-action="withdraw"], [data-action="undo-withdraw"]')) return;
     if (actionsEl.querySelector('.detail-action-btn__period-expired-msg')) return;
     const msgEl = document.createElement('p');
     msgEl.className = 'detail-action-btn__period-expired-msg';

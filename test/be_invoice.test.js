@@ -809,3 +809,44 @@ test('bulkResubmitInvoiceData: 旧レコードの否認理由(store_disputed_rea
   );
 });
 
+// =============================================================================
+// 検証12〜13: 契約終了卸（wholesaler_status='end'）は請求取り下げ・取下げの取消も拒否する
+//
+// 背景:
+//   assertWholesalerActive_ は元々 新規請求・再請求系（sendInvoiceData /
+//   resubmitInvoiceData / bulkResubmitInvoiceData / resubmitWithoutChanges）のみで
+//   呼び出されており、withdrawStoreInvoice / undoWithdrawStoreInvoice では
+//   契約終了チェックが行われていなかった（契約終了後も請求取り下げ操作自体は
+//   可能な仕様になっていた）。他の請求操作と同様に契約終了卸を拒否するよう修正した。
+// =============================================================================
+
+test('withdrawStoreInvoice: 契約終了卸（wholesaler_status=\'end\'）の場合はエラーを投げて取り下げを拒否する', () => {
+  const sandbox = createSandbox({ wholesalerStatus: 'end' });
+
+  let thrown = null;
+  try {
+    sandbox.withdrawStoreInvoice('33333333-3333-3333-3333-333333333333', PARENT_INVOICE_ID, 'dummy-session-token');
+  } catch (e) {
+    thrown = e;
+  }
+
+  assert.ok(thrown, '例外が投げられるはず');
+  assert.equal(thrown.message, '契約が終了しているため、請求取下げができません。');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 0, '契約終了時はUPDATE自体が実行されないこと');
+});
+
+test('undoWithdrawStoreInvoice: 契約終了卸（wholesaler_status=\'end\'）の場合はエラーを投げて取下げの取消を拒否する', () => {
+  const sandbox = createSandbox({ wholesalerStatus: 'end' });
+
+  let thrown = null;
+  try {
+    sandbox.undoWithdrawStoreInvoice('33333333-3333-3333-3333-333333333333', PARENT_INVOICE_ID, 'dummy-session-token');
+  } catch (e) {
+    thrown = e;
+  }
+
+  assert.ok(thrown, '例外が投げられるはず');
+  assert.equal(thrown.message, '契約が終了しているため、請求取下げの取消ができません。');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 0, '契約終了時はUPDATE自体が実行されないこと');
+});
+
