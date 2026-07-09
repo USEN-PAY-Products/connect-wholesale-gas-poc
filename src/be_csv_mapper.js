@@ -964,6 +964,7 @@ function buildMappedTransactionSql_(params) {
  * @param {Object} params.summaryData      - { wholesalerTotal, merchantTotals }
  * @param {Object} params.remarks          - { [customerCode]: string }
  * @param {string|null} params.wholesalerHandover - 否認時の加盟店との合意内容
+ * @param {string|null} params.storeDisputedReason - 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason）
  * @param {Object} params.accountInfo      - getServerAccountInfo_() の返り値
  * @param {Object} params.mallCodeMap      - { [customerCode]: mallCode }
  * @param {string} params.csvUrl           - Drive 保存後の CSV URL
@@ -977,7 +978,7 @@ function buildMappedTransactionSql_(params) {
 function buildMappedResubmitTransactionSql_(params) {
   const {
     parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
-    wholesalerHandover, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+    wholesalerHandover, storeDisputedReason, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
     csvFormatRules, latestWi, oldStoreAmounts,
   } = params;
 
@@ -1015,6 +1016,7 @@ function buildMappedResubmitTransactionSql_(params) {
 
   const newWiUuid = Utilities.getUuid();
   const handoverSql = wholesalerHandover ? "'" + escSql_(wholesalerHandover) + "'" : 'NULL';
+  const disputedReasonSql = storeDisputedReason ? "'" + escSql_(storeDisputedReason) + "'" : 'NULL';
 
   // store_invoices VALUES
   const childUuids = [];
@@ -1030,7 +1032,7 @@ function buildMappedResubmitTransactionSql_(params) {
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
-      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -1099,7 +1101,7 @@ function buildMappedResubmitTransactionSql_(params) {
     '  total_amount, subtotal_amount, tax_amount,',
     '  standard_tax_target_amount, standard_tax_amount,',
     '  reduced_tax_target_amount, reduced_tax_amount,',
-    '  non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
     '  backoffice_review_status, is_latest, final_updated_by, created_at',
     ')',
     'VALUES',
@@ -1144,6 +1146,8 @@ function buildMappedResubmitTransactionSql_(params) {
  * @param {string} params.stagingId        - Staging テーブル名
  * @param {Object} params.summaryData      - { wholesalerTotal, merchantTotals }
  * @param {Object} params.remarks          - { [customerCode]: string }
+ * @param {Object} params.handovers        - { [customerCode]: string } 否認時の加盟店との合意内容
+ * @param {Object} params.disputedReasons  - { [customerCode]: string } 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason）
  * @param {Object} params.accountInfo      - getServerAccountInfo_() の返り値
  * @param {Object} params.mallCodeMap      - { [customerCode]: mallCode }
  * @param {string} params.csvUrl           - Drive 保存後の CSV URL
@@ -1157,12 +1161,13 @@ function buildMappedResubmitTransactionSql_(params) {
 function buildMappedBulkResubmitTransactionSql_(params) {
   const {
     parentInvoiceId, stagingId, summaryData, remarks,
-    handovers,
+    handovers, disputedReasons,
     accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
     csvFormatRules, latestWi, oldStoreAmounts,
   } = params;
 
   const _handovers = handovers || {};
+  const _disputedReasons = disputedReasons || {};
 
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
@@ -1204,13 +1209,15 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     const remarkSql = remark ? "'" + remark + "'" : 'NULL';
     const handover = _handovers[String(m.customerCode)] || '';
     const handoverSql = handover ? "'" + escSql_(handover) + "'" : 'NULL';
+    const disputedReason = _disputedReasons[String(m.customerCode)] || '';
+    const disputedReasonSql = disputedReason ? "'" + escSql_(disputedReason) + "'" : 'NULL';
     const managedNameSql = m.managedStoreName ? "'" + escSql_(m.managedStoreName) + "'" : 'NULL';
     return (
       "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
-      remarkSql + ', ' + handoverSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -1299,7 +1306,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     '  total_amount, subtotal_amount, tax_amount,',
     '  standard_tax_target_amount, standard_tax_amount,',
     '  reduced_tax_target_amount, reduced_tax_amount,',
-    '  non_taxable_amount, wholesaler_remark, wholesaler_handover,',
+    '  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
     '  backoffice_review_status, is_latest, final_updated_by, created_at',
     ')',
     'VALUES',

@@ -86,6 +86,7 @@ block-beta
 | `MERCHANT_CONFIRMATION_REQUESTED` | `DISPUTED` | ⊖ 否認差戻 | `badge--disputed` | 否認 |
 | `RETURNED` | `DISPUTED` | ⊖ 否認差戻 | `badge--disputed` | 否認 |
 | `PENDING_REVIEW` | `DISPUTED` | 未検収 | `badge--pending` | 否認（「再請求済み」バッジ表示） |
+| `WITHDRAW_REQUESTED` | `DISPUTED` | 未検収 | `badge--pending` | 否認（「取り下げ依頼済み」バッジ表示） |
 | `RETURNED` | その他（非DISPUTED） | ↺ 差戻し | `badge--returned` | 差戻し |
 | `MERCHANT_CONFIRMATION_REQUESTED` | `APPROVED` | ✓ 承認 | `badge--approved` | 確認中・承認済み |
 | `MERCHANT_CONFIRMATION_REQUESTED` | `PENDING_CONFIRMATION` | 確認中 | `badge--requested` | 確認中・承認済み |
@@ -105,7 +106,9 @@ flowchart TD
     G -- Yes --> H["否認セクション\n（MCR + DISPUTED）"]
     G -- No --> I{"backoffice_review_status == PENDING_REVIEW\nAND invoice_status == DISPUTED?"}
     I -- Yes --> J["否認セクション\n（PENDING_REVIEW + DISPUTED）\n※未検収バッジ・「再請求済み」"]
-    I -- No --> K["確認中・承認済みセクション\n（上記以外すべて）"]
+    I -- No --> L{"backoffice_review_status == WITHDRAW_REQUESTED\nAND invoice_status == DISPUTED?"}
+    L -- Yes --> M["否認セクション\n（WITHDRAW_REQUESTED + DISPUTED）\n※未検収バッジ・「取り下げ依頼済み」"]
+    L -- No --> K["確認中・承認済みセクション\n（上記以外すべて）"]
 ```
 
 ---
@@ -134,12 +137,13 @@ block-beta
 | ステータス | 初期状態 | 追加表示要素 | CSSクラス |
 |-----------|---------|------------|----------|
 | RETURNED（差戻し、非DISPUTED） | 折りたたみ | 差し戻しコメントバナー + 備考（編集可）。**個別のアクションボタンはなく、CSV一括アップロードで対応** | `store-accordion--returned` |
-| DISPUTED（否認） | 折りたたみ | 否認理由 + 【必須】合意内容入力 + アクションボタン群（取り下げ/修正アップ/変更なし再請求） | `store-accordion--returned` |
+| DISPUTED（否認） | 折りたたみ | 否認理由 + 【必須】合意内容入力 + アクションボタン群（取り下げ依頼/修正アップ/変更なし再請求） | `store-accordion--returned` |
 | DISPUTED かつ PENDING_REVIEW（再請求済み） | 折りたたみ | 合意内容入力欄 + 「✓ 再請求済み」バッジ（アクションボタンは出さない） | `store-accordion--returned` |
-| WITHDRAWN（取下げ済み） | 折りたたみ | 合意内容（読取専用）+ 「取下げをやめる」ボタン。備考欄も読取専用 | - |
+| DISPUTED かつ WITHDRAW_REQUESTED（取り下げ依頼済み） | 折りたたみ | 合意内容入力欄 + 「✓ 取り下げ依頼済み」バッジ + 「取り下げ依頼を取り消す」ボタン（異議申立期間終了後は disabled） | `store-accordion--returned` |
+| WITHDRAWN（取下げ済み） | 折りたたみ | 合意内容（読取専用）のみ。BOによる最終確定後のため取り消し操作は提供しない | - |
 | その他（確認中・承認・未検収等） | 折りたたみ | 備考は読取専用 | - |
 
-> 📌 個別のアクションボタン（請求取り下げ / 修正ファイルをアップ / 変更なしで再請求）は**否認（DISPUTED）の加盟店のみ**に表示される。差戻し（RETURNED のみ）の加盟店はセクションの「CSV一括アップロード」で対応する。
+> 📌 個別のアクションボタン（請求取り下げ / 修正ファイルをアップ / 変更なしで再請求）は**否認（DISPUTED）の加盟店のみ**に表示される。差戻し（RETURNED のみ）の加盟店はセクションの「CSV一括アップロード」で対応する。「請求取り下げ」ボタンは即時確定ではなく、`backoffice_review_status` を `WITHDRAW_REQUESTED` にする**依頼**であり、BO（バックオフィス）側の承認によって初めて `WITHDRAWN` が確定する（承認・否認処理自体は本リポジトリ外のバックオフィス側システムが担当）。
 
 ### 明細データの遅延読み込み
 
@@ -315,23 +319,25 @@ sequenceDiagram
     FE-->>U: 詳細リロード
 ```
 
-### 6.4 請求取り下げ
+### 6.4 請求取り下げ依頼
+
+「請求取り下げ」ボタンは即時に取り下げを確定するのではなく、`backoffice_review_status` を `WITHDRAW_REQUESTED` にする**依頼**を送信する（`invoice_status` は `DISPUTED` のまま変更しない）。依頼後もアコーディオンは否認セクションに留まり、「✓ 取り下げ依頼済み」バッジが表示される。BOが依頼を承認すると `WITHDRAWN`（取下げ済み）が確定するが、この承認・否認処理自体は本リポジトリ外（バックオフィス側システム）が担当する。
 
 ```mermaid
 flowchart TD
-    START["「請求取り下げ」\nボタン押下"] --> DIALOG["確認モーダル表示\n⚠ 加盟店への請求情報を取り下げます。よろしいですか？\n（withdrawConfirmModal）"]
+    START["「請求取り下げ」\nボタン押下"] --> DIALOG["確認モーダル表示\n⚠ 加盟店への請求の取り下げを依頼します。よろしいですか？\n（withdrawConfirmModal）"]
     DIALOG --> CANCEL{"ユーザー選択"}
     CANCEL -->|キャンセル| CLOSE["モーダル閉じ"]
-    CANCEL -->|取り下げる| DISABLE["ボタン無効化 + スピナー表示"]
+    CANCEL -->|取り下げを依頼する| DISABLE["ボタン無効化 + スピナー表示"]
     DISABLE --> BE["BE: withdrawStoreInvoice()"]
-    BE --> BQ["BQ UPDATE: invoice_status = WITHDRAWN"]
-    BQ -->|成功| SUCCESS["取下げ済みセクションへ移動 + トースト"]
+    BE --> BQ["BQ UPDATE: backoffice_review_status = WITHDRAW_REQUESTED\n（invoice_status は DISPUTED のまま）"]
+    BQ -->|成功| SUCCESS["否認セクション内で「取り下げ依頼済み」表示に切替 + トースト"]
     BQ -->|失敗| FAIL["alert エラー → ボタン復元"]
 ```
 
-> 取り下げ確認モーダル（`withdrawConfirmModal`）のボタンは「取り下げる」（`withdrawConfirmOk`・`btn-danger`）/「キャンセル」（`withdrawConfirmCancel`・`btn-outline`）。
+> 取り下げ確認モーダル（`withdrawConfirmModal`）のボタンは「取り下げを依頼する」（`withdrawConfirmOk`・`btn-danger`）/「キャンセル」（`withdrawConfirmCancel`・`btn-outline`）。
 
-#### 取り下げ シーケンス図
+#### 取り下げ依頼 シーケンス図
 
 ```mermaid
 sequenceDiagram
@@ -343,38 +349,41 @@ sequenceDiagram
     U->>FE: 「請求取り下げ」押下
     FE-->>U: 確認ダイアログ表示
 
-    U->>FE: 「取り下げる」押下
+    U->>FE: 「取り下げを依頼する」押下
     FE->>FE: executeWithdraw_()
     FE->>BE: withdrawStoreInvoice(storeInvoiceId, parentInvoiceId)
-    BE->>BE: fetchStoreInvoiceForWithdraw_()（存在・ステータス確認）
-    BE->>BE: fetchLatestWholesalerInvoice_()（最新WI取得）
-    BE->>BQ: BEGIN TRANSACTION
-    Note over BQ: UPDATE store_invoices<br/>SET invoice_status='WITHDRAWN'
-    Note over BQ: INSERT wholesaler_invoices<br/>（金額再計算: 最新WI − 取下げstore）
-    BQ->>BQ: COMMIT
+    BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='WITHDRAW_REQUESTED'<br/>WHERE id=? AND invoice_status='DISPUTED'<br/>AND backoffice_review_status IN ('RETURNED','MERCHANT_CONFIRMATION_REQUESTED')
     BQ-->>BE: OK
     BE-->>FE: success
-    FE->>FE: _detailPendingToastMsg = '請求を取り下げました。'
+    FE->>FE: _detailPendingToastMsg = '請求の取り下げを依頼しました。'
     FE->>FE: initDetailPage()（ページリロード）
-    FE-->>U: 取下げ済みセクションに移動 + トースト表示
+    FE-->>U: 否認セクション内で「取り下げ依頼済み」表示 + トースト表示
 ```
 
-### 6.5 取下げの取り消し（WITHDRAWN → DISPUTED に復元）
+### 6.5 取り下げ依頼の取り消し（WITHDRAW_REQUESTED → MERCHANT_CONFIRMATION_REQUESTED に復元）
+
+BOが承認する前であれば、依頼側（卸事業者）から取り下げ依頼を取り消すことができる。取り消すと `backoffice_review_status` は `MERCHANT_CONFIRMATION_REQUESTED` に戻り（`invoice_status` は `DISPUTED` のまま）、ステータスバッジは「否認差戻」に戻り、否認セクション内は取り下げ依頼前と同じ3ボタン（請求取り下げ／修正ファイルをアップ／変更なしで再請求）表示に戻る。
+
+> 取り下げ依頼前の元ステータス（`RETURNED` または `MERCHANT_CONFIRMATION_REQUESTED`）は `withdrawStoreInvoice()` が単純UPDATEで上書きするため復元できない。ただし `RETURNED+DISPUTED` と `MERCHANT_CONFIRMATION_REQUESTED+DISPUTED` は画面表示上（ステータスバッジ「否認差戻」・3ボタンエリア）で区別されないため、どちらに戻しても表示上は同じになる。`RETURNED` に戻すと TOP画面の `has_resubmit`（差戻しあり）フラグを誤って立てる可能性があるため、影響のない `MERCHANT_CONFIRMATION_REQUESTED` を採用する。
+>
+> ⚠️ `PENDING_REVIEW`（「変更なしで再請求」の遷移先）には戻さない。何も再請求していないのに「再請求済み」バッジ・ステータス「未検収」表示になってしまうため誤り（実装時に発覚したバグとして修正済み）。
+
+> ⚠️ 取下げ済み（`WITHDRAWN`、BOにより最終確定済み）に対する取り消し機能は提供しない。取り消しが可能なのは、BOがまだ処理していない「取り下げ依頼中（`WITHDRAW_REQUESTED`）」の間のみ。
 
 ```mermaid
 flowchart TD
-    START["「取下げをやめる」\nボタン押下"] --> DIALOG["確認モーダル表示\n⚠ 請求の取り下げを取り消します。よろしいですか？\n（undoWithdrawConfirmModal）"]
+    START["「取り下げ依頼を取り消す」\nボタン押下"] --> DIALOG["確認モーダル表示\n⚠ 請求の取り下げ依頼を取り消します。よろしいですか？\n（cancelWithdrawRequestConfirmModal）"]
     DIALOG --> CANCEL{"ユーザー選択"}
     CANCEL -->|キャンセル| CLOSE["モーダル閉じ"]
-    CANCEL -->|取り消す| BE["BE: undoWithdrawStoreInvoice()"]
-    BE --> BQ["BQ UPDATE: invoice_status = DISPUTED"]
-    BQ -->|成功| RELOAD["ページリロード\n否認セクションに移動\n+ トースト表示"]
+    CANCEL -->|取り消す| BE["BE: cancelWithdrawRequest()"]
+    BE --> BQ["BQ UPDATE: backoffice_review_status = MERCHANT_CONFIRMATION_REQUESTED\n（invoice_status は DISPUTED のまま）"]
+    BQ -->|成功| RELOAD["ページリロード\n否認セクション内で「否認差戻」+ 3ボタン表示に戻る\n+ トースト表示"]
     BQ -->|失敗| FAIL["alert エラー"]
 ```
 
-> 取下げ取り消し確認モーダル（`undoWithdrawConfirmModal`）のボタンは「取り消す」（`undoWithdrawConfirmOk`・`btn-danger`）/「キャンセル」（`undoWithdrawConfirmCancel`・`btn-outline`）。アコーディオン内の起動ボタンは「取下げをやめる」。
+> 取り下げ依頼取り消し確認モーダル（`cancelWithdrawRequestConfirmModal`）のボタンは「取り消す」（`cancelWithdrawRequestConfirmOk`・`btn-danger`）/「キャンセル」（`cancelWithdrawRequestConfirmCancel`・`btn-outline`）。アコーディオン内の起動ボタンは「取り下げ依頼を取り消す」。異議申立期間（OBJECTION_PERIOD）終了後はこのボタンが disabled になる（期間終了後は自動承認バッチ〈本リポジトリ外〉が処理するため）。
 
-#### 取下げ取り消し シーケンス図
+#### 取り下げ依頼の取り消し シーケンス図
 
 ```mermaid
 sequenceDiagram
@@ -383,28 +392,25 @@ sequenceDiagram
     participant BE as BE
     participant BQ as BigQuery
 
-    U->>FE: 「取下げをやめる」押下
+    U->>FE: 「取り下げ依頼を取り消す」押下
     FE-->>U: 確認ダイアログ表示
 
-    U->>FE: 「取下げをやめる」確定
-    FE->>FE: executeUndoWithdraw_()
-    FE->>BE: undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId)
-    BE->>BE: fetchStoreInvoiceForWithdraw_()（WITHDRAWNステータス確認）
-    BE->>BE: fetchLatestWholesalerInvoice_()（最新WI取得）
+    U->>FE: 「取り消す」確定
+    FE->>FE: executeCancelWithdrawRequest_()
+    FE->>BE: cancelWithdrawRequest(storeInvoiceId, parentInvoiceId)
+    BE->>BE: fetchStoreInvoiceForCancelWithdrawRequest_()（WITHDRAW_REQUESTEDステータス確認）
+    BE->>BE: fetchLatestWholesalerInvoice_()（最新WI取得。wholesaler_invoice_date取得のため）
     BE->>BE: fetchObjectionPeriodEndDate_()（異議申立期間チェック）
     alt 異議申立期間終了済み
-        BE-->>FE: error_('異議申立期間が終了しているため、取下げの取り消しはできません。')
+        BE-->>FE: error_('異議申立期間が終了しているため、取り下げ依頼の取り消しはできません。')
         FE-->>U: アラート表示
     else 期間内
-        BE->>BQ: BEGIN TRANSACTION
-        Note over BQ: UPDATE store_invoices<br/>SET invoice_status='DISPUTED'
-        Note over BQ: INSERT wholesaler_invoices<br/>（金額再計算: 最新WI + 戻すstore）
-        BQ->>BQ: COMMIT
+        BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='MERCHANT_CONFIRMATION_REQUESTED'<br/>WHERE id=? AND backoffice_review_status='WITHDRAW_REQUESTED' AND invoice_status='DISPUTED'
         BQ-->>BE: OK
         BE-->>FE: success
         FE->>FE: _detailPendingToastMsg セット
         FE->>FE: initDetailPage()（ページリロード）
-        FE-->>U: 否認セクションに復元 + トースト表示
+        FE-->>U: 否認セクション内で表示更新 + トースト表示
     end
 ```
 
@@ -418,7 +424,7 @@ sequenceDiagram
 | 変更なしで再請求 | `resubmit` | 同上 |
 | 請求取り下げ | `withdraw` | 同上 |
 | CSV一括アップロード | （`detailBtnUploadCsv`） | 同上 |
-| 取下げをやめる | `undo-withdraw` | 取下げ済みアコーディオン描画時に `disabled` 化 |
+| 取り下げ依頼を取り消す | `cancel-withdraw-request` | 否認アコーディオン（`WITHDRAW_REQUESTED`）描画時に `disabled` 化。期間終了後は自動承認バッチ（本リポジトリ外）が処理するため取り消し不可 |
 
 加えて、各アクション領域（`.backoffice-remark__actions`）の下に「異議申立期間が終了しています」というメッセージを表示する。
 
@@ -578,6 +584,7 @@ stateDiagram-v2
 |-------------|-----------|------|
 | 加盟店コードの有効性（リレーション） | バリデーション時 | マッピングに存在しない `customer_code` がCSVに含まれる場合はエラー（ブロック）。MYP-3960 |
 | 取引終了（end）加盟店 | バリデーション時 | end 店舗が CSV に含まれる場合は**警告のうえ再請求対象外（スキップ）**。確認画面へは進める。MYP-3960 |
+| 取り下げ依頼中（WITHDRAW_REQUESTED）加盟店 | バリデーション時 | 取り下げ依頼中の店舗が CSV に含まれる場合は**警告のうえ請求対象外（スキップ）**。「取り下げ依頼中のため、請求対象外になります。請求対象にしたい場合は、取り下げ依頼を取り消した後に請求してください。」を表示し、確認画面へは進める |
 | 要対応加盟店の網羅性（差戻し・否認問わず） | バリデーション時 | CSV に含まれない要対応加盟店は**警告（アラート）のみ**。確認画面へ進め、その加盟店は今回の再請求では対象外（スキップ） |
 | 否認加盟店の合意事項 | 確認画面（#confirm）送信時 | 確認画面に表示されている否認加盟店の handover 必須チェック（[03_confirm_page.md](03_confirm_page.md) §6.4）。「確認画面へ進む」時点では空でも遷移可 |
 
@@ -597,13 +604,14 @@ stateDiagram-v2
 | `_detailActionRequiredMallCodes` | `string[]` | 要対応の `mall_code` 一覧（バリデーション用） |
 | `_detailReturnedOnlyMallCodes` | `string[]` | RETURNED かつ `invoice_status=null` の `mall_code`。**網羅性チェックの緩和（差戻し・否認を問わず警告化）に伴い、現在はエラー/警告の分岐には使用しない**（算出のみ保持） |
 | `_detailMallToCustomerMap` | `Object` | 詳細画面専用の `mall_code` → `customer_code` マップ（`end` 店舗も含む） |
+| `_detailWithdrawRequestedStores` | `Array<{mall_code,customer_code,store_name}>` | 取り下げ依頼中（`WITHDRAW_REQUESTED`）の加盟店情報。CSV一括アップロード時、含まれていれば警告のうえスキップする判定に使用 |
 | `_isResubmitConfirm` | `boolean` | 一括再送信モードで確認画面を表示するフラグ |
 | `_resubmitParentInvoiceId` | `string\|null` | 一括再送信時の親請求ID |
 | `_resubmitRemarks` | `Object` | 一括再送信時の備考 |
 | `_resubmitHandovers` | `Object` | 一括再送信時の合意事項 |
 | `_resubmitDisputedCodes` | `string[]` | 一括再送信時に合意内容を必須とする否認加盟店の顧客コード |
-| `_detailPendingToastMsg` | `string\|null` | 取下げ/取消成功後にページリロード完了後に表示するトーストメッセージ |
-| `_objectionEndAt` | `string\|null` | 異議申立期間の終了日（`summary.objection_end_at` から取得） |
+| `_detailPendingToastMsg` | `string\|null` | 取り下げ依頼/取り消し成功後にページリロード完了後に表示するトーストメッセージ |
+| `_objectionEndAt` | `string\|null` | 異議申立期間の終了日（`summary.objection_end_at` から取得）。期間終了後は「取り下げ依頼を取り消す」ボタンを無効化する（以降は自動承認バッチ〈本リポジトリ外〉が処理する） |
 
 ---
 
@@ -640,29 +648,25 @@ stateDiagram-v2
 |------|------|
 | 処理 | `backoffice_review_status` → `PENDING_REVIEW` に更新 |
 | 条件 | RETURNED または (MCR + DISPUTED) のレコードのみ |
+| 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証。UPDATE が0行（並行更新・画面表示後の状態変化）なら `RAISE` + `ROLLBACK` し、BE側で `error_()`（業務エラー）に変換して返す（本チェックが無いと、対象0件でも画面上は成功トーストが出てしまう） |
 
 ### 11.4 `withdrawStoreInvoice(storeInvoiceId, parentInvoiceId)`
 
 | 項目 | 内容 |
 |------|------|
-| 処理 | `invoice_status` → `WITHDRAWN` に更新 + `wholesaler_invoices` 金額再計算（新版INSERT） |
-| 事前検証 | `fetchStoreInvoiceForWithdraw_()` で存在・ステータス確認 |
-| 金額再計算 | `新WI金額 = 最新WI − 取下げstore`、手数料・振込予定額も再計算 |
-| 実行方法 | トランザクション（UPDATE + INSERT-SELECT） |
-| 影響行数0 | `error_()` で業務エラーを返却（`throw` しない） |
-| IDOR保護 | `wholesaler_id` + `wholesaler_invoice_id` フィルタリング |
+| 処理 | `backoffice_review_status` → `WITHDRAW_REQUESTED` に更新（**依頼のみ**。`invoice_status` は `DISPUTED` のまま変更しない。`wholesaler_invoices` の金額再計算も行わない） |
+| 条件 | `is_latest = TRUE` かつ `invoice_status = 'DISPUTED'` かつ `backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')` のレコードのみ（FEの「請求取り下げ」ボタン表示条件と一致させ、API直叩きで PENDING_REVIEW／WITHDRAW_REQUESTED の行が上書きされないよう防御） |
+| 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証（`resubmitWithoutChanges` と同様のパターン。UPDATE が0行なら `RAISE` + `ROLLBACK` し `error_()` に変換） |
 
-### 11.5 `undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId)`
+### 11.5 `cancelWithdrawRequest(storeInvoiceId, parentInvoiceId)`
 
 | 項目 | 内容 |
 |------|------|
-| 処理 | `invoice_status` を `WITHDRAWN` → `DISPUTED` に復元 + `wholesaler_invoices` 金額再計算（新版INSERT） |
-| 条件 | `is_latest = TRUE` かつ `invoice_status = 'WITHDRAWN'` のレコードのみ |
-| 事前検証 | `fetchStoreInvoiceForWithdraw_()` + `fetchObjectionPeriodEndDate_()` |
-| 異議申立期間 | `business_calendar` の `OBJECTION_PERIOD` イベントの `end_at` を参照。期間終了後は `error_()` で拒否 |
-| 金額再計算 | `新WI金額 = 最新WI + 戻すstore`、手数料・振込予定額も再計算 |
-| 実行方法 | トランザクション（UPDATE + INSERT-SELECT） |
-| 影響行数0 | `error_()` で業務エラーを返却（`throw` しない） |
+| 処理 | `backoffice_review_status` を `WITHDRAW_REQUESTED` → `MERCHANT_CONFIRMATION_REQUESTED` に復元（`invoice_status` は `DISPUTED` のまま。金額再計算は不要） |
+| 条件 | `is_latest = TRUE` かつ `backoffice_review_status = 'WITHDRAW_REQUESTED'` かつ `invoice_status = 'DISPUTED'` のレコードのみ |
+| 事前検証 | `fetchStoreInvoiceForCancelWithdrawRequest_()` + `fetchObjectionPeriodEndDate_()` |
+| 異議申立期間 | `business_calendar` の `OBJECTION_PERIOD` イベントの `end_at` を参照。期間終了後は `error_()` で拒否（以降は自動承認バッチ〈本リポジトリ外〉が処理する想定） |
+| 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証（`resubmitWithoutChanges` と同様のパターン。事前バリデーションから UPDATE までの間の並行更新で UPDATE が0行になった場合も `RAISE` + `ROLLBACK` し `error_()` に変換） |
 | IDOR保護 | `wholesaler_id` + `wholesaler_invoice_id` フィルタリング |
 
 ---
@@ -685,7 +689,7 @@ stateDiagram-v2
 | `fetchInvoiceDetailSummary_` | `wholesaler_invoices` LEFT JOIN `business_calendar` | 親請求 + `objection_end_at` を取得 |
 | `fetchStoreInvoicesByParent_` | `store_invoices` JOIN `store` + `customer_code` スカラーサブクエリ | 加盟店別請求一覧（`is_latest=TRUE`）。`wholesaler_managed_store_name` も取得し、再請求時の加盟店名継承に使用 |
 | `fetchInvoiceLinesByStore_` | `invoice_lines` JOIN `store_invoices` | 明細行（最大1000行） |
-| `fetchStoreInvoiceForWithdraw_` | `store_invoices` | 取下げ/取消しの事前バリデーション |
+| `fetchStoreInvoiceForCancelWithdrawRequest_` | `store_invoices` | 取り下げ依頼の取り消しの事前バリデーション |
 | `fetchObjectionPeriodEndDate_` | `business_calendar` | 異議申立期間の `end_at` 取得 |
 | `fetchLatestWholesalerInvoice_` | `wholesaler_invoices` | 最新WI取得（`wholesaler_invoice_date` 含む） |
 
@@ -711,25 +715,28 @@ stateDiagram-v2
 | 請求取り下げ | `#DF4C4C` | 14px / 400 / `#3C3C3C` | 否認 |
 | 修正ファイルをアップ | `#00A7B8` | 14px / 400 | 否認 |
 | 変更なしで再請求 | `#00A7B8` | 14px / 400 | 否認 |
-| 取下げをやめる | `#FF7846` | 14px / 400 | 取下げ済み |
+| 取り下げ依頼を取り消す | `#00A7B8` | 14px / 400 | 否認（`WITHDRAW_REQUESTED`） |
 
-### 13.3 取り下げ確認モーダル（`withdrawConfirmModal`）
+> 📌 取下げ済み（`WITHDRAWN`）セクションにはアクションボタンを表示しない（BOによる最終確定後のため）。
+> 📌 「取り下げ依頼済み」バッジ（`.detail-action-badge--withdraw-requested`）は3ボタンと同じレイアウト・サイズ（幅197px・高さ36px・角丸40px）で、色は「再請求済み」バッジと同じ（枠線・文字色 `#159E85` / 背景 `#CDF6EF`）。
+
+### 13.3 請求取り下げ依頼確認モーダル（`withdrawConfirmModal`）
 
 | 項目 | 値 |
 |------|-----|
-| クラス | `modal modal--warn`（警告色スタイル） |
-| タイトル | 「⚠ 加盟店への請求情報を取り下げます。よろしいですか？」 |
-| 説明 | 「加盟店単位の請求情報を取り下げます。取り下げ後、再度請求したい場合は取下げ済みの請求一覧から「取下げをやめる」で要対応に戻してから再送信してください。」 |
-| 「取り下げる」ボタン | `withdrawConfirmOk`・`btn-danger` |
+| クラス | `modal modal--warn`(警告色スタイル) |
+| タイトル | 「⚠ 加盟店への請求の取り下げを依頼します。よろしいですか？」 |
+| 説明 | 「加盟店単位の請求情報について、取り下げを依頼します。依頼後に取り消したい場合は、対象の請求の「取り下げ依頼を取り消す」から取り消せます。」 |
+| 「取り下げを依頼する」ボタン | `withdrawConfirmOk`・`btn-danger` |
 | 「キャンセル」ボタン | `withdrawConfirmCancel`・`btn-outline` |
 
-### 13.4 取下げ取り消し確認モーダル（`undoWithdrawConfirmModal`）
+### 13.4 取り下げ依頼取り消し確認モーダル（`cancelWithdrawRequestConfirmModal`）
 
 | 項目 | 値 |
 |------|-----|
-| クラス | `modal modal--warn`（警告色スタイル） |
-| タイトル | 「⚠ 請求の取り下げを取り消します。よろしいですか？」 |
-| 説明 | 「取り下げを取り消すと、対象の請求は「要対応の請求一覧」に戻ります。」 |
-| 「取り消す」ボタン | `undoWithdrawConfirmOk`・`btn-danger` |
-| 「キャンセル」ボタン | `undoWithdrawConfirmCancel`・`btn-outline` |
+| クラス | `modal modal--warn`(警告色スタイル) |
+| タイトル | 「⚠ 請求の取り下げ依頼を取り消します。よろしいですか？」 |
+| 説明 | 「取り下げ依頼を取り消すと、対象の請求は「要対応の請求一覧」に戻ります。」 |
+| 「取り消す」ボタン | `cancelWithdrawRequestConfirmOk`・`btn-danger` |
+| 「キャンセル」ボタン | `cancelWithdrawRequestConfirmCancel`・`btn-outline` |
 | アクセシビリティ | `aria-labelledby` / `aria-describedby` |
