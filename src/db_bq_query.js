@@ -373,19 +373,19 @@ function fetchWholesalerInvoiceStorageEndDate_(wholesalerId) {
 }
 
 /**
- * 取り下げ依頼の取り消し時の事前バリデーション用。
- * 指定した store_invoices が存在し、backoffice_review_status が WITHDRAW_REQUESTED
- * （invoice_status は DISPUTED のまま）であることを確認する。
+ * 取下げ / 取下げ取り消し時の事前バリデーション用。
+ * 指定した store_invoices が存在し、期待するステータスであることを確認する。
  *
  * @param {string} storeInvoiceId  - 対象の store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
  * @param {number} wholesalerId    - 卸業者ID
+ * @param {string} expectedStatus  - 期待する invoice_status（'DISPUTED' or 'WITHDRAWN'）
  * @returns {Object|null} 該当行のオブジェクト。見つからなければ null
  */
-function fetchStoreInvoiceForCancelWithdrawRequest_(storeInvoiceId, parentInvoiceId, wholesalerId) {
+function fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, expectedStatus) {
   const config = getConfig_();
   const sql =
-    'SELECT id, invoice_status, backoffice_review_status ' +
+    'SELECT id, invoice_status ' +
     'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store_invoices` ' +
     'WHERE id = @store_invoice_id ' +
     '  AND wholesaler_invoice_id IN (' +
@@ -394,14 +394,14 @@ function fetchStoreInvoiceForCancelWithdrawRequest_(storeInvoiceId, parentInvoic
     '  ) ' +
     '  AND wholesaler_id = @wholesaler_id ' +
     '  AND is_latest = TRUE ' +
-    "  AND backoffice_review_status = 'WITHDRAW_REQUESTED' " +
-    "  AND invoice_status = 'DISPUTED' " +
+    '  AND invoice_status = @expected_status ' +
     'LIMIT 1';
 
   const params = [
     { name: 'store_invoice_id', parameterType: { type: 'STRING' }, parameterValue: { value: String(storeInvoiceId) } },
     { name: 'invoice_id',       parameterType: { type: 'STRING' }, parameterValue: { value: String(parentInvoiceId) } },
     { name: 'wholesaler_id',    parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
+    { name: 'expected_status',  parameterType: { type: 'STRING' }, parameterValue: { value: String(expectedStatus) } },
   ];
 
   const rows = runQuery_(config.gcpProjectId, sql, params);

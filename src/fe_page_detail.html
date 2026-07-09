@@ -166,41 +166,41 @@
   </div>
 
   <!-- ================================================================
-       請求取り下げ依頼確認モーダル
+       請求取り下げ確認モーダル
        ================================================================ -->
   <div id="withdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="withdrawConfirmTitle" aria-describedby="withdrawConfirmDesc">
     <div class="modal modal--warn">
       <h2 class="modal__title modal__title--warn" id="withdrawConfirmTitle">
         <i class="fa-solid fa-triangle-exclamation"></i>
-        加盟店への請求の取り下げを依頼します。よろしいですか？
+        加盟店への請求情報を取り下げます。よろしいですか？
       </h2>
       <div class="modal__message modal__message--warn" id="withdrawConfirmDesc">
-        <p>加盟店単位の請求情報について、取り下げを依頼します。</p>
-        <p>依頼後に取り消したい場合は、対象の請求の<br>
-        「取り下げ依頼を取り消す」から取り消せます。</p>
+        <p>加盟店単位の請求情報を取り下げます。</p>
+        <p>取り下げ後、再度請求したい場合は、取下げ済みの請求一覧から<br>
+        「取下げをやめる」で要対応に戻してから再送信してください。</p>
       </div>
       <div class="modal__actions modal__actions--center">
-        <button type="button" class="btn btn-danger" id="withdrawConfirmOk">取り下げを依頼する</button>
+        <button type="button" class="btn btn-danger" id="withdrawConfirmOk">取り下げる</button>
         <button type="button" class="btn btn-outline" id="withdrawConfirmCancel">キャンセル</button>
       </div>
     </div>
   </div>
 
   <!-- ================================================================
-       取り下げ依頼取り消し確認モーダル
+       取下げ取り消し確認モーダル
        ================================================================ -->
-  <div id="cancelWithdrawRequestConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="cancelWithdrawRequestConfirmTitle" aria-describedby="cancelWithdrawRequestConfirmDesc">
+  <div id="undoWithdrawConfirmModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="undoWithdrawConfirmTitle" aria-describedby="undoWithdrawConfirmDesc">
     <div class="modal modal--warn">
-      <h2 class="modal__title modal__title--warn" id="cancelWithdrawRequestConfirmTitle">
+      <h2 class="modal__title modal__title--warn" id="undoWithdrawConfirmTitle">
         <i class="fa-solid fa-triangle-exclamation"></i>
-        請求の取り下げ依頼を取り消します。よろしいですか？
+        請求の取り下げを取り消します。よろしいですか？
       </h2>
-      <div class="modal__message modal__message--warn" id="cancelWithdrawRequestConfirmDesc">
-        <p>取り下げ依頼を取り消すと、対象の請求は「要対応の請求一覧」に戻ります。</p>
+      <div class="modal__message modal__message--warn" id="undoWithdrawConfirmDesc">
+        <p>取り下げを取り消すと、対象の請求は「要対応の請求一覧」に戻ります。</p>
       </div>
       <div class="modal__actions modal__actions--center">
-        <button type="button" class="btn btn-danger" id="cancelWithdrawRequestConfirmOk">取り消す</button>
-        <button type="button" class="btn btn-outline" id="cancelWithdrawRequestConfirmCancel">キャンセル</button>
+        <button type="button" class="btn btn-danger" id="undoWithdrawConfirmOk">取り消す</button>
+        <button type="button" class="btn btn-outline" id="undoWithdrawConfirmCancel">キャンセル</button>
       </div>
     </div>
   </div>

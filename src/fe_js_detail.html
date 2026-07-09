@@ -19,13 +19,7 @@ let _detailMallToCustomerMap = {};
  *   それ以外（要対応でない end 店舗 / CSV 未収載の end 店舗）は警告なしで要対応外としてサイレント除外。
  */
 let _detailEndStores = [];
-/**
- * 取り下げ依頼中（backoffice_review_status='WITHDRAW_REQUESTED'）の加盟店情報
- * [{mall_code, customer_code, store_name}]。CSV一括アップロード時にこの店舗のデータが
- * 含まれていた場合、警告のうえ今回の再請求から除外（スキップ）するための判定に使用する。
- */
-let _detailWithdrawRequestedStores = [];
-/** 異議申立期間の終了日（OBJECTION_PERIOD の end_at）。期間終了後は「取り下げ依頼を取り消す」を無効化する（以降は自動承認バッチ〈本リポジトリ外〉が処理する） */
+/** 異議申立期間の終了日（OBJECTION_PERIOD の end_at）。期間終了後は「取下げをやめる」を無効化する */
 let _objectionEndAt = null;
 /** リロード完了後に表示するトーストメッセージ（取り下げ / 取り消し成功時） */
 let _detailPendingToastMsg = null;
@@ -358,12 +352,11 @@ function renderDetailStoreList_(stores) {
   const returned  = stores.filter(function (s) {
     return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED' && s.invoice_status !== 'WITHDRAWN' && s.invoice_status !== 'APPROVED';
   });
-  // 否認: (MCR/RETURNED/PENDING_REVIEW/WITHDRAW_REQUESTED + DISPUTED) ※WITHDRAWN は除外
+  // 否認: (MCR/RETURNED/PENDING_REVIEW + DISPUTED) ※WITHDRAWN は除外
   const disputed  = stores.filter(function (s) {
     return (s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') ||
            (s.backoffice_review_status === 'RETURNED' && s.invoice_status === 'DISPUTED') ||
-           (s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED') ||
-           (s.backoffice_review_status === 'WITHDRAW_REQUESTED' && s.invoice_status === 'DISPUTED');
+           (s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED');
   });
   // 取下げ済: WITHDRAWN
   const withdrawn = stores.filter(function (s) {
@@ -375,8 +368,7 @@ function renderDetailStoreList_(stores) {
     return s.invoice_status !== 'WITHDRAWN' &&
       !(s.backoffice_review_status === 'RETURNED') &&
       !(s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') &&
-      !(s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED') &&
-      !(s.backoffice_review_status === 'WITHDRAW_REQUESTED' && s.invoice_status === 'DISPUTED');
+      !(s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED');
   });
 
   // 要対応の mall_code 一覧をグローバル変数に保持（バリデーション用）
@@ -398,18 +390,6 @@ function renderDetailStoreList_(stores) {
   // 取引終了（store_status='end'）の加盟店を抽出（再請求不可の判定に使用）
   _detailEndStores = stores.filter(function (s) {
     return s.store_status === 'end' && s.mall_code;
-  }).map(function (s) {
-    return {
-      mall_code:     String(s.mall_code),
-      customer_code: String(s.customer_code || ''),
-      store_name:    s.store_name || '',
-    };
-  });
-
-  // 取り下げ依頼中（backoffice_review_status='WITHDRAW_REQUESTED'）の加盟店を抽出
-  // （CSV一括アップロード時、含まれていれば警告のうえスキップする判定に使用）
-  _detailWithdrawRequestedStores = stores.filter(function (s) {
-    return s.backoffice_review_status === 'WITHDRAW_REQUESTED' && s.mall_code;
   }).map(function (s) {
     return {
       mall_code:     String(s.mall_code),
@@ -509,12 +489,10 @@ function buildDetailAccordion_(store, openByDefault) {
   const fmt        = function (n) { return Number(n || 0).toLocaleString('ja-JP'); };
   const isWithdrawn = store.invoice_status === 'WITHDRAWN';
   const isReturned = store.backoffice_review_status === 'RETURNED' && store.invoice_status !== 'DISPUTED' && store.invoice_status !== 'WITHDRAWN';
-  const isWithdrawRequested = store.backoffice_review_status === 'WITHDRAW_REQUESTED' && store.invoice_status === 'DISPUTED';
   const isDisputed = !isWithdrawn &&
                      ((store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED') ||
                      (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED') ||
-                     (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED') ||
-                     isWithdrawRequested);
+                     (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED'));
 
   // mall_code → customer_code 変換（BE が remarks[customerCode] で参照するため）
   const customerCode = resolveCustomerCode_(store.mall_code, store);
@@ -563,12 +541,6 @@ function buildDetailAccordion_(store, openByDefault) {
   if (isDisputed) {
     const disputedRow = document.createElement('div');
     disputedRow.className = 'store-accordion__backoffice-remark';
-
-    // 取り下げ依頼中: OBJECTION_PERIOD チェック（期限切れなら取り消し不可。以降は自動承認バッチ〈本リポジトリ外〉が処理）
-    const withdrawReqTodayYmd = jstNow_().ymd;
-    const withdrawReqEndAtYmd = String(_objectionEndAt).slice(0, 10);
-    const withdrawRequestPeriodExpired = isWithdrawRequested && _objectionEndAt && withdrawReqTodayYmd > withdrawReqEndAtYmd;
-
     disputedRow.innerHTML =
       '<div class="backoffice-remark__disputed-left">' +
         '<div class="backoffice-remark__disputed-reason">' +
@@ -588,26 +560,12 @@ function buildDetailAccordion_(store, openByDefault) {
           : '') +
       '</div>' +
       '<div class="backoffice-remark__actions' + (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED' ? ' backoffice-remark__actions--shifted' : '') + '">' +
-    (isWithdrawRequested
-      ? (
-          '<span class="btn detail-action-badge--withdraw-requested"><i class="fa-solid fa-check"></i> 取り下げ依頼済み</span>' +
-          (withdrawRequestPeriodExpired
-            ? '<button type="button" class="btn btn-outline btn-sm detail-action-btn" disabled>' +
-                '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取り下げ依頼を取り消す' +
-              '</button>' +
-              '<p class="detail-action-btn__period-expired-msg">異議申立期間が終了しています</p>'
-            : '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="cancel-withdraw-request" data-id="' + escapeHtml(store.store_invoice_id) + '">' +
-                '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取り下げ依頼を取り消す' +
-              '</button>'
-          )
-        )
-      : (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
-          ? '<span class="btn detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
-          : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
-              '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
-              '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 変更なしで再請求</button>'
-        )
-    ) +
+      (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
+        ? '<span class="btn detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
+        : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 変更なしで再請求</button>'
+      ) +
       '</div>';
     body.appendChild(disputedRow);
 
@@ -625,8 +583,13 @@ function buildDetailAccordion_(store, openByDefault) {
     }
   }
 
-  // 取下げ済み: 合意内容（読取専用）。BOによる最終確定後のため取り消し操作は提供しない。
+  // 取下げ済み: 合意内容（読取専用）+ 取下げをやめるボタン
   if (isWithdrawn) {
+    // OBJECTION_PERIOD チェック: end_at < today なら disabled（JST基準で判定）
+    const todayYmd = jstNow_().ymd;
+    const endAtYmd = String(_objectionEndAt).slice(0, 10);
+    const periodExpired = _objectionEndAt && todayYmd > endAtYmd;
+
     const withdrawnRow = document.createElement('div');
     withdrawnRow.className = 'store-accordion__backoffice-remark';
     withdrawnRow.innerHTML =
@@ -639,6 +602,17 @@ function buildDetailAccordion_(store, openByDefault) {
           '<span class="backoffice-remark__label">・ 【必須】加盟店<br>との合意内容</span>' +
           '<div class="backoffice-remark__handover-readonly">' + escapeHtml(store.wholesaler_handover || '') + '</div>' +
         '</div>' +
+      '</div>' +
+      '<div class="backoffice-remark__actions">' +
+        (periodExpired
+          ? '<button type="button" class="btn btn-outline detail-action-btn detail-action-btn--undo-withdraw" disabled>' +
+              '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる' +
+            '</button>' +
+            '<p class="detail-action-btn__period-expired-msg">異議申立期間が終了しています</p>'
+          : '<button type="button" class="btn btn-outline detail-action-btn detail-action-btn--undo-withdraw" data-action="undo-withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '">' +
+              '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる' +
+            '</button>'
+        ) +
       '</div>';
     body.appendChild(withdrawnRow);
   }
@@ -1042,9 +1016,6 @@ function renderDetailLines_(lines, container) {
         // 取引終了（end）店舗の customer_code 集合（再請求不可）
         const endCcSet = new Set();
         (_detailEndStores || []).forEach(function (s) { if (s.customer_code) endCcSet.add(String(s.customer_code)); });
-        // 取り下げ依頼中（WITHDRAW_REQUESTED）店舗の customer_code 集合（請求対象外）
-        const withdrawReqCcSet = new Set();
-        (_detailWithdrawRequestedStores || []).forEach(function (s) { if (s.customer_code) withdrawReqCcSet.add(String(s.customer_code)); });
 
         // (A) リレーションに存在しない customer_code を検出 → 一括・個別ともブロック
         Object.keys(csvCustomerCodes).forEach(function (cc) {
@@ -1063,7 +1034,6 @@ function renderDetailLines_(lines, container) {
           // 含まれる等の理由で _detailActionRequiredMallCodes に同一 customer_code へ解決される
           // mallCode が複数含まれていても、警告は customer_code ごとに1回のみ表示する。
           const warnedEndCcSet = new Set();
-          const warnedWithdrawReqCcSet = new Set();
           const warnedMissingCcSet = new Set();
           (_detailActionRequiredMallCodes || []).forEach(function (mallCode) {
             const cc = mallToCustomer[String(mallCode)];
@@ -1079,18 +1049,6 @@ function renderDetailLines_(lines, container) {
                   if (endStore) storeName = endStore.store_name || '';
                 }
                 bulkWarnings.push((storeName || ('顧客コード: ' + cc)) + 'は取引終了済みのため請求できません。今回の再請求には含まれません。');
-              }
-              return;
-            }
-            // (3) 取り下げ依頼中の店舗は請求対象外。CSV に含まれていれば警告し、要対応集合には加えない（=スキップ）。
-            if (withdrawReqCcSet.has(cc)) {
-              if (csvCustomerCodes[cc] && !warnedWithdrawReqCcSet.has(cc)) {
-                warnedWithdrawReqCcSet.add(cc);
-                if (!storeName) {
-                  const withdrawReqStore = (_detailWithdrawRequestedStores || []).find(function (s) { return String(s.customer_code) === cc; });
-                  if (withdrawReqStore) storeName = withdrawReqStore.store_name || '';
-                }
-                bulkWarnings.push((storeName || ('顧客コード: ' + cc)) + 'は取り下げ依頼中のため、請求対象外になります。請求対象にしたい場合は、取り下げ依頼を取り消した後に請求してください。');
               }
               return;
             }
@@ -1679,7 +1637,7 @@ function renderDetailLines_(lines, container) {
     // 拡張機能等が合成発火するイベント等で Text ノードや document 自体になることがある）。
     // Element でない場合に closest() を呼ぶと「e.target.closest is not a function」で
     // 例外になり Slack にノイズ通知が飛ぶため、ここで確実に弾く
-    // （このハンドラ内の reupload/withdraw/cancel-withdraw-request/resubmit 全ての closest() 呼び出しをまとめて保護する）。
+    // （このハンドラ内の reupload/withdraw/undo-withdraw/resubmit 全ての closest() 呼び出しをまとめて保護する）。
     if (!(e.target instanceof Element)) return;
     const btn = e.target.closest('[data-action="reupload"]');
     if (btn) {
@@ -1746,8 +1704,8 @@ function renderDetailLines_(lines, container) {
               withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
               return;
             }
-            // 成功 → 依頼状態を反映するためページをリロード（否認セクション内で「取り下げ依頼済み」表示に切り替わる）
-            _detailPendingToastMsg = '請求の取り下げを依頼しました。';
+            // 成功 → 取下げ済みセクションに移動させるためページをリロード
+            _detailPendingToastMsg = '請求を取り下げました。';
             _detailCurrentInvoiceId = null;
             initDetailPage(parentInvoiceId);
           })
@@ -1768,10 +1726,10 @@ function renderDetailLines_(lines, container) {
       }
     }
 
-    // 取り下げ依頼を取り消す → BE: cancelWithdrawRequest 呼び出し → ステータスを否認差戻（MERCHANT_CONFIRMATION_REQUESTED）に戻す
-    const cancelWithdrawReqBtn = e.target.closest('[data-action="cancel-withdraw-request"]');
-    if (cancelWithdrawReqBtn) {
-      const storeInvoiceId = cancelWithdrawReqBtn.dataset.id;
+    // 取下げをやめる → BE: undoWithdrawStoreInvoice 呼び出し → ステータスを否認差戻に戻す
+    const undoWithdrawBtn = e.target.closest('[data-action="undo-withdraw"]');
+    if (undoWithdrawBtn) {
+      const storeInvoiceId = undoWithdrawBtn.dataset.id;
       const parentInvoiceId = _detailCurrentInvoiceId;
       if (!parentInvoiceId) {
         alert('請求IDが取得できませんでした。ページを再読み込みしてください。');
@@ -1779,60 +1737,60 @@ function renderDetailLines_(lines, container) {
       }
 
       // カスタムモーダルで確認
-      const cancelWithdrawReqModal  = document.getElementById('cancelWithdrawRequestConfirmModal');
-      const cancelWithdrawReqOk     = document.getElementById('cancelWithdrawRequestConfirmOk');
-      const cancelWithdrawReqCancel = document.getElementById('cancelWithdrawRequestConfirmCancel');
-      if (!cancelWithdrawReqModal) return;
-      cancelWithdrawReqModal.classList.remove('hidden');
+      const undoModal  = document.getElementById('undoWithdrawConfirmModal');
+      const undoOk     = document.getElementById('undoWithdrawConfirmOk');
+      const undoCancel = document.getElementById('undoWithdrawConfirmCancel');
+      if (!undoModal) return;
+      undoModal.classList.remove('hidden');
 
-      function onCancelWithdrawReqCancel() {
-        cancelWithdrawReqModal.classList.add('hidden');
-        cancelWithdrawReqCleanup();
+      function onUndoCancel() {
+        undoModal.classList.add('hidden');
+        undoCleanup();
       }
-      function onCancelWithdrawReqOk() {
-        cancelWithdrawReqModal.classList.add('hidden');
-        cancelWithdrawReqCleanup();
-        executeCancelWithdrawRequest_(cancelWithdrawReqBtn, storeInvoiceId, parentInvoiceId);
+      function onUndoOk() {
+        undoModal.classList.add('hidden');
+        undoCleanup();
+        executeUndoWithdraw_(undoWithdrawBtn, storeInvoiceId, parentInvoiceId);
       }
-      function cancelWithdrawReqCleanup() {
-        cancelWithdrawReqOk.removeEventListener('click', onCancelWithdrawReqOk);
-        cancelWithdrawReqCancel.removeEventListener('click', onCancelWithdrawReqCancel);
+      function undoCleanup() {
+        undoOk.removeEventListener('click', onUndoOk);
+        undoCancel.removeEventListener('click', onUndoCancel);
       }
-      cancelWithdrawReqOk.addEventListener('click', onCancelWithdrawReqOk);
-      cancelWithdrawReqCancel.addEventListener('click', onCancelWithdrawReqCancel);
+      undoOk.addEventListener('click', onUndoOk);
+      undoCancel.addEventListener('click', onUndoCancel);
       return;
     }
 
-    // 取り下げ依頼の取り消し実行ロジック（モーダル「OK」後に呼ばれる）
-    function executeCancelWithdrawRequest_(cancelWithdrawReqBtn, storeInvoiceId, parentInvoiceId) {
+    // 取下げ取り消し実行ロジック（モーダル「OK」後に呼ばれる）
+    function executeUndoWithdraw_(undoWithdrawBtn, storeInvoiceId, parentInvoiceId) {
       // ボタンを無効化 + スピナー表示
-      cancelWithdrawReqBtn.disabled = true;
-      cancelWithdrawReqBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 処理中...';
+      undoWithdrawBtn.disabled = true;
+      undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 処理中...';
 
       if (typeof google !== 'undefined' && google.script && google.script.run) {
         google.script.run
           .withSuccessHandler(function (result) {
             if (result && result.status === 'error') {
-              alert('取り下げ依頼の取り消しに失敗しました: ' + (result.message || '不明なエラー'));
-              cancelWithdrawReqBtn.disabled = false;
-              cancelWithdrawReqBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取り下げ依頼を取り消す';
+              alert('取下げの取り消しに失敗しました: ' + (result.message || '不明なエラー'));
+              undoWithdrawBtn.disabled = false;
+              undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
               return;
             }
             // 成功 → 画面をリロードして最新状態を反映
-            _detailPendingToastMsg = '取り下げ依頼を取り消しました。';
+            _detailPendingToastMsg = '取下げを取り消しました。';
             _detailCurrentInvoiceId = null;
             initDetailPage(parentInvoiceId);
           })
           .withFailureHandler(function (err) {
-            alert('取り下げ依頼の取り消しに失敗しました: ' + (err.message || err));
-            cancelWithdrawReqBtn.disabled = false;
-            cancelWithdrawReqBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取り下げ依頼を取り消す';
+            alert('取下げの取り消しに失敗しました: ' + (err.message || err));
+            undoWithdrawBtn.disabled = false;
+            undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
           })
-          .cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, getSessionToken_());
+          .undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, getSessionToken_());
       } else {
         alert('サーバーとの接続が確立できません。ページを再読み込みしてください。');
-        cancelWithdrawReqBtn.disabled = false;
-        cancelWithdrawReqBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取り下げ依頼を取り消す';
+        undoWithdrawBtn.disabled = false;
+        undoWithdrawBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取下げをやめる';
       }
     }
 

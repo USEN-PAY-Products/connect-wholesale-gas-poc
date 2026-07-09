@@ -1197,7 +1197,6 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     const managedNameByCustomer = {};
     const disputedReasonByCustomer = {}; // customer_code → 旧レコードの否認理由（再請求後も表示を維持するため引き継ぐ）
     const endMallCodeSet = {}; // mall_code → true（取引終了店舗）
-    const withdrawRequestedMallCodeSet = {}; // mall_code → true（取り下げ依頼中店舗）
     storeRows.forEach(function (s) {
       if (s.customer_code && s.mall_code) {
         customerToMall[String(s.customer_code)] = String(s.mall_code);
@@ -1212,9 +1211,6 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
       if (s.mall_code && s.store_status === 'end') {
         endMallCodeSet[String(s.mall_code)] = true;
       }
-      if (s.mall_code && s.backoffice_review_status === 'WITHDRAW_REQUESTED') {
-        withdrawRequestedMallCodeSet[String(s.mall_code)] = true;
-      }
     });
 
     // ── BE防御: リレーションに存在しない customer_code を拒否（不正データの混入防止）──
@@ -1226,11 +1222,11 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
       throw new Error('請求できない顧客コードが含まれています: ' + invalidCustomerCodes.join(', '));
     }
 
-    // 要対応かつ取引終了(end)でも取り下げ依頼中でもない加盟店のみを残す。
-    // end 店舗・取り下げ依頼中店舗は再請求対象外（FE で警告のうえ除外済み。API 直叩き対策として BE でも除外）。
+    // 要対応かつ取引終了(end)でない加盟店のみを残す。
+    // end 店舗は再請求対象外（FE で警告のうえ除外済み。API 直叩き対策として BE でも除外）。
     summaryData.merchantTotals = summaryData.merchantTotals.filter(function (m) {
       const mc = customerToMall[String(m.customerCode)] || '';
-      return eligibleMallCodes.has(mc) && !endMallCodeSet[mc] && !withdrawRequestedMallCodeSet[mc];
+      return eligibleMallCodes.has(mc) && !endMallCodeSet[mc];
     });
     if (summaryData.merchantTotals.length === 0) {
       throw new Error('要対応の加盟店データが含まれていません');
@@ -1667,27 +1663,12 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
 
 
 // =============================================================================
-// 請求取り下げ依頼
+// 請求取り下げ
 // =============================================================================
 
 /**
- * 対象の store_invoices.backoffice_review_status を WITHDRAW_REQUESTED に更新する。
- * invoice_status（DISPUTED）は変更しない。金額の再計算は不要（ステータス更新のみ）。
- * BOが依頼内容を確認し、承認（WITHDRAWN 確定）または否認（差戻し）を行うまでは
- * WITHDRAW_REQUESTED のまま維持される。承認・否認処理自体は本リポジトリ外
- * （バックオフィス側システム）が担当する。異議申立期間（OBJECTION_PERIOD）終了後は
- * 自動承認バッチ（本リポジトリ外）が処理する想定。
- *
- * BE防御: FEで「請求取り下げ」ボタンが表示されるのは backoffice_review_status が
- * RETURNED または MERCHANT_CONFIRMATION_REQUESTED のときのみ（PENDING_REVIEW（再請求済み）や
- * WITHDRAW_REQUESTED（取り下げ依頼中）の行はボタン非表示）のため、SQLの WHERE 句でも
- * 同じ条件を明示的に課している。API直叩きで PENDING_REVIEW/WITHDRAW_REQUESTED の行まで
- * WITHDRAW_REQUESTED に上書きできてしまわないようにするための防御。
- *
- * また、UPDATE は BEGIN TRANSACTION 〜 COMMIT で包み、@@row_count = 0（並行更新や
- * 画面表示後の状態変化で対象行が0件だった場合）を検知して RAISE + ROLLBACK する。
- * これが無いと、対象0件でも BQ 上はエラーにならず成功扱いとなり、画面上は成功トーストが
- * 出るのに実際は何も更新されない不整合が起こり得るため（コードレビュー指摘により追加）。
+ * 対象の store_invoices.invoice_status を WITHDRAWN に更新し、
+ * wholesaler_invoices の金額を再計算した新版を INSERT する。
  *
  * @param {string} storeInvoiceId  - 対象の store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
@@ -1709,34 +1690,89 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
     if (!UUID_RE.test(storeInvoiceId))  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
     if (!UUID_RE.test(parentInvoiceId)) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
 
-    // ── 更新 SQL 組み立て（BOの承認待ちにするだけのステータス更新。金額の再計算は不要） ──
+    // ── 事前バリデーション ──────────────────────────────────────────────────
+    const storeRow = fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, 'DISPUTED');
+    if (!storeRow) {
+      logInfo_('Invoice', 'withdrawStoreInvoice: 対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
+      return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
+    }
+
+    const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, wholesalerId);
+    if (!latestWi) {
+      logInfo_('Invoice', 'withdrawStoreInvoice: 最新 WI が見つかりませんでした parentInvoiceId=' + parentInvoiceId);
+      return error_('請求情報が見つかりませんでした。ページを再読み込みしてください。');
+    }
+
+    // ── トランザクション SQL 組み立て ───────────────────────────────────────
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
     const datasetId = config.bqDatasetId;
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
-    const invRef    = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
+    const wiRef     = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
 
     const sql = [
       'BEGIN TRANSACTION;',
       '',
+      '-- 1. store_invoices のステータスを WITHDRAWN に変更',
       'UPDATE ' + storeRef,
-      "SET backoffice_review_status = 'WITHDRAW_REQUESTED'",
+      "SET invoice_status = 'WITHDRAWN'",
       "WHERE id = '" + storeInvoiceId + "'",
-      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + wiRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
       '  AND is_latest = TRUE',
-      "  AND invoice_status = 'DISPUTED'",
-      // BE防御: FEで「請求取り下げ」ボタンが表示されるのは backoffice_review_status が
-      // RETURNED または MERCHANT_CONFIRMATION_REQUESTED のときのみ（PENDING_REVIEW＝再請求済み、
-      // WITHDRAW_REQUESTED＝取り下げ依頼中 の行はボタン非表示）。API直叩きでこれらの行まで
-      // WITHDRAW_REQUESTED に上書きできてしまわないよう、FEの表示条件と揃えて明示的に絞り込む。
-      "  AND backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED');",
+      "  AND invoice_status = 'DISPUTED';",
       '',
-      '-- @@row_count 検証: UPDATE が 0 行なら並行更新／状態変化後と判断しロールバック',
+      '-- @@row_count 検証: UPDATE が 0 行なら並行更新と判断しロールバック',
       'IF @@row_count = 0 THEN',
       '  ROLLBACK TRANSACTION;',
-      "  RAISE USING MESSAGE = '\u4ed6\u306e\u64cd\u4f5c\u3068\u7af6\u5408\u3057\u305f\u305f\u3081\u66f4\u65b0\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002';",
+      '  RAISE USING MESSAGE = \'他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。\';',
       'END IF;',
+      '',
+      '-- 2. wholesaler_invoices の新版を INSERT（金額 = 最新WI − 取下げstore）',
+      'INSERT INTO ' + wiRef,
+      '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+      '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+      '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+      '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+      '   wholesaler_non_taxable_amount,',
+      '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+      '   handover_matter, wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+      'SELECT',
+      '  GENERATE_UUID(),',
+      '  wi.wholesaler_user_id,',
+      '  wi.wholesaler_id,',
+      '  wi.wholesaler_invoice_date,',
+      '  wi.wholesaler_total_amount           - si.total_amount,',
+      '  wi.wholesaler_subtotal_amount        - si.subtotal_amount,',
+      '  wi.wholesaler_tax_amount             - si.tax_amount,',
+      '  wi.wholesaler_standard_tax_target_amount - si.standard_tax_target_amount,',
+      '  wi.wholesaler_standard_tax_amount    - si.standard_tax_amount,',
+      '  wi.wholesaler_reduced_tax_target_amount  - si.reduced_tax_target_amount,',
+      '  wi.wholesaler_reduced_tax_amount     - si.reduced_tax_amount,',
+      '  wi.wholesaler_non_taxable_amount     - si.non_taxable_amount,',
+      '  wi.wholesaler_fee_rate,',
+      '  CAST(FLOOR(',
+      '    (wi.wholesaler_total_amount - si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '  ) AS INT64),',
+      '  (wi.wholesaler_total_amount - si.total_amount)',
+      '    - CAST(FLOOR(',
+      '        (wi.wholesaler_total_amount - si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '      ) AS INT64),',
+      '  wi.handover_matter,',
+      "  '" + parentInvoiceId + "',",
+      '  wi.wholesaler_invoice_csv_url,',
+      '  CURRENT_TIMESTAMP()',
+      'FROM (',
+      '  SELECT *',
+      '  FROM ' + wiRef,
+      "  WHERE (id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      '    AND wholesaler_id = ' + Number(wholesalerId),
+      '  ORDER BY created_at DESC',
+      '  LIMIT 1',
+      ') AS wi',
+      'CROSS JOIN ' + storeRef + ' AS si',
+      "WHERE si.id = '" + storeInvoiceId + "'",
+      '  AND si.is_latest = TRUE;',
       '',
       'COMMIT;',
     ].join('\n');
@@ -1745,9 +1781,9 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
     try {
       runTransactionSql_(projectId, sql);
     } catch (txErr) {
-      // @@row_count = 0 による RAISE（並行更新／状態変化）は業務エラーとして error_() を返す
+      // @@row_count = 0 による RAISE（並行更新）は業務エラーとして error_() を返す
       if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
-        logInfo_('Invoice', 'withdrawStoreInvoice: 並行更新等により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
+        logInfo_('Invoice', 'withdrawStoreInvoice: 並行更新により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
         return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
       }
       throw txErr;
@@ -1761,47 +1797,27 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
       wholesalerName: accountInfo && accountInfo.wholesaler_name,
       parentInvoiceId: parentInvoiceId,
       storeInvoiceId: storeInvoiceId,
-      actionLabel: '請求取下げ依頼',
+      actionLabel: '請求取下げ',
     });
     throw err;
   }
 }
 
 /**
- * 取り下げ依頼を取り消す（backoffice_review_status を WITHDRAW_REQUESTED → MERCHANT_CONFIRMATION_REQUESTED に戻す）。
- * invoice_status（DISPUTED）は変更しない。依頼時に wholesaler_invoices を変更していないため、
- * 金額の再計算は不要。
- *
- * 戻し先に PENDING_REVIEW ではなく MERCHANT_CONFIRMATION_REQUESTED を採用する理由:
- *   取り下げ依頼前の元ステータス（RETURNED or MERCHANT_CONFIRMATION_REQUESTED）は
- *   withdrawStoreInvoice() が単純UPDATEで上書きするため復元できない。しかし
- *   RETURNED+DISPUTED と MERCHANT_CONFIRMATION_REQUESTED+DISPUTED は画面表示上
- *   （ステータスバッジ「否認差戻」・詳細画面の3ボタンエリア）で区別されないため、
- *   どちらに戻しても表示上は同じになる。RETURNED に戻すと TOP画面の has_resubmit
- *   （差戻しあり）フラグを誤って立てる可能性があるため、影響のない
- *   MERCHANT_CONFIRMATION_REQUESTED を選択する。
- *   PENDING_REVIEW（変更なしで再請求時の遷移先）に戻すと「再請求済み」バッジ・
- *   ステータス「未検収」表示になってしまい、何も再請求していないのに
- *   再請求済みに見えてしまうため誤り（本関数のバグとして発覚・修正済み）。
- * 異議申立期間（OBJECTION_PERIOD）終了後は取り消し不可（以降は自動承認バッチ〈本リポジトリ外〉が処理する）。
- *
- * 事前バリデーション（対象行・最新WI・異議申立期間）の後、UPDATE は BEGIN TRANSACTION 〜
- * COMMIT で包み、@@row_count = 0（事前バリデーションから UPDATE までの間の並行更新で
- * 対象行が0件になった場合）を検知して RAISE + ROLLBACK する。これが無いと、対象0件でも
- * BQ 上はエラーにならず成功扱いとなり、画面上は成功トーストが出るのに実際は何も更新されない
- * 不整合が起こり得るため（コードレビュー指摘により追加）。
+ * 取下げを取り消す（invoice_status を WITHDRAWN → DISPUTED に戻す）。
+ * wholesaler_invoices の金額を再計算した新版を INSERT する（戻す store 分を加算）。
  *
  * @param {string} storeInvoiceId  - 対象 store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
-function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, sessionToken) {
+function undoWithdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   try {
     accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'cancelWithdrawRequest 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
+    logInfo_('Invoice', 'undoWithdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
     const wholesalerId = accountInfo.wholesaler_id;
 
     if (!storeInvoiceId)  throw new Error('対象の加盟店請求情報の取得に失敗しました。ページを再読み込みしてください。');
@@ -1812,77 +1828,123 @@ function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, sessionToken) {
     if (!UUID_RE.test(parentInvoiceId)) throw new Error('請求情報の取得に失敗しました。ページを再読み込みしてください。');
 
     // ── 事前バリデーション ──────────────────────────────────────────────────
-    const storeRow = fetchStoreInvoiceForCancelWithdrawRequest_(storeInvoiceId, parentInvoiceId, wholesalerId);
+    const storeRow = fetchStoreInvoiceForWithdraw_(storeInvoiceId, parentInvoiceId, wholesalerId, 'WITHDRAWN');
     if (!storeRow) {
-      logInfo_('Invoice', 'cancelWithdrawRequest: 対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
+      logInfo_('Invoice', 'undoWithdrawStoreInvoice: 対象が見つかりませんでした storeInvoiceId=' + storeInvoiceId);
       return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
     }
 
     const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, wholesalerId);
     if (!latestWi) {
-      logInfo_('Invoice', 'cancelWithdrawRequest: 最新 WI が見つかりませんでした parentInvoiceId=' + parentInvoiceId);
+      logInfo_('Invoice', 'undoWithdrawStoreInvoice: 最新 WI が見つかりませんでした parentInvoiceId=' + parentInvoiceId);
       return error_('請求情報が見つかりませんでした。ページを再読み込みしてください。');
     }
 
-    // ── OBJECTION_PERIOD チェック: 期限切れ後は自動承認バッチ（本リポジトリ外）が処理するため取り消し不可 ──
+    // ── OBJECTION_PERIOD チェック ──────────────────────────────────────────
     const periodRow = fetchObjectionPeriodEndDate_(wholesalerId, latestWi.wholesaler_invoice_date);
     if (periodRow && periodRow.end_at) {
       const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
       if (String(periodRow.end_at) < today) {
-        logInfo_('Invoice', 'cancelWithdrawRequest: 異議申立期間終了 end_at=' + periodRow.end_at + ', today=' + today);
-        return error_('異議申立期間が終了しているため、取り下げ依頼の取り消しはできません。');
+        logInfo_('Invoice', 'undoWithdrawStoreInvoice: 異議申立期間終了 end_at=' + periodRow.end_at + ', today=' + today);
+        return error_('異議申立期間が終了しているため、取下げの取り消しはできません。');
       }
     }
 
-    // ── 更新 SQL 組み立て（ステータスを戻すだけ。金額の再計算は不要） ──────────
+    // ── トランザクション SQL 組み立て ───────────────────────────────────────
     const config    = getConfig_();
     const projectId = config.gcpProjectId;
     const datasetId = config.bqDatasetId;
     const storeRef  = '`' + projectId + '.' + datasetId + '.store_invoices`';
-    const invRef    = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
+    const wiRef     = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
 
     const sql = [
       'BEGIN TRANSACTION;',
       '',
+      '-- 1. store_invoices のステータスを DISPUTED に戻す',
       'UPDATE ' + storeRef,
-      "SET backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
+      "SET invoice_status = 'DISPUTED'",
       "WHERE id = '" + storeInvoiceId + "'",
-      "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      "  AND wholesaler_invoice_id IN (SELECT id FROM " + wiRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
       '  AND is_latest = TRUE',
-      "  AND backoffice_review_status = 'WITHDRAW_REQUESTED'",
-      "  AND invoice_status = 'DISPUTED';",
+      "  AND invoice_status = 'WITHDRAWN';",
       '',
-      '-- @@row_count 検証: UPDATE が 0 行なら並行更新／事前バリデーション後の状態変化と判断しロールバック',
+      '-- @@row_count 検証: UPDATE が 0 行なら並行更新と判断しロールバック',
       'IF @@row_count = 0 THEN',
       '  ROLLBACK TRANSACTION;',
-      "  RAISE USING MESSAGE = '\u4ed6\u306e\u64cd\u4f5c\u3068\u7af6\u5408\u3057\u305f\u305f\u3081\u66f4\u65b0\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u518d\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002';",
+      '  RAISE USING MESSAGE = \'他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。\';',
       'END IF;',
+      '',
+      '-- 2. wholesaler_invoices の新版を INSERT（金額 = 最新WI + 戻すstore）',
+      'INSERT INTO ' + wiRef,
+      '  (id, wholesaler_user_id, wholesaler_id, wholesaler_invoice_date,',
+      '   wholesaler_total_amount, wholesaler_subtotal_amount, wholesaler_tax_amount,',
+      '   wholesaler_standard_tax_target_amount, wholesaler_standard_tax_amount,',
+      '   wholesaler_reduced_tax_target_amount, wholesaler_reduced_tax_amount,',
+      '   wholesaler_non_taxable_amount,',
+      '   wholesaler_fee_rate, invoice_fee_amount, payment_amount,',
+      '   handover_matter, wholesaler_invoice_id, wholesaler_invoice_csv_url, created_at)',
+      'SELECT',
+      '  GENERATE_UUID(),',
+      '  wi.wholesaler_user_id,',
+      '  wi.wholesaler_id,',
+      '  wi.wholesaler_invoice_date,',
+      '  wi.wholesaler_total_amount           + si.total_amount,',
+      '  wi.wholesaler_subtotal_amount        + si.subtotal_amount,',
+      '  wi.wholesaler_tax_amount             + si.tax_amount,',
+      '  wi.wholesaler_standard_tax_target_amount + si.standard_tax_target_amount,',
+      '  wi.wholesaler_standard_tax_amount    + si.standard_tax_amount,',
+      '  wi.wholesaler_reduced_tax_target_amount  + si.reduced_tax_target_amount,',
+      '  wi.wholesaler_reduced_tax_amount     + si.reduced_tax_amount,',
+      '  wi.wholesaler_non_taxable_amount     + si.non_taxable_amount,',
+      '  wi.wholesaler_fee_rate,',
+      '  CAST(FLOOR(',
+      '    (wi.wholesaler_total_amount + si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '  ) AS INT64),',
+      '  (wi.wholesaler_total_amount + si.total_amount)',
+      '    - CAST(FLOOR(',
+      '        (wi.wholesaler_total_amount + si.total_amount) * wi.wholesaler_fee_rate / 100',
+      '      ) AS INT64),',
+      '  wi.handover_matter,',
+      "  '" + parentInvoiceId + "',",
+      '  wi.wholesaler_invoice_csv_url,',
+      '  CURRENT_TIMESTAMP()',
+      'FROM (',
+      '  SELECT *',
+      '  FROM ' + wiRef,
+      "  WHERE (id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
+      '    AND wholesaler_id = ' + Number(wholesalerId),
+      '  ORDER BY created_at DESC',
+      '  LIMIT 1',
+      ') AS wi',
+      'CROSS JOIN ' + storeRef + ' AS si',
+      "WHERE si.id = '" + storeInvoiceId + "'",
+      '  AND si.is_latest = TRUE;',
       '',
       'COMMIT;',
     ].join('\n');
 
-    Logger.log('[BQ] cancelWithdrawRequest SQL:\n' + sql);
+    Logger.log('[BQ] undoWithdrawStoreInvoice SQL:\n' + sql);
     try {
       runTransactionSql_(projectId, sql);
     } catch (txErr) {
-      // @@row_count = 0 による RAISE（並行更新／事前バリデーション後の状態変化）は業務エラーとして error_() を返す
+      // @@row_count = 0 による RAISE（並行更新）は業務エラーとして error_() を返す
       if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
-        logInfo_('Invoice', 'cancelWithdrawRequest: 並行更新等により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
+        logInfo_('Invoice', 'undoWithdrawStoreInvoice: 並行更新により UPDATE 0行 storeInvoiceId=' + storeInvoiceId);
         return error_('対象の請求が見つからないか、既にステータスが変更されています。ページを再読み込みしてください。');
       }
       throw txErr;
     }
 
-    logInfo_('Invoice', 'cancelWithdrawRequest 完了: storeInvoiceId=' + storeInvoiceId);
+    logInfo_('Invoice', 'undoWithdrawStoreInvoice 完了: storeInvoiceId=' + storeInvoiceId);
     return success_({ store_invoice_id: storeInvoiceId });
   } catch (err) {
-    logError_('Invoice', 'cancelWithdrawRequest', err, {
+    logError_('Invoice', 'undoWithdrawStoreInvoice', err, {
       wholesalerId: accountInfo && accountInfo.wholesaler_id,
       wholesalerName: accountInfo && accountInfo.wholesaler_name,
       parentInvoiceId: parentInvoiceId,
       storeInvoiceId: storeInvoiceId,
-      actionLabel: '取り下げ依頼の取消',
+      actionLabel: '請求取下げの取消',
     });
     throw err;
   }
