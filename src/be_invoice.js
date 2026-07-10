@@ -1283,7 +1283,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     const managedNameByCustomer = {};
     const disputedReasonByCustomer = {}; // customer_code → 旧レコードの否認理由（再請求後も表示を維持するため引き継ぐ）
     const invoiceStatusByCustomer = {}; // customer_code → 旧レコードの加盟店ステータス（否認 DISPUTED の場合のみ新レコードへ引き継ぐ）
-    const invoiceNumberByCustomer = {}; // customer_code → { number: 枝番+1済みの新請求書番号, id: 引き継ぐ invoice_number_id }（未採番なら未設定 → NULL 登録）
+    const rawInvoiceNumberByCustomer = {}; // customer_code → { number: 旧レコードの請求書番号(生値), id: invoice_number_id }。採番（枝番+1）は再請求対象に確定した後に行う
     const endMallCodeSet = {}; // mall_code → true（取引終了店舗）
     const withdrawRequestedMallCodeSet = {}; // mall_code → true（取り下げ依頼中店舗）
     storeRows.forEach(function (s) {
@@ -1292,8 +1292,8 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
         managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
         disputedReasonByCustomer[String(s.customer_code)] = s.store_disputed_reason || '';
         invoiceStatusByCustomer[String(s.customer_code)] = (s.invoice_status === 'DISPUTED') ? 'DISPUTED' : '';
-        invoiceNumberByCustomer[String(s.customer_code)] = {
-          number: buildNextInvoiceNumber_(s.invoice_number) || '',
+        rawInvoiceNumberByCustomer[String(s.customer_code)] = {
+          number: s.invoice_number || '',
           id: s.invoice_number_id || '',
         };
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
@@ -1331,6 +1331,18 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     // 既存DBの加盟店名を継承（フロント送信値に依存しない）
     summaryData.merchantTotals.forEach(function (m) {
       m.managedStoreName = managedNameByCustomer[String(m.customerCode)] || '';
+    });
+
+    // 請求書番号の採番（枝番+1）は、フィルタ確定後の再請求対象店舗のみに対して行う。
+    // 対象外（要対応でない / end 店舗 / 取り下げ依頼中）の旧レコードに枝番上限(99)が
+    // 混ざっていても、無関係な例外で一括再請求全体が落ちないようにするため。
+    const invoiceNumberByCustomer = {}; // customer_code → { number: 枝番+1済みの新請求書番号, id: 引き継ぐ invoice_number_id }（未採番なら未設定 → NULL 登録）
+    summaryData.merchantTotals.forEach(function (m) {
+      const raw = rawInvoiceNumberByCustomer[String(m.customerCode)] || {};
+      invoiceNumberByCustomer[String(m.customerCode)] = {
+        number: buildNextInvoiceNumber_(raw.number) || '',
+        id: raw.id || '',
+      };
     });
 
     // ── BE防御: 否認(DISPUTED)店舗は handover（加盟店との合意内容）必須 ──

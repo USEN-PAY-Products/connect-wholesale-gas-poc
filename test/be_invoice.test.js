@@ -1336,3 +1336,50 @@ test('resubmitInvoiceData: 旧レコードの請求書番号の枝番+1とinvoic
   );
 });
 
+test('bulkResubmitInvoiceData: 再請求対象外の店舗に枝番上限(99)の旧レコードが混ざっていても一括再請求は成功する（対象店舗のみ採番する）', () => {
+  const storeRows = [
+    // 再請求対象: CUST001（要対応・枝番01）
+    makeStoreRow('CUST001', 'MALL-C001', 'SI-C001-OLD', {
+      invoice_number: '1000000001-01',
+      invoice_number_id: 'inv-num-id-0001',
+    }),
+    // 対象外: CUST009 は取引終了(end)店舗で、旧レコードの枝番が上限(99)
+    makeStoreRow('CUST009', 'MALL-C009', 'SI-C009-OLD', {
+      store_status: 'end',
+      invoice_number: '9000000009-99',
+      invoice_number_id: 'inv-num-id-0009',
+    }),
+  ];
+  const actionRequiredRows = [
+    { mall_code: 'MALL-C001', invoice_status: '' },
+    { mall_code: 'MALL-C009', invoice_status: '' }, // 要対応だが end 店舗のため再請求対象外
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows, actionRequiredRows: actionRequiredRows });
+
+  // CSVには対象のCUST001のみ含める
+  const csvText = buildCsvText(['CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,']);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 1100 },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  const result = sandbox.bulkResubmitInvoiceData(
+    'dummy-raw-csv-base64',
+    csvText,
+    'test.csv',
+    summaryData,
+    {},
+    PARENT_INVOICE_ID,
+    {},
+    'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success', '対象外店舗の枝番99は採番対象にならず、一括再請求全体は成功すること');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1);
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("'1000000001-02'"), '対象店舗（CUST001）の枝番+1済み請求書番号がSQLに含まれること');
+  assert.ok(!sql.includes('9000000009'), '対象外店舗（CUST009）の請求書番号はSQLに含まれないこと');
+});
+
