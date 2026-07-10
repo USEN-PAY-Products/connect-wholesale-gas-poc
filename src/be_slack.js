@@ -224,7 +224,9 @@ const SLACK_FIELD_VALUE_MAX_LENGTH_ = 1800;
 const SLACK_SECTION_TEXT_MAX_LENGTH_ = 2900;
 
 /**
- * 文字列を指定の最大長で切り詰める（末尾は '...' で示す）。null/undefined は '-' を返す。
+ * 文字列を指定の最大長で切り詰める（末尾は '...' で示す）。
+ * null/undefined に加えて空文字（''）も '-' にフォールバックする（Slack fields上で
+ * 値なしの項目が空欄になるより、明示的に '-' と表示したほうが判別しやすいため）。
  * maxLength が 3 以下の場合、maxLength - 3 が負値になり slice(0, 負値) が末尾から
  * 数える指定として解釈されてしまい意図しない文字数になる、かつ '...' の3文字を
  * 付加した結果が maxLength を超えてしまう（呼び出し元が期待する上限を破り、将来
