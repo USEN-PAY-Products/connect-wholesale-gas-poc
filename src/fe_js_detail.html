@@ -358,11 +358,11 @@ function renderDetailStoreList_(stores) {
   const returned  = stores.filter(function (s) {
     return s.backoffice_review_status === 'RETURNED' && s.invoice_status !== 'DISPUTED' && s.invoice_status !== 'WITHDRAWN' && s.invoice_status !== 'APPROVED';
   });
-  // 否認: (MCR/RETURNED/PENDING_REVIEW/WITHDRAW_REQUESTED + DISPUTED) ※WITHDRAWN は除外
+  // 否認: (MCR/RETURNED/WITHDRAW_REQUESTED + DISPUTED) ※WITHDRAWN は除外
+  // ※ PENDING_REVIEW + DISPUTED（再請求済み）は要対応ではなく「確認中・承認済み」に表示する
   const disputed  = stores.filter(function (s) {
     return (s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') ||
            (s.backoffice_review_status === 'RETURNED' && s.invoice_status === 'DISPUTED') ||
-           (s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED') ||
            (s.backoffice_review_status === 'WITHDRAW_REQUESTED' && s.invoice_status === 'DISPUTED');
   });
   // 取下げ済: WITHDRAWN
@@ -370,12 +370,12 @@ function renderDetailStoreList_(stores) {
     return s.invoice_status === 'WITHDRAWN';
   });
   // 確認中・承認済み: invoice_status が APPROVED の場合は BO ステータスに関係なくここに入る。それ以外は上記以外すべて。
+  // ※ PENDING_REVIEW + DISPUTED（再請求済み）もここに含まれる
   const normal    = stores.filter(function (s) {
     if (s.invoice_status === 'APPROVED') return true;
     return s.invoice_status !== 'WITHDRAWN' &&
       !(s.backoffice_review_status === 'RETURNED') &&
       !(s.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && s.invoice_status === 'DISPUTED') &&
-      !(s.backoffice_review_status === 'PENDING_REVIEW' && s.invoice_status === 'DISPUTED') &&
       !(s.backoffice_review_status === 'WITHDRAW_REQUESTED' && s.invoice_status === 'DISPUTED');
   });
 
@@ -512,7 +512,6 @@ function buildDetailAccordion_(store, openByDefault) {
   const isWithdrawRequested = store.backoffice_review_status === 'WITHDRAW_REQUESTED' && store.invoice_status === 'DISPUTED';
   const isDisputed = !isWithdrawn &&
                      ((store.backoffice_review_status === 'MERCHANT_CONFIRMATION_REQUESTED' && store.invoice_status === 'DISPUTED') ||
-                     (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED') ||
                      (store.backoffice_review_status === 'RETURNED' && store.invoice_status === 'DISPUTED') ||
                      isWithdrawRequested);
 
@@ -602,7 +601,7 @@ function buildDetailAccordion_(store, openByDefault) {
           )
         )
       : (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
-          ? '<span class="btn detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>'
+          ? '<span class="btn detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>' // NOTE: 現在 isDisputed に PENDING_REVIEW+DISPUTED は含まれないため到達しない（防御的に残置）
           : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
               '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
               '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 変更なしで再請求</button>'
