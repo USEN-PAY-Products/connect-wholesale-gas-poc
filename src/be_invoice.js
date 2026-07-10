@@ -569,7 +569,7 @@ function recalcWholesalerTotal_(merchantTotals) {
 function buildNextInvoiceNumber_(oldInvoiceNumber) {
   const s = String(oldInvoiceNumber || '').trim();
   if (!s) return null;
-  const m = s.match(/^(\d+)-(\d+)$/);
+  const m = s.match(/^(\d{10})-(\d{2})$/);
   if (!m) {
     Logger.log('[Invoice] buildNextInvoiceNumber_: 想定外の請求書番号フォーマットのため引き継ぎをスキップ: ' + s);
     return null;
@@ -579,7 +579,7 @@ function buildNextInvoiceNumber_(oldInvoiceNumber) {
     logError_('Invoice', '[buildNextInvoiceNumber_] 枝番が上限(99)に達しています: ' + s);
     throw new Error('請求書番号の枝番が上限に達しているため、再請求できません。サポートにお問い合わせください。');
   }
-  return m[1] + '-' + String(branch + 1).padStart(m[2].length, '0');
+  return m[1] + '-' + String(branch + 1).padStart(2, '0');
 }
 
 /**
@@ -673,7 +673,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
-      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ', ' + invoiceStatusSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ', ' + invoiceStatusSql + ', ' + invoiceNumberSql + ', ' + invoiceNumberIdSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
