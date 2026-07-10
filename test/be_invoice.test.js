@@ -1186,16 +1186,32 @@ test('buildResubmitTransactionSql_: 未採番（newInvoiceNumber/invoiceNumberId
   );
 });
 
-test('buildResubmitTransactionSql_: 番号とIDのどちらか一方が欠けている場合はinvoice_numbersのUPDATE文を生成しない', () => {
+test('buildResubmitTransactionSql_: 番号とIDのどちらか一方が欠けている場合は両方NULLで登録し、invoice_numbersのUPDATE文も生成しない', () => {
   const sandbox = createSandbox();
 
   const sqlNumberOnly = buildResubmitSqlWithInvoiceNumber(sandbox, '1000000001-02', null);
+  assert.ok(
+    sqlNumberOnly.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    '番号のみ（IDなし）では両方NULLで登録されること（片方だけ入った不整合レコードを作らない）'
+  );
+  assert.ok(
+    !sqlNumberOnly.includes("'1000000001-02'"),
+    '番号のみ（IDなし）では番号がSQLに含まれないこと'
+  );
   assert.ok(
     !sqlNumberOnly.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
     '番号のみ（IDなし）ではUPDATE文を生成しないこと'
   );
 
   const sqlIdOnly = buildResubmitSqlWithInvoiceNumber(sandbox, null, 'inv-num-id-0001');
+  assert.ok(
+    sqlIdOnly.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    'IDのみ（番号なし）では両方NULLで登録されること'
+  );
+  assert.ok(
+    !sqlIdOnly.includes("'inv-num-id-0001'"),
+    'IDのみ（番号なし）ではIDがSQLに含まれないこと'
+  );
   assert.ok(
     !sqlIdOnly.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
     'IDのみ（番号なし）ではUPDATE文を生成しないこと'
@@ -1226,10 +1242,10 @@ test('buildBulkResubmitTransactionSql_: 加盟店ごとのinvoice_number/invoice
     wholesaler_non_taxable_amount: 0,
   };
   const oldStoreAmounts = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 };
-  // CUST001は採番済み（番号+ID）、CUST003は未採番
+  // CUST001は採番済み（番号+ID）、CUST003は片方欠落（IDのみ。不整合データ想定）
   const invoiceNumbers = {
     CUST001: { number: '1000000001-02', id: 'inv-num-id-0001' },
-    CUST003: { number: '', id: '' },
+    CUST003: { number: '', id: 'inv-num-id-0003' },
   };
 
   const sql = sandbox.buildBulkResubmitTransactionSql_(
@@ -1260,7 +1276,11 @@ test('buildBulkResubmitTransactionSql_: 加盟店ごとのinvoice_number/invoice
   );
   assert.ok(
     sql.includes("NULL, NULL, NULL, 'PENDING_REVIEW', TRUE,"),
-    'CUST003（未採番）のVALUESはNULLになること'
+    'CUST003（片方欠落）のVALUESは両方NULLになること（片方だけ入った不整合レコードを作らない）'
+  );
+  assert.ok(
+    !sql.includes("'inv-num-id-0003'"),
+    'CUST003の片方だけのID（inv-num-id-0003）はSQLに含まれないこと'
   );
 
   const updateMatches = sql.match(/UPDATE `test-project\.test_dataset\.invoice_numbers`/g) || [];

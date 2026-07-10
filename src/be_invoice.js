@@ -655,9 +655,11 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     : 'NULL';
   // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
   const invoiceStatusSql = storeInvoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
-  // 再請求時は旧番号の枝番を +1 した請求書番号を登録し、invoice_number_id も引き継ぐ（未採番なら NULL）
-  const invoiceNumberSql   = newInvoiceNumber ? "'" + esc(newInvoiceNumber) + "'" : 'NULL';
-  const invoiceNumberIdSql = invoiceNumberId ? "'" + esc(invoiceNumberId) + "'" : 'NULL';
+  // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+  // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
+  const hasInvoiceNumberPair = !!(newInvoiceNumber && invoiceNumberId);
+  const invoiceNumberSql   = hasInvoiceNumberPair ? "'" + esc(newInvoiceNumber) + "'" : 'NULL';
+  const invoiceNumberIdSql = hasInvoiceNumberPair ? "'" + esc(invoiceNumberId) + "'" : 'NULL';
 
   const childUuids = [];
   const childValues = summaryData.merchantTotals.map((m) => {
@@ -1076,10 +1078,12 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
     const invoiceStatus = (invoiceStatuses || {})[String(m.customerCode)] || '';
     const invoiceStatusSql = invoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
-    // 再請求時は旧番号の枝番を +1 した請求書番号を登録し、invoice_number_id も引き継ぐ（未採番なら NULL）
+    // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+    // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
     const invNum = (invoiceNumbers || {})[String(m.customerCode)] || {};
-    const invoiceNumberSql   = invNum.number ? "'" + esc(invNum.number) + "'" : 'NULL';
-    const invoiceNumberIdSql = invNum.id ? "'" + esc(invNum.id) + "'" : 'NULL';
+    const hasInvNumPair = !!(invNum.number && invNum.id);
+    const invoiceNumberSql   = hasInvNumPair ? "'" + esc(invNum.number) + "'" : 'NULL';
+    const invoiceNumberIdSql = hasInvNumPair ? "'" + esc(invNum.id) + "'" : 'NULL';
     const managedNameSql = m.managedStoreName ? "'" + esc(m.managedStoreName) + "'" : 'NULL';
     return (
       "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +

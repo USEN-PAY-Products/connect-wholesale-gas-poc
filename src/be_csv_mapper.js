@@ -1023,9 +1023,11 @@ function buildMappedResubmitTransactionSql_(params) {
   const disputedReasonSql = storeDisputedReason ? "'" + escSql_(storeDisputedReason) + "'" : 'NULL';
   // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
   const invoiceStatusSql = storeInvoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
-  // 再請求時は旧番号の枝番を +1 した請求書番号を登録し、invoice_number_id も引き継ぐ（未採番なら NULL）
-  const invoiceNumberSql   = newInvoiceNumber ? "'" + escSql_(newInvoiceNumber) + "'" : 'NULL';
-  const invoiceNumberIdSql = invoiceNumberId ? "'" + escSql_(invoiceNumberId) + "'" : 'NULL';
+  // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+  // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
+  const hasInvoiceNumberPair = !!(newInvoiceNumber && invoiceNumberId);
+  const invoiceNumberSql   = hasInvoiceNumberPair ? "'" + escSql_(newInvoiceNumber) + "'" : 'NULL';
+  const invoiceNumberIdSql = hasInvoiceNumberPair ? "'" + escSql_(invoiceNumberId) + "'" : 'NULL';
 
   // store_invoices VALUES
   const childUuids = [];
@@ -1238,10 +1240,12 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
     const invoiceStatus = _invoiceStatuses[String(m.customerCode)] || '';
     const invoiceStatusSql = invoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
-    // 再請求時は旧番号の枝番を +1 した請求書番号を登録し、invoice_number_id も引き継ぐ（未採番なら NULL）
+    // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+    // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
     const invNum = _invoiceNumbers[String(m.customerCode)] || {};
-    const invoiceNumberSql   = invNum.number ? "'" + escSql_(invNum.number) + "'" : 'NULL';
-    const invoiceNumberIdSql = invNum.id ? "'" + escSql_(invNum.id) + "'" : 'NULL';
+    const hasInvNumPair = !!(invNum.number && invNum.id);
+    const invoiceNumberSql   = hasInvNumPair ? "'" + escSql_(invNum.number) + "'" : 'NULL';
+    const invoiceNumberIdSql = hasInvNumPair ? "'" + escSql_(invNum.id) + "'" : 'NULL';
     const managedNameSql = m.managedStoreName ? "'" + escSql_(m.managedStoreName) + "'" : 'NULL';
     return (
       "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +

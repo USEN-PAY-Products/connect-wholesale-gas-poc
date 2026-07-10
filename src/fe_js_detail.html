@@ -600,12 +600,9 @@ function buildDetailAccordion_(store, openByDefault) {
               '</button>'
           )
         )
-      : (store.backoffice_review_status === 'PENDING_REVIEW' && store.invoice_status === 'DISPUTED'
-          ? '<span class="btn detail-action-badge detail-action-badge--resubmitted"><i class="fa-solid fa-check"></i> 再請求済み</span>' // NOTE: 現在 isDisputed に PENDING_REVIEW+DISPUTED は含まれないため到達しない（防御的に残置）
-          : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
-              '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
-              '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 変更なしで再請求</button>'
-        )
+      : '<button type="button" class="btn btn-outline btn-sm detail-action-btn detail-action-btn--withdraw" data-action="withdraw" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="reupload" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-upload detail-action-btn__icon--primary"></i> 修正ファイルをアップ</button>' +
+          '<button type="button" class="btn btn-outline btn-sm detail-action-btn" data-action="resubmit" data-id="' + escapeHtml(store.store_invoice_id) + '"><i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 変更なしで再請求</button>'
     ) +
       '</div>';
     body.appendChild(disputedRow);
