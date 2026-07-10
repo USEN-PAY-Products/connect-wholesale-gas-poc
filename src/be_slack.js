@@ -225,6 +225,11 @@ const SLACK_SECTION_TEXT_MAX_LENGTH_ = 2900;
 
 /**
  * 文字列を指定の最大長で切り詰める（末尾は '...' で示す）。null/undefined は '-' を返す。
+ * maxLength が 3 以下の場合、maxLength - 3 が負値になり slice(0, 負値) が末尾から
+ * 数える指定として解釈されてしまい意図しない文字数になる、かつ '...' の3文字を
+ * 付加した結果が maxLength を超えてしまう（呼び出し元が期待する上限を破り、将来
+ * 別の小さい上限値で本関数を再利用した際に Slack の文字数制限超過による送信失敗を
+ * 誘発しかねない）ため、'...' を付けずに maxLength 文字で単純に切り詰める。
  * @param {*} value
  * @param {number} maxLength
  * @returns {string}
@@ -234,6 +239,7 @@ function truncateSlackText_(value, maxLength) {
   const text = String(value);
   if (text === '') return '-';
   if (text.length <= maxLength) return text;
+  if (maxLength <= 3) return text.slice(0, maxLength);
   return text.slice(0, maxLength - 3) + '...';
 }
 
@@ -265,7 +271,9 @@ function buildSlackCodeBlockText_(label, escapedValue) {
   const suffix = '```';
   const maxBodyLength = SLACK_SECTION_TEXT_MAX_LENGTH_ - prefix.length - suffix.length;
   // コードブロック内で ``` がそのまま含まれるとブロックが崩れるため無害化する。
-  const safeBody = String(escapedValue || '').replace(/```/g, "''' ");
+  // escapedValue || '' だと 0 のような falsy だが有効な値まで空文字扱いになり
+  // 情報が欠落するため、null/undefined のみを空文字扱いにする ?? を使う。
+  const safeBody = String(escapedValue ?? '').replace(/```/g, "''' ");
   return prefix + truncateSlackText_(safeBody, maxBodyLength) + suffix;
 }
 
@@ -364,7 +372,7 @@ function buildSlackBlocks_(tag, message, err, context) {
 
   const fields = [
     slackField_('対象卸', who),
-    slackField_('発生日時', now + ' (env=' + env + ')'),
+    slackField_('発生日時', now + ' (env=' + escapeSlackText_(env) + ')'),
     slackField_('操作', what),
     slackField_('発生箇所', String(tag || '不明') + ' / ' + safeMessage),
   ];
