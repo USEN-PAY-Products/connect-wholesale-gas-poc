@@ -214,13 +214,77 @@ function buildGasExecutionsUrl_() {
 /** context から実装済みの具体的IDを抽出する対象キー一覧。 */
 const SLACK_CONTEXT_ID_KEYS_ = ['invoiceUuid', 'stagingId', 'storeInvoiceId', 'parentInvoiceId'];
 
+// BackOffice(BO)システム（docs/plan/slack.md 相当、src/be_notice_slack.js）と
+// 通知フォーマットを揃えるための切り詰め長。値は BO 側の実装（SlackNotifier）に合わせる。
+/** header ブロック（plain_text）の最大文字数。 */
+const SLACK_HEADER_TEXT_MAX_LENGTH_ = 150;
+/** fields 内の1値あたりの最大文字数。 */
+const SLACK_FIELD_VALUE_MAX_LENGTH_ = 1800;
+/** section（コードブロック込み）の最大文字数。Slack の1ブロックあたりの上限（3000文字）に対する余裕を見た値。 */
+const SLACK_SECTION_TEXT_MAX_LENGTH_ = 2900;
+
+/**
+ * 文字列を指定の最大長で切り詰める（末尾は '...' で示す）。
+ * null/undefined に加えて空文字（''）も '-' にフォールバックする（Slack fields上で
+ * 値なしの項目が空欄になるより、明示的に '-' と表示したほうが判別しやすいため）。
+ * maxLength が 3 以下の場合、maxLength - 3 が負値になり slice(0, 負値) が末尾から
+ * 数える指定として解釈されてしまい意図しない文字数になる、かつ '...' の3文字を
+ * 付加した結果が maxLength を超えてしまう（呼び出し元が期待する上限を破り、将来
+ * 別の小さい上限値で本関数を再利用した際に Slack の文字数制限超過による送信失敗を
+ * 誘発しかねない）ため、'...' を付けずに maxLength 文字で単純に切り詰める。
+ * @param {*} value
+ * @param {number} maxLength
+ * @returns {string}
+ */
+function truncateSlackText_(value, maxLength) {
+  if (value === null || value === undefined) return '-';
+  const text = String(value);
+  if (text === '') return '-';
+  if (text.length <= maxLength) return text;
+  if (maxLength <= 3) return text.slice(0, maxLength);
+  return text.slice(0, maxLength - 3) + '...';
+}
+
+/**
+ * Slack Block Kit の fields 用オブジェクト（"*label:*\n value" 形式）を組み立てる。
+ * 値は escapeSlackText_() でエスケープ済みであることを前提とする（呼び出し元で
+ * エスケープ済みの生値を渡すこと。ここでは長さの切り詰めのみ行う）。
+ * @param {string} label
+ * @param {string} escapedValue
+ * @returns {{ type: 'mrkdwn', text: string }}
+ */
+function slackField_(label, escapedValue) {
+  return {
+    type: 'mrkdwn',
+    text: '*' + label + ':*\n' + truncateSlackText_(escapedValue, SLACK_FIELD_VALUE_MAX_LENGTH_),
+  };
+}
+
+/**
+ * ラベル付きコードブロック（"*label:*\n```内容```"）の mrkdwn テキストを組み立てる。
+ * 内容は SLACK_SECTION_TEXT_MAX_LENGTH_ からラベル・コードブロック記号分を差し引いた
+ * 長さで切り詰める（Slack の1ブロックあたりの上限超過による送信失敗を防ぐため）。
+ * @param {string} label
+ * @param {string} escapedValue - escapeSlackText_() 済みの値
+ * @returns {string}
+ */
+function buildSlackCodeBlockText_(label, escapedValue) {
+  const prefix = '*' + label + ':*\n```';
+  const suffix = '```';
+  const maxBodyLength = SLACK_SECTION_TEXT_MAX_LENGTH_ - prefix.length - suffix.length;
+  // コードブロック内で ``` がそのまま含まれるとブロックが崩れるため無害化する。
+  // escapedValue || '' だと 0 のような falsy だが有効な値まで空文字扱いになり
+  // 情報が欠落するため、null/undefined のみを空文字扱いにする ?? を使う。
+  const safeBody = String(escapedValue ?? '').replace(/```/g, "''' ");
+  return prefix + truncateSlackText_(safeBody, maxBodyLength) + suffix;
+}
+
 /**
  * Slack 通知本文（Block Kit 形式）を組み立てる。
- * 表示ラベルはすべて日本語。5W1H（いつ・どこで・誰が・何を・なぜ・どう対応するか）は
- * 設計ドキュメント内の情報整理軸として使うのみで、本文側は絵文字の羅列や罫線・
- * 全角記号による装飾を避け、"ラベル: 値" の短い行を並べるだけの簡潔な体裁にする
- * （1行ごとに絵文字を置く・罫線で囲む・見出し＋箇条書きで手順書のように書く、
- * といった体裁は記号の情報量が多すぎて逆に読みにくくなるため採用しない）。
+ * BackOffice(BO)システム（src/be_notice_slack.js の SlackNotifier）と体裁を揃え、
+ * header ブロック（タイトル）＋ fields（対象卸・発生日時・操作等を2カラムで表示）＋
+ * divider＋コードブロック（エラー内容／スタックトレース）＋ヒント・調査リンクの
+ * 構成にする。表示ラベルはすべて日本語。
  *
  * ctx.wholesalerId / ctx.wholesalerName は、be_invoice.js 等の BE 呼び出し元から
  * BigQuery 由来の accountInfo.wholesaler_name がそのまま渡ってくる経路と、
@@ -250,12 +314,12 @@ function buildSlackBlocks_(tag, message, err, context) {
   const env = props.getProperty('ENV') || '不明';
   const gcpProjectId = props.getProperty('GCP_PROJECT_ID') || '';
 
-  const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss') + ' (JST)';
 
   const whoParts = [];
-  if (ctx.wholesalerId)   whoParts.push('wholesaler_id=' + escapeSlackText_(ctx.wholesalerId));
+  if (ctx.wholesalerId)   whoParts.push('`wholesaler_id=' + escapeSlackText_(ctx.wholesalerId) + '`');
   if (ctx.wholesalerName) whoParts.push(escapeSlackText_(ctx.wholesalerName));
-  const who = whoParts.length > 0 ? whoParts.join(' / ') : '不明';
+  const who = whoParts.length > 0 ? whoParts.join(' / ') : '-';
 
   // ctx.actionLabel は現状すべてのBE呼び出し元で固定の日本語文言（例: '請求書登録'）だが、
   // 将来外部入力由来の値が渡された場合に備え、他フィールドと同じ方針でエスケープしておく。
@@ -268,7 +332,7 @@ function buildSlackBlocks_(tag, message, err, context) {
   const errMessage    = escapeSlackText_(rawErrMessage);
 
   // V8/GAS のスタックトレースは1行目が "{ErrorName}: {err.message}" 形式であることが多く、
-  // そのまま使うと直前の「エラー内容: {errMessage}」と同じ文言が2回連続で表示されてしまう
+  // そのまま使うと直前の「エラー内容」と同じ文言が2回連続で表示されてしまう
   // （例: GoogleJsonResponseException のエラーで実際に発生した重複表示）。
   // 1行目が err.message と同じ内容を含む場合のみその1行を取り除き、実際のスタックフレーム
   // （at ... の行）だけを残す。err.stack が独自形式（1行目が err.message を含まない）の
@@ -278,7 +342,8 @@ function buildSlackBlocks_(tag, message, err, context) {
   if (stackLines.length > 0 && rawErrMessage && stackLines[0].indexOf(rawErrMessage) !== -1) {
     stackLines = stackLines.slice(1);
   }
-  const errStackLines = escapeSlackText_(stackLines.slice(0, 3).join('\n'));
+  const rawStack = stackLines.join('\n');
+  const errStack = rawStack ? escapeSlackText_(rawStack) : '';
 
   // 判明している具体的ID（invoiceUuid/stagingId/storeInvoiceId/parentInvoiceId）。
   // ctx[key] は be_invoice.js 等の BE 呼び出し元からDB由来の値がそのまま渡ってくるため、
@@ -287,45 +352,65 @@ function buildSlackBlocks_(tag, message, err, context) {
   // ここでのエスケープは検索リンクの生成には影響しない。
   const idPairs = [];
   SLACK_CONTEXT_ID_KEYS_.forEach(function (key) {
-    if (ctx[key]) idPairs.push(key + ': ' + escapeSlackText_(ctx[key]));
+    if (ctx[key]) idPairs.push('`' + key + '=' + escapeSlackText_(ctx[key]) + '`');
   });
+  const idText = idPairs.length > 0 ? idPairs.join('\n') : '-';
 
   const hintLine = buildInvestigationHint_(tag, message);
 
-  const searchText = idPairs.length > 0
-    ? SLACK_CONTEXT_ID_KEYS_.map(function (key) { return ctx[key]; }).filter(Boolean).join(' ')
-    : String(message || '');
+  const searchText = SLACK_CONTEXT_ID_KEYS_.map(function (key) { return ctx[key]; }).filter(Boolean).join(' ')
+    || String(message || '');
   const loggingUrl    = buildCloudLoggingUrl_(searchText, gcpProjectId);
   const executionsUrl = buildGasExecutionsUrl_();
 
   const sourceLabel = tag === 'FE' ? '[FE]' : '[BE]';
 
-  // タイトルは「何が失敗したか」が一目でわかれば十分。絵文字は先頭に1つだけとし、
-  // 【】のような装飾や罫線は使わない（1行ごとに絵文字を並べ、罫線で囲むだけの見た目は
-  // 情報よりも記号のほうが目立ってしまい、かえって読みにくいため廃止した）。
-  const title = '🔴 ' + sourceLabel + ' ' + what + 'に失敗';
+  // タイトルは header ブロック（plain_text）で表示する。先頭に絵文字1つのみ、
+  // 【】等の装飾や罫線は使わない（BOシステムの DEFAULT_ERROR_TITLE の体裁に合わせる）。
+  const title = truncateSlackText_(
+    '🔴 ' + sourceLabel + ' ' + what + 'に失敗',
+    SLACK_HEADER_TEXT_MAX_LENGTH_
+  );
 
-  // 詳細情報は "ラベル: 値" 形式に統一する。従来はラベルを全角スペースで手動整列していたが、
-  // Slackのmrkdwnはプロポーショナルフォントで描画されるため実際には桁が揃わない
-  // （見た目上の整列は諦め、コロンの前後は通常の半角スペース1つに統一する）。
-  const detailLines = [
-    '対象卸: ' + who,
-    '操作: ' + what,
+  const fields = [
+    slackField_('対象卸', who),
+    slackField_('発生日時', now + ' (env=' + escapeSlackText_(env) + ')'),
+    slackField_('操作', what),
+    slackField_('発生箇所', String(tag || '不明') + ' / ' + safeMessage),
   ];
   // ファイル名はCSVアップロード系（sendInvoiceData/resubmitInvoiceData/bulkResubmitInvoiceData）
-  // からのみ渡ってくる想定の任意項目。未指定の呼び出し元では従来通り行自体を出さない。
+  // からのみ渡ってくる想定の任意項目。未指定の呼び出し元では従来通りフィールド自体を出さない。
   if (ctx.fileName) {
-    detailLines.push('ファイル名: ' + escapeSlackText_(ctx.fileName));
+    fields.push(slackField_('ファイル名', escapeSlackText_(ctx.fileName)));
   }
-  detailLines.push(
-    '発生箇所: ' + String(tag || '不明') + ' / ' + safeMessage,
-    'エラー内容: ' + errMessage + (errStackLines ? '\n' + errStackLines : '')
-  );
   if (idPairs.length > 0) {
-    detailLines.push('ID: ' + idPairs.join(' / '));
+    fields.push(slackField_('ID', idText));
   }
 
-  // 末尾のヒント・リンクも「調査のヒント:」のような見出しや「・」の箇条書き記号は使わず、
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: title, emoji: true },
+    },
+    {
+      type: 'section',
+      fields: fields,
+    },
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: buildSlackCodeBlockText_('エラー内容', errMessage) },
+    },
+  ];
+
+  if (errStack) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: buildSlackCodeBlockText_('スタックトレース', errStack) },
+    });
+  }
+
+  // 末尾のヒント・調査リンクは見出しや「・」の箇条書き記号は使わず、
   // 文章として自然に添える程度にとどめる。
   const footerLines = [];
   if (hintLine) footerLines.push(hintLine);
@@ -333,20 +418,17 @@ function buildSlackBlocks_(tag, message, err, context) {
   if (loggingUrl)    linkParts.push('<' + loggingUrl + '|🔍 Cloud Logging>');
   if (executionsUrl) linkParts.push('<' + executionsUrl + '|⚙️ 実行ログ>');
   if (linkParts.length > 0) footerLines.push(linkParts.join('   '));
-
-  const lines = [title, now + ' JST (env=' + env + ')', ''].concat(detailLines);
   if (footerLines.length > 0) {
-    lines.push('');
-    lines.push(footerLines.join('\n'));
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: footerLines.join('\n') },
+    });
   }
 
-  const text = lines.join('\n');
-  return {
-    text: text,
-    blocks: [
-      { type: 'section', text: { type: 'mrkdwn', text: text } },
-    ],
-  };
+  // 通知プレビュー（Slackアプリの通知バナー等）用のフォールバックテキスト。
+  const text = [title, '対象卸: ' + who, '操作: ' + what].join(' / ');
+
+  return { text: text, blocks: blocks };
 }
 
 // =============================================================================

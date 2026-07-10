@@ -187,6 +187,26 @@ function makeSandboxError(sandbox, message) {
   return sandbox.__makeError(message);
 }
 
+/**
+ * Slack payload の全ブロック（header の plain_text、section の mrkdwn text、
+ * section の fields）を連結したテキストを返す。
+ * buildSlackBlocks_ が BackOffice(BO) システムの体裁（header＋fields＋divider＋
+ * コードブロック）に合わせて複数ブロックに分割されたため、従来 blocks[0].text.text
+ * のみを見ていたテストが、内容が存在するブロック全体を横断的に検証できるようにする。
+ *
+ * @param {Object} payload - JSON.parse(sentPayload) 相当
+ * @returns {string}
+ */
+function allBlocksText(payload) {
+  return (payload.blocks || [])
+    .map((block) => {
+      if (block.text && block.text.text) return block.text.text;
+      if (Array.isArray(block.fields)) return block.fields.map((f) => f.text).join('\n');
+      return '';
+    })
+    .join('\n');
+}
+
 // =============================================================================
 // 検証1: notifySlackError_ が異常入力でも例外を外に投げない
 // =============================================================================
@@ -474,7 +494,7 @@ test('reportClientError: payload.message の <!channel> がエスケープされ
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<!channel>/, '生の <!channel> がSlack本文に含まれてはいけない');
   assert.match(text, /&lt;!channel&gt;/, 'エスケープ済みの &lt;!channel&gt; が本文に含まれるべき');
 });
@@ -492,7 +512,7 @@ test('reportClientError: payload.wholesalerName の <@U...> メンションが�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<@U12345/, '生のユーザーメンション記法がSlack本文に含まれてはいけない');
   assert.match(text, /&lt;@U12345\|malicious&gt;/);
 });
@@ -510,7 +530,7 @@ test('reportClientError: payload.stack に含まれる特殊記法もエスケ�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<!channel>/);
   assert.match(text, /&lt;!channel&gt;/);
 });
@@ -532,7 +552,7 @@ test('reportClientError: 特殊記法を含まない通常のペイロードは�
   assert.equal(result.data, null);
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.match(text, /Cannot read properties of undefined/);
   assert.match(text, /テスト卸/);
 });
@@ -653,7 +673,7 @@ test('notifySlackError_: BE由来context（DB由来のwholesalerName）に <!cha
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<!channel>/, 'DB由来のwholesalerNameに含まれる生の<!channel>がSlack本文に含まれてはいけない');
   assert.match(text, /&lt;!channel&gt;/, 'エスケープ済みの &lt;!channel&gt; が本文に含まれるべき');
 });
@@ -671,7 +691,7 @@ test('notifySlackError_: BE由来context の wholesalerName に <@U...> メン�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<@U99999/, '生のユーザーメンション記法がSlack本文に含まれてはいけない');
   assert.match(text, /&lt;@U99999\|なりすまし卸&gt;/);
 });
@@ -691,7 +711,7 @@ test('notifySlackError_: BE由来context の wholesalerId（数値）もエス�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.match(text, /wholesaler_id=789/);
   assert.match(text, /通常の卸名株式会社/);
 });
@@ -709,7 +729,7 @@ test('reportClientError: wholesalerName のエスケープが二重に行われ�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   // 二重エスケープされていれば "&amp;lt;" のような文字列になるはずだが、
   // buildSlackBlocks_ による一元エスケープ（1回だけ）なのでそれは発生しないはず。
   assert.doesNotMatch(text, /&amp;lt;/, 'wholesalerNameが二重エスケープされてはいけない（&amp;lt; になっていないこと）');
@@ -741,7 +761,7 @@ test('notifySlackError_: BE直接呼び出しで err.message に <!channel> が�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<!channel>/, '生のerr.messageに含まれる<!channel>がSlack本文に含まれてはいけない');
   assert.match(text, /&lt;!channel&gt;/, 'エスケープ済みの &lt;!channel&gt; がエラー内容に含まれるべき');
 });
@@ -757,7 +777,7 @@ test('notifySlackError_: BE直接呼び出しで err.stack に特殊記法が含
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<@U99999>/, '生のerr.stackに含まれるユーザーメンション記法がSlack本文に含まれてはいけない');
   assert.match(text, /&lt;@U99999&gt;/, 'エスケープ済みの &lt;@U99999&gt; がエラー内容（スタックトレース）に含まれるべき');
 });
@@ -774,7 +794,7 @@ test('notifySlackError_: "発生箇所" 行に埋め込まれる message もエ�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<!channel>/, '発生箇所に埋め込まれるmessage中の<!channel>もエスケープされなければならない');
   assert.match(text, /&lt;!channel&gt; 発生箇所/, '発生箇所行にエスケープ済みのmessageが含まれるべき');
 });
@@ -792,7 +812,7 @@ test('reportClientError: message/stack のエスケープが二重に行われ�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   // 二重エスケープされていれば "&amp;lt;" のような文字列になるはずだが、
   // buildSlackBlocks_ による一元エスケープ（1回だけ）なのでそれは発生しないはず。
   assert.doesNotMatch(text, /&amp;lt;/, 'message/stackが二重エスケープされてはいけない（&amp;lt; になっていないこと）');
@@ -825,7 +845,7 @@ test('notifySlackError_: err.stackの1行目がerr.messageと同じ内容の場�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
 
   // longMessage は "発生箇所"（safeMessage）と "エラー内容"（errMessage）の2箇所で
   // 表示されるのが正しい（重複除去の対象はスタックトレース1行目のみ）。
@@ -853,7 +873,7 @@ test('notifySlackError_: err.stackがerr.messageと無関係な内容の場合�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.match(text, /Error: 別の内容/, 'err.messageと無関係なスタック1行目は除去されず残るべき');
   assert.match(text, /at handler \(app\.js:10:1\)/, 'スタックフレームは表示され続けるべき');
 });
@@ -883,11 +903,11 @@ test('notifySlackError_: idPairs（ctx.invoiceUuid/stagingId等）に <!channel>
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
-  assert.doesNotMatch(text, /invoiceUuid: <!channel>/, '生のinvoiceUuidに含まれる<!channel>がSlack本文に含まれてはいけない');
-  assert.doesNotMatch(text, /stagingId: <@U99999>/, '生のstagingIdに含まれるメンション記法がSlack本文に含まれてはいけない');
-  assert.match(text, /invoiceUuid: &lt;!channel&gt;-uuid/, 'invoiceUuidはエスケープ済みで本文に含まれるべき');
-  assert.match(text, /stagingId: &lt;@U99999&gt;-staging/, 'stagingIdはエスケープ済みで本文に含まれるべき');
+  const text = allBlocksText(sentPayload);
+  assert.doesNotMatch(text, /invoiceUuid=<!channel>/, '生のinvoiceUuidに含まれる<!channel>がSlack本文に含まれてはいけない');
+  assert.doesNotMatch(text, /stagingId=<@U99999>/, '生のstagingIdに含まれるメンション記法がSlack本文に含まれてはいけない');
+  assert.match(text, /invoiceUuid=&lt;!channel&gt;-uuid/, 'invoiceUuidはエスケープ済みで本文に含まれるべき');
+  assert.match(text, /stagingId=&lt;@U99999&gt;-staging/, 'stagingIdはエスケープ済みで本文に含まれるべき');
 });
 
 test('notifySlackError_: idPairsのエスケープはCloud Logging検索リンク（searchText）の生成には影響しない', () => {
@@ -905,9 +925,9 @@ test('notifySlackError_: idPairsのエスケープはCloud Logging検索リン�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   // idPairs表示部分はエスケープされているべき
-  assert.match(text, /invoiceUuid: &lt;uuid-1234&gt;/, 'idPairs表示部分はエスケープされているべき');
+  assert.match(text, /invoiceUuid=&lt;uuid-1234&gt;/, 'idPairs表示部分はエスケープされているべき');
   // Cloud LoggingリンクのURLは searchText（ctx[key]の生値）をencodeURIComponentしたものが
   // 含まれるべき（idPairs表示用のエスケープとは独立した経路であることの確認）。
   assert.match(text, /%3Cuuid-1234%3E/, 'Cloud LoggingリンクのURLにはsearchTextの生値がURLエンコードされて含まれるべき');
@@ -926,8 +946,8 @@ test('notifySlackError_: idPairs対象外のctx値（未知のキー）はそも
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
-  assert.match(text, /invoiceUuid: uuid-abc/);
+  const text = allBlocksText(sentPayload);
+  assert.match(text, /invoiceUuid=uuid-abc/);
   assert.doesNotMatch(text, /someUnknownKey/, 'SLACK_CONTEXT_ID_KEYS_に含まれないキーは本文に出力されないはず');
 });
 
@@ -952,10 +972,10 @@ test('notifySlackError_: ctx.actionLabel に <!channel> が含まれてもエス
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /<!channel>/, '生のactionLabelに含まれる<!channel>がSlack本文（タイトル・操作行）に含まれてはいけない');
   assert.match(text, /&lt;!channel&gt; 悪意ある操作名に失敗/, 'タイトル行でもエスケープ済みのactionLabelが使われるべき');
-  assert.match(text, /操作\s*: &lt;!channel&gt; 悪意ある操作名/, '操作行でもエスケープ済みのactionLabelが使われるべき');
+  assert.match(text, /\*操作:\*\n&lt;!channel&gt; 悪意ある操作名/, '操作フィールドでもエスケープ済みのactionLabelが使われるべき');
 });
 
 test('notifySlackError_: ctx.actionLabel 省略時はtagがそのまま操作行に使われる（回帰確認）', () => {
@@ -968,8 +988,8 @@ test('notifySlackError_: ctx.actionLabel 省略時はtagがそのまま操作行
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
-  assert.match(text, /操作\s*: Invoice/, 'actionLabel省略時はtagがそのまま操作行に使われるべき');
+  const text = allBlocksText(sentPayload);
+  assert.match(text, /\*操作:\*\nInvoice/, 'actionLabel省略時はtagがそのまま操作フィールドに使われるべき');
 });
 
 test('reportClientError: actionLabel（固定文言「フロントエンドエラー」）が正しく表示される（回帰確認）', () => {
@@ -981,8 +1001,8 @@ test('reportClientError: actionLabel（固定文言「フロントエンドエ�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
-  assert.match(text, /操作\s*: フロントエンドエラー/, 'reportClientErrorが設定する固定のactionLabelがエスケープを経ても壊れず表示されるべき');
+  const text = allBlocksText(sentPayload);
+  assert.match(text, /\*操作:\*\nフロントエンドエラー/, 'reportClientErrorが設定する固定のactionLabelがエスケープを経ても壊れず表示されるべき');
 });
 
 // =============================================================================
@@ -1069,9 +1089,9 @@ test('reportClientError: wholesalerId が長すぎる場合は100文字に切り
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, new RegExp('1'.repeat(101)), '1000文字のwholesalerIdがそのまま本文に含まれてはいけない');
-  assert.match(text, new RegExp('wholesaler_id=' + '1'.repeat(100) + '(?!1)'), 'wholesalerIdは100文字に切り詰められて本文に含まれるべき');
+  assert.match(text, new RegExp('`wholesaler_id=' + '1'.repeat(100) + '(?!1)'), 'wholesalerIdは100文字に切り詰められて本文に含まれるべき');
 });
 
 test('reportClientError: wholesalerName が長すぎる場合は100文字に切り詰められる', () => {
@@ -1088,7 +1108,7 @@ test('reportClientError: wholesalerName が長すぎる場合は100文字に切�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, new RegExp('あ'.repeat(101)), '1000文字のwholesalerNameがそのまま本文に含まれてはいけない');
   assert.match(text, new RegExp('あ'.repeat(100) + '(?!あ)'), 'wholesalerNameは100文字に切り詰められて本文に含まれるべき');
 });
@@ -1102,8 +1122,8 @@ test('reportClientError: wholesalerId/wholesalerName が未送信（falsy）の�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
-  assert.match(text, /対象卸\s*: 不明/, 'wholesalerId/wholesalerName未送信時は従来通り「不明」表示になるべき');
+  const text = allBlocksText(sentPayload);
+  assert.match(text, /\*対象卸:\*\n-/, 'wholesalerId/wholesalerName未送信時は「-」表示になるべき（BOシステムのフォーマットに合わせた仕様変更）');
 });
 
 test('reportClientError: wholesalerId/wholesalerName が100文字以下の場合は切り詰められず従来通り表示される（回帰確認）', () => {
@@ -1120,7 +1140,7 @@ test('reportClientError: wholesalerId/wholesalerName が100文字以下の場合
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.match(text, /wholesaler_id=789/);
   assert.match(text, /通常の卸名株式会社/);
 });
@@ -1153,7 +1173,7 @@ test('reportClientError: clientErrorIdに空白が含まれる場合、生の値
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /evil id/, '空白を含む不正なclientErrorIdがそのまま本文に使われてはいけない');
   assert.match(text, /\[FE\] 00000000 /, 'サーバ側生成ID（テスト環境では固定値00000000）に差し替えられるべき');
 });
@@ -1188,7 +1208,7 @@ test('reportClientError: clientErrorIdにSlack特殊記法など空白以外の�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, /channel/i, '許可文字（英数字・ハイフン・アンダースコア）以外を含む不正なclientErrorIdが使われてはいけない');
   assert.match(text, /\[FE\] 00000000 /, 'サーバ側生成IDに差し替えられるべき');
 });
@@ -1206,7 +1226,7 @@ test('reportClientError: clientErrorIdが32文字を超える場合もサーバ�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.doesNotMatch(text, new RegExp('a'.repeat(33)), '32文字を超える不正なclientErrorIdがそのまま使われてはいけない');
   assert.match(text, /\[FE\] 00000000 /, 'サーバ側生成IDに差し替えられるべき');
 });
@@ -1223,7 +1243,7 @@ test('reportClientError: 有効な形式（英数字のみ・32文字以下）�
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
-  const text = sentPayload.blocks[0].text.text;
+  const text = allBlocksText(sentPayload);
   assert.match(text, /\[FE\] a1b2c3d4 /, '有効なclientErrorIdはそのまま本文に使われるべき（サーバ側IDに差し替えられない）');
 });
 
@@ -1236,8 +1256,8 @@ test('reportClientError: clientErrorId が空文字・未指定の場合は従�
   sandbox.reportClientError({ message: 'エラーB' }, null); // clientErrorId未指定
 
   assert.equal(sandbox.__fetchCalls.length, 2, 'messageが異なるため両方送信されるはず');
-  const text1 = JSON.parse(sandbox.__fetchCalls[0].params.payload).blocks[0].text.text;
-  const text2 = JSON.parse(sandbox.__fetchCalls[1].params.payload).blocks[0].text.text;
+  const text1 = allBlocksText(JSON.parse(sandbox.__fetchCalls[0].params.payload));
+  const text2 = allBlocksText(JSON.parse(sandbox.__fetchCalls[1].params.payload));
   assert.match(text1, /\[FE\] 00000000 /, '空文字のclientErrorIdはサーバ側生成IDにフォールバックするべき（従来通り）');
   assert.match(text2, /\[FE\] 00000000 /, 'clientErrorId未指定時もサーバ側生成IDにフォールバックするべき（従来通り）');
 });
