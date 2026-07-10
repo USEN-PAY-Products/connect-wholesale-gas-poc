@@ -9,12 +9,16 @@ name: BigQuery FK Integrity Check
 # - BigQuery の一時エラー対策として最大 3 回リトライ
 #
 # 必要な GitHub 設定:
-#   Secrets:
+#   Secrets（Environment: development / production それぞれに登録）:
 #     - GCP_WORKLOAD_IDENTITY_PROVIDER : WIF プロバイダのリソース名
 #     - GCP_SERVICE_ACCOUNT            : 紐付けるサービスアカウントのメール
 #     - SLACK_WEBHOOK_URL              : Slack Incoming Webhook URL
 #   Variables（任意。未設定時はスクリプト側の既定値を使用）:
 #     - GCP_PROJECT_ID / BQ_DATASET_ID / BQ_LOCATION / LOOKER_STUDIO_URL / APP_ENV
+#
+# Environment の切替:
+#   - schedule（日次自動実行）は常に production を使用
+#   - workflow_dispatch（手動実行）は target_env 入力で development / production を選択可能
 # =============================================================================
 
 on:
@@ -23,6 +27,14 @@ on:
     - cron: '30 18 * * *'
   workflow_dispatch:
     inputs:
+      target_env:
+        description: '実行対象の Environment'
+        type: choice
+        required: false
+        default: production
+        options:
+          - production
+          - development
       all_records:
         description: '全レコードをスキャン対象にするか（true で日付フィルター解除）'
         type: boolean
@@ -43,7 +55,8 @@ jobs:
   integrity-check:
     name: BQ 外部キー不整合チェック
     runs-on: ubuntu-latest
-    environment: development
+    # schedule 実行時は inputs が存在しないため production にフォールバック
+    environment: ${{ inputs.target_env || 'production' }}
     defaults:
       run:
         working-directory: tools/bq-integrity-check
