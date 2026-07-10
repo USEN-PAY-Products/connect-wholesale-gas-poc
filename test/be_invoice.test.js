@@ -581,6 +581,26 @@ test('fetchInvoiceDetail: catch のSlack通知コンテキストは invoiceUuid 
   assert.equal(ctx.invoiceUuid, undefined, '誤解を招く invoiceUuid キーは使われないこと（実体はUUIDとは限らないため）');
 });
 
+test('fetchInvoiceDetail: invoice_number_id（invoice_numbersの内部ID）はフロントへ返却しない', () => {
+  const storeRows = [
+    makeStoreRow('CUST001', 'MALL-C001', 'SI-C001-OLD', {
+      invoice_number: '1000000001-01',
+      invoice_number_id: 'inv-num-id-0001',
+    }),
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows, parentSummary: { id: PARENT_INVOICE_ID } });
+
+  const result = sandbox.fetchInvoiceDetail(PARENT_INVOICE_ID, 'dummy-session-token');
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.stores.length, 1);
+  const store = result.data.stores[0];
+  assert.equal(store.invoice_number, '1000000001-01', 'invoice_number（表示用）は返却されること');
+  assert.ok(!('invoice_number_id' in store), 'invoice_number_id は内部ID露出防止のため返却されないこと');
+  // 返却前のコピー処理で元データ（BE内部処理用）が破壊されていないことも確認
+  assert.equal(storeRows[0].invoice_number_id, 'inv-num-id-0001', '元のstoreRowsは変更されないこと（再請求処理での引き継ぎに影響しない）');
+});
+
 // =============================================================================
 // 検証8〜11: 再請求時に旧レコードの否認理由（store_disputed_reason）が
 //            新規 INSERT される store_invoices レコードに引き継がれない不具合の修正

@@ -2063,8 +2063,16 @@ function fetchInvoiceDetail(invoiceId, sessionToken) {
       return success_(null);
     }
     const stores = fetchStoreInvoicesByParent_(invoiceId, wholesalerId);
-    logInfo_('Invoice', 'fetchInvoiceDetail 完了: stores_count=' + (stores ? stores.length : 0));
-    return success_({ summary: summary, stores: stores });
+    // invoice_number_id（invoice_numbers の内部ID）は再請求時のBE内部処理
+    // （resubmitInvoiceData / bulkResubmitInvoiceData での引き継ぎ）専用のため、
+    // フロントには返さない（必要最小限の返却。fe_js_detail.html でも未参照）。
+    const storesForClient = (stores || []).map(function (s) {
+      const copy = Object.assign({}, s);
+      delete copy.invoice_number_id;
+      return copy;
+    });
+    logInfo_('Invoice', 'fetchInvoiceDetail 完了: stores_count=' + storesForClient.length);
+    return success_({ summary: summary, stores: storesForClient });
   } catch (err) {
     logError_('Invoice', 'fetchInvoiceDetail', err, {
       wholesalerId: accountInfo && accountInfo.wholesaler_id,
