@@ -870,14 +870,17 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
     const storeDisputedReason = targetStoreRow ? (targetStoreRow.store_disputed_reason || null) : null;
     // 否認(DISPUTED)の場合のみ加盟店ステータスを新レコードへ引き継ぐ（未検収+否認の状態にする）
     const storeInvoiceStatus = (targetStoreRow && targetStoreRow.invoice_status === 'DISPUTED') ? 'DISPUTED' : null;
-    // 旧番号の枝番を +1 した請求書番号を新レコードに登録し、invoice_number_id も引き継ぐ（例: 1000000001-01 → 1000000001-02。未採番なら NULL）
-    const newInvoiceNumber = buildNextInvoiceNumber_(targetStoreRow ? targetStoreRow.invoice_number : null);
-    const invoiceNumberId  = targetStoreRow ? (targetStoreRow.invoice_number_id || null) : null;
 
     // ── BE防御(1): 対象加盟店が取引終了（end）なら再請求不可 ──
     if (endMallCodeSet[String(targetMallCode)]) {
       throw new Error('この加盟店は取引終了済みのため、再請求できません。');
     }
+
+    // 旧番号の枝番を +1 した請求書番号を新レコードに登録し、invoice_number_id も引き継ぐ（例: 1000000001-01 → 1000000001-02。未採番なら NULL）。
+    // 採番（枝番上限99で例外）は end 店舗チェックの後に行い、そもそも再請求不可な店舗に対して
+    // 枝番上限エラーが先に出ないようにする（bulkResubmitInvoiceData の「対象確定後に採番」と同じ方針）。
+    const newInvoiceNumber = buildNextInvoiceNumber_(targetStoreRow ? targetStoreRow.invoice_number : null);
+    const invoiceNumberId  = targetStoreRow ? (targetStoreRow.invoice_number_id || null) : null;
 
     // ── BE防御(2): リレーションに存在しない customer_code を拒否（不正データの混入防止）──
     // 空/未定義は String(... || '') で '' にし、後続の filter（cc &&）で除外する（'undefined' 文字列の混入防止）。

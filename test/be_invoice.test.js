@@ -1383,3 +1383,49 @@ test('bulkResubmitInvoiceData: 再請求対象外の店舗に枝番上限(99)の
   assert.ok(!sql.includes('9000000009'), '対象外店舗（CUST009）の請求書番号はSQLに含まれないこと');
 });
 
+test('resubmitInvoiceData: 取引終了(end)店舗への再請求は、旧レコードの枝番が上限(99)でも枝番上限エラーではなく取引終了エラーになる', () => {
+  const TARGET_STORE_INVOICE_ID = '33333333-3333-3333-3333-333333333333';
+  const storeRows = [
+    // end 店舗かつ枝番が上限(99): 採番より先に end チェックで弾かれるべき
+    makeStoreRow('CUST001', 'MALL-C001', TARGET_STORE_INVOICE_ID, {
+      store_status: 'end',
+      invoice_number: '1000000001-99',
+      invoice_number_id: 'inv-num-id-0001',
+    }),
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows });
+
+  const csvText = buildCsvText(['CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,']);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 1100 },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  let thrown = null;
+  try {
+    sandbox.resubmitInvoiceData(
+      'dummy-raw-csv-base64',
+      csvText,
+      'test.csv',
+      summaryData,
+      {},
+      PARENT_INVOICE_ID,
+      TARGET_STORE_INVOICE_ID,
+      null,
+      'dummy-session-token'
+    );
+  } catch (e) {
+    thrown = e;
+  }
+
+  assert.ok(thrown, '例外が投げられるはず');
+  assert.equal(
+    thrown.message,
+    'この加盟店は取引終了済みのため、再請求できません。',
+    '枝番上限エラーではなく、状況に一致した取引終了エラーが先に出ること'
+  );
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 0, 'SQL は実行されないこと');
+});
+
