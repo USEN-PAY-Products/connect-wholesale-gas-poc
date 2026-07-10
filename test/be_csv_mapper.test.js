@@ -343,3 +343,184 @@ test('buildMappedBulkResubmitTransactionSql_: 加盟店ごとの否認理由(dis
   assert.ok(sql.includes("'数量に誤りがあったため否認します'"), 'CUST001の否認理由がVALUESに含まれること');
 });
 
+// =============================================================================
+// 検証8〜: カスタムCSV形式の再請求（個別・一括）における
+//          invoice_status / invoice_number / invoice_number_id の引き継ぎと
+//          invoice_numbers.latest_invoice_number 更新（MYP-4203）。
+//
+// 背景:
+//   固定9列形式（be_invoice.js）側は test/be_invoice.test.js で検証済みだが、
+//   カスタムCSV形式向けの buildMappedResubmitTransactionSql_ /
+//   buildMappedBulkResubmitTransactionSql_ も同じ機能を持つため、
+//   mapper 側でも以下を検証する:
+//     (a) invoice_status='DISPUTED'・枝番+1済み invoice_number・invoice_number_id が
+//         INSERT列・VALUESに反映され、invoice_numbers の UPDATE 文が生成される
+//     (b) 番号+IDが揃わない場合は両方 NULL で登録され、UPDATE 文も生成されない
+//         （片方だけ入った不整合レコードを作らない）
+//     (c) 一括では番号+IDが揃った加盟店の分のみ UPDATE 文が生成される
+// =============================================================================
+
+/**
+ * buildMappedResubmitTransactionSql_ を請求書番号関連パラメータのみ変えて呼び出すヘルパー。
+ *
+ * @param {vm.Context} sandbox
+ * @param {string|null} newInvoiceNumber
+ * @param {string|null} invoiceNumberId
+ * @returns {string} 生成されたSQL
+ */
+function callMappedResubmitWithInvoiceNumber(sandbox, newInvoiceNumber, invoiceNumberId) {
+  const columns = buildBaseColumns();
+  const summaryData = {
+    wholesalerTotal: {
+      totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100,
+      exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0,
+    },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  return sandbox.buildMappedResubmitTransactionSql_({
+    parentInvoiceId: INVOICE_UUID,
+    storeInvoiceId: '22222222-2222-2222-2222-222222222222',
+    stagingId: 'staging_test_0001',
+    summaryData: summaryData,
+    remarks: {},
+    wholesalerHandover: null,
+    storeDisputedReason: null,
+    storeInvoiceStatus: 'DISPUTED',
+    newInvoiceNumber: newInvoiceNumber,
+    invoiceNumberId: invoiceNumberId,
+    accountInfo: RESUBMIT_ACCOUNT_INFO,
+    mallCodeMap: {},
+    csvUrl: 'https://example.test/dummy.csv',
+    projectId: 'test-project',
+    datasetId: 'test_dataset',
+    csvFormatRules: { has_header: true, columns: columns },
+    latestWi: RESUBMIT_LATEST_WI,
+    oldStoreAmounts: RESUBMIT_OLD_STORE_AMOUNTS,
+  });
+}
+
+test('buildMappedResubmitTransactionSql_: invoice_status/枝番+1済みinvoice_number/invoice_number_idがINSERT列・VALUESに反映され、invoice_numbersのUPDATE文が生成される', () => {
+  const sandbox = createSandbox();
+  const sql = callMappedResubmitWithInvoiceNumber(sandbox, '1000000001-02', 'inv-num-id-0001');
+
+  assert.ok(
+    sql.includes('store_disputed_reason, invoice_status, invoice_number, invoice_number_id,'),
+    'INSERT列リストにinvoice_status/invoice_number/invoice_number_idが含まれること'
+  );
+  assert.ok(
+    sql.includes("'DISPUTED', '1000000001-02', 'inv-num-id-0001', 'PENDING_REVIEW', TRUE,"),
+    'VALUESにinvoice_status/invoice_number/invoice_number_idが正しい順で含まれること'
+  );
+  assert.ok(
+    sql.includes('UPDATE `test-project.test_dataset.invoice_numbers`\n' +
+      "SET latest_invoice_number = '1000000001-02'\n" +
+      "WHERE id = 'inv-num-id-0001';"),
+    'invoice_numbers.latest_invoice_numberのUPDATE文が生成されること'
+  );
+  assert.ok(sql.indexOf('UPDATE `test-project.test_dataset.invoice_numbers`') < sql.indexOf('COMMIT;'),
+    'UPDATE文がCOMMITより前（同一トランザクション内）にあること');
+});
+
+test('buildMappedResubmitTransactionSql_: 番号とIDが揃わない場合は両方NULLで登録され、invoice_numbersのUPDATE文も生成されない', () => {
+  const sandbox = createSandbox();
+
+  // 両方なし（未採番）
+  const sqlNone = callMappedResubmitWithInvoiceNumber(sandbox, null, null);
+  assert.ok(
+    sqlNone.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    '未採番の場合はinvoice_number/invoice_number_idが両方NULLで登録されること'
+  );
+  assert.ok(
+    !sqlNone.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
+    '未採番の場合はUPDATE文が生成されないこと'
+  );
+
+  // 番号のみ（IDなし）
+  const sqlNumberOnly = callMappedResubmitWithInvoiceNumber(sandbox, '1000000001-02', null);
+  assert.ok(
+    sqlNumberOnly.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    '番号のみ（IDなし）では両方NULLで登録されること（片方だけ入った不整合レコードを作らない）'
+  );
+  assert.ok(!sqlNumberOnly.includes("'1000000001-02'"), '番号のみ（IDなし）では番号がSQLに含まれないこと');
+  assert.ok(
+    !sqlNumberOnly.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
+    '番号のみ（IDなし）ではUPDATE文が生成されないこと'
+  );
+
+  // IDのみ（番号なし）
+  const sqlIdOnly = callMappedResubmitWithInvoiceNumber(sandbox, null, 'inv-num-id-0001');
+  assert.ok(
+    sqlIdOnly.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    'IDのみ（番号なし）では両方NULLで登録されること'
+  );
+  assert.ok(!sqlIdOnly.includes("'inv-num-id-0001'"), 'IDのみ（番号なし）ではIDがSQLに含まれないこと');
+  assert.ok(
+    !sqlIdOnly.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
+    'IDのみ（番号なし）ではUPDATE文が生成されないこと'
+  );
+});
+
+test('buildMappedBulkResubmitTransactionSql_: 加盟店ごとのinvoice_status/invoice_number/invoice_number_idがVALUESに反映され、番号+IDが揃った加盟店分のみinvoice_numbersのUPDATE文が生成される', () => {
+  const sandbox = createSandbox();
+  const columns = buildBaseColumns();
+  const summaryData = {
+    wholesalerTotal: {
+      totalAmount: 3300, subtotalAmount: 3000, taxAmount: 300,
+      exTax10: 3000, tax10: 300, exTax8: 0, tax8: 0,
+    },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+      { customerCode: 'CUST002', totalAmount: 2200, subtotalAmount: 2000, taxAmount: 200, exTax10: 2000, tax10: 200, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  const sql = sandbox.buildMappedBulkResubmitTransactionSql_({
+    parentInvoiceId: INVOICE_UUID,
+    stagingId: 'staging_test_0001',
+    summaryData: summaryData,
+    remarks: {},
+    handovers: {},
+    disputedReasons: {},
+    invoiceStatuses: { CUST001: 'DISPUTED' },
+    // CUST001は採番済み（番号+ID）、CUST002は片方欠落（IDのみ。不整合データ想定）
+    invoiceNumbers: {
+      CUST001: { number: '1000000001-02', id: 'inv-num-id-0001' },
+      CUST002: { number: '', id: 'inv-num-id-0002' },
+    },
+    accountInfo: RESUBMIT_ACCOUNT_INFO,
+    mallCodeMap: {},
+    csvUrl: 'https://example.test/dummy.csv',
+    projectId: 'test-project',
+    datasetId: 'test_dataset',
+    csvFormatRules: { has_header: true, columns: columns },
+    latestWi: RESUBMIT_LATEST_WI,
+    oldStoreAmounts: RESUBMIT_OLD_STORE_AMOUNTS,
+  });
+
+  assert.ok(
+    sql.includes('store_disputed_reason, invoice_status, invoice_number, invoice_number_id,'),
+    'INSERT列リストにinvoice_status/invoice_number/invoice_number_idが含まれること'
+  );
+  assert.ok(
+    sql.includes("'DISPUTED', '1000000001-02', 'inv-num-id-0001', 'PENDING_REVIEW', TRUE,"),
+    'CUST001のVALUESにinvoice_status/invoice_number/invoice_number_idが含まれること'
+  );
+  assert.ok(
+    sql.includes("NULL, NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    'CUST002（片方欠落）のVALUESは両方NULLになること（片方だけ入った不整合レコードを作らない）'
+  );
+  assert.ok(!sql.includes("'inv-num-id-0002'"), 'CUST002の片方だけのIDはSQLに含まれないこと');
+
+  const updateMatches = sql.match(/UPDATE `test-project\.test_dataset\.invoice_numbers`/g) || [];
+  assert.equal(updateMatches.length, 1, '番号+IDが揃ったCUST001の1件分のみUPDATE文が生成されること');
+  assert.ok(
+    sql.includes("SET latest_invoice_number = '1000000001-02'\nWHERE id = 'inv-num-id-0001';"),
+    'CUST001のlatest_invoice_number更新内容が正しいこと'
+  );
+  assert.ok(sql.indexOf('UPDATE `test-project.test_dataset.invoice_numbers`') < sql.indexOf('COMMIT;'),
+    'UPDATE文がCOMMITより前（同一トランザクション内）にあること');
+});
+
