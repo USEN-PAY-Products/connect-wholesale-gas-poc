@@ -1888,7 +1888,7 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
  *   取り下げ依頼前の元ステータス（RETURNED or MERCHANT_CONFIRMATION_REQUESTED）は
  *   withdrawStoreInvoice() が単純UPDATEで上書きするため復元できない。しかし
  *   RETURNED+DISPUTED と MERCHANT_CONFIRMATION_REQUESTED+DISPUTED は画面表示上
- *   （ステータスバッジ「否認差戻」・詳細画面の3ボタンエリア）で区別されないため、
+ *   （ステータスバッジ「否認」・詳細画面の3ボタンエリア）で区別されないため、
  *   どちらに戻しても表示上は同じになる。RETURNED に戻すと TOP画面の has_resubmit
  *   （差戻しあり）フラグを誤って立てる可能性があるため、影響のない
  *   MERCHANT_CONFIRMATION_REQUESTED を選択する。

@@ -108,7 +108,7 @@ body { font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif; font-size: 14px
 |----------|------|-------------------|------|
 | `status-pending` | `#EFEFF9` | `#6464C3` | 未検閲 / 確認中 |
 | `status-returned` | `#FFFEEF` | `#3C3C3C` (icon: `#FF7846`) | 差戻し |
-| `status-disputed` | `#FFE4E4` | `#3C3C3C` (icon: `#DF4C4C`) | 否認差戻 |
+| `status-disputed` | `#FFE4E4` | `#3C3C3C` (icon: `#DF4C4C`) | 否認 |
 | `status-approved` | `#CDF6EF` | `#159E85` | 承認 / 取り下げ済 |
 | `status-resubmit` | `#FF7846` | `#FFF` | 要再提出（一覧バッジ） |
 | `status-denial` | `#DF4C4C` | `#FFF` | 否認（一覧バッジ） |
@@ -284,7 +284,7 @@ body { font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif; font-size: 14px
 |-----------|--------|------|--------|
 | 未検閲 / 確認中 | `.badge--pending` / `.badge--requested` | `#EFEFF9` | `#6464C3` |
 | 差戻し | `.badge--returned` | `#FFFEEF` | `#3C3C3C` (icon `#FF7846`) |
-| 否認差戻 | `.badge--disputed` | `#FFE4E4` | `#3C3C3C` (icon `#DF4C4C`) |
+| 否認 | `.badge--disputed` | `#FFE4E4` | `#3C3C3C` (icon `#DF4C4C`) |
 | 承認 | `.badge--approved` | `#CDF6EF` | `#159E85` |
 | 取り下げ済 | `.badge--withdrawn` | `#CDF6EF` | `#159E85` |
 

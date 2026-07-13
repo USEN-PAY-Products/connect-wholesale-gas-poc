@@ -332,9 +332,9 @@ function getDetailStatusBadge_(backofficeStatus, invoiceStatus) {
   if (invoiceStatus === 'APPROVED') {
     return '<span class="detail-status-badge badge--approved"><i class="fa-solid fa-circle-check"></i> 承認済み</span>';
   }
-  // 否認差戻: MERCHANT_CONFIRMATION_REQUESTED + DISPUTED
+  // 否認: MERCHANT_CONFIRMATION_REQUESTED + DISPUTED
   if (backofficeStatus === 'MERCHANT_CONFIRMATION_REQUESTED' && invoiceStatus === 'DISPUTED') {
-    return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認差戻</span>';
+    return '<span class="detail-status-badge badge--disputed"><i class="fa-solid fa-minus-circle"></i> 否認</span>';
   }
   // 差戻し: RETURNED（invoice_status が DISPUTED かどうかは問わない。
   // BOが差し戻し済み（RETURNED）であれば否認の有無に関わらず「差戻し」バッジに統一する）
@@ -544,7 +544,7 @@ function buildDetailAccordion_(store, openByDefault) {
   body.className = 'store-accordion__body';
 
   // USEN PAY社からのコメント（差戻し・読み取り専用）
-  // 否認差戻（RETURNED + DISPUTED）と同じ表示形式に揃える。
+  // 否認（MERCHANT_CONFIRMATION_REQUESTED + DISPUTED）と同じ表示形式に揃える。
   if (isReturned && store.backoffice_handover) {
     const payComment = document.createElement('div');
     payComment.className = 'store-accordion__backoffice-remark';
@@ -1764,7 +1764,7 @@ function renderDetailLines_(lines, container) {
       }
     }
 
-    // 取り下げ依頼を取り消す → BE: cancelWithdrawRequest 呼び出し → ステータスを否認差戻（MERCHANT_CONFIRMATION_REQUESTED）に戻す
+    // 取り下げ依頼を取り消す → BE: cancelWithdrawRequest 呼び出し → ステータスを否認（MERCHANT_CONFIRMATION_REQUESTED）に戻す
     const cancelWithdrawReqBtn = e.target.closest('[data-action="cancel-withdraw-request"]');
     if (cancelWithdrawReqBtn) {
       const storeInvoiceId = cancelWithdrawReqBtn.dataset.id;
