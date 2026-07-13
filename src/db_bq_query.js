@@ -112,9 +112,9 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '  SELECT ' +
     '    r.root_id, ' +
     '    MAX(CASE WHEN si.backoffice_review_status = \'RETURNED\' AND COALESCE(si.invoice_status, \'\') NOT IN (\'APPROVED\', \'WITHDRAWN\') THEN 1 ELSE 0 END) AS has_resubmit, ' +
-    // 否認(DISPUTED)は backoffice_review_status がどの状態（MCR / RETURNED / PENDING_REVIEW[再請求済み] / WITHDRAW_REQUESTED[取り下げ依頼中]）でも
-    // invoice_status='DISPUTED' である限り「否認あり」として扱う（詳細画面の disputed 判定と揃える）。
-    '    MAX(CASE WHEN si.invoice_status = \'DISPUTED\' THEN 1 ELSE 0 END) AS has_denial ' +
+    // 否認(DISPUTED)は要対応（MCR / RETURNED / WITHDRAW_REQUESTED[取り下げ依頼中]）の場合のみ「否認あり」として扱う。
+    // PENDING_REVIEW（再請求済み）は確認中・承認済み扱いのため対象外（詳細画面の disputed 判定と揃える）。
+    '    MAX(CASE WHEN si.invoice_status = \'DISPUTED\' AND si.backoffice_review_status IN (\'MERCHANT_CONFIRMATION_REQUESTED\', \'RETURNED\', \'WITHDRAW_REQUESTED\') THEN 1 ELSE 0 END) AS has_denial ' +
     '  FROM ranked AS r ' +
     '  INNER JOIN ' + tbl + '.store_invoices` AS si ' +
     '    ON si.wholesaler_invoice_id = r.id ' +
@@ -214,6 +214,7 @@ function fetchStoreInvoicesByParent_(invoiceId, wholesalerId) {
     '  si.wholesaler_managed_store_name, ' +
     '  lm.customer_code, ' +
     '  si.invoice_number, ' +
+    '  si.invoice_number_id, ' +
     '  si.backoffice_review_status, ' +
     '  si.invoice_status, ' +
     '  si.total_amount, si.subtotal_amount, si.tax_amount, ' +

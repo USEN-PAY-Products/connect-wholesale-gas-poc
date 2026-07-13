@@ -965,6 +965,9 @@ function buildMappedTransactionSql_(params) {
  * @param {Object} params.remarks          - { [customerCode]: string }
  * @param {string|null} params.wholesalerHandover - 否認時の加盟店との合意内容
  * @param {string|null} params.storeDisputedReason - 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason）
+ * @param {string|null} params.storeInvoiceStatus - 引き継ぐ加盟店ステータス（旧レコードが 'DISPUTED' の場合のみ 'DISPUTED'）
+ * @param {string|null} params.newInvoiceNumber - 新レコードに登録する請求書番号（旧番号の枝番+1。未採番なら null）
+ * @param {string|null} params.invoiceNumberId - 引き継ぐ invoice_numbers.id（未採番なら null）
  * @param {Object} params.accountInfo      - getServerAccountInfo_() の返り値
  * @param {Object} params.mallCodeMap      - { [customerCode]: mallCode }
  * @param {string} params.csvUrl           - Drive 保存後の CSV URL
@@ -978,7 +981,7 @@ function buildMappedTransactionSql_(params) {
 function buildMappedResubmitTransactionSql_(params) {
   const {
     parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
-    wholesalerHandover, storeDisputedReason, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+    wholesalerHandover, storeDisputedReason, storeInvoiceStatus, newInvoiceNumber, invoiceNumberId, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
     csvFormatRules, latestWi, oldStoreAmounts,
   } = params;
 
@@ -1013,10 +1016,18 @@ function buildMappedResubmitTransactionSql_(params) {
   const merchantsRef = q('wholesaler_merchants');
   const linesRef     = q('invoice_lines');
   const invRef       = q('wholesaler_invoices');
+  const numbersRef   = q('invoice_numbers');
 
   const newWiUuid = Utilities.getUuid();
   const handoverSql = wholesalerHandover ? "'" + escSql_(wholesalerHandover) + "'" : 'NULL';
   const disputedReasonSql = storeDisputedReason ? "'" + escSql_(storeDisputedReason) + "'" : 'NULL';
+  // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
+  const invoiceStatusSql = storeInvoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
+  // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+  // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
+  const hasInvoiceNumberPair = !!(newInvoiceNumber && invoiceNumberId);
+  const invoiceNumberSql   = hasInvoiceNumberPair ? "'" + escSql_(newInvoiceNumber) + "'" : 'NULL';
+  const invoiceNumberIdSql = hasInvoiceNumberPair ? "'" + escSql_(invoiceNumberId) + "'" : 'NULL';
 
   // store_invoices VALUES
   const childUuids = [];
@@ -1032,7 +1043,7 @@ function buildMappedResubmitTransactionSql_(params) {
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
-      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ', ' + invoiceStatusSql + ', ' + invoiceNumberSql + ', ' + invoiceNumberIdSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -1101,7 +1112,7 @@ function buildMappedResubmitTransactionSql_(params) {
     '  total_amount, subtotal_amount, tax_amount,',
     '  standard_tax_target_amount, standard_tax_amount,',
     '  reduced_tax_target_amount, reduced_tax_amount,',
-    '  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
+    '  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason, invoice_status, invoice_number, invoice_number_id,',
     '  backoffice_review_status, is_latest, final_updated_by, created_at',
     ')',
     'VALUES',
@@ -1131,8 +1142,18 @@ function buildMappedResubmitTransactionSql_(params) {
     '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
     "   '" + escSql_(parentInvoiceId) + "', '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP());",
     '',
+  ]
+  // 枝番をインクリメントした場合は invoice_numbers.latest_invoice_number も同一トランザクションで更新する
+  .concat(newInvoiceNumber && invoiceNumberId ? [
+    '-- invoice_numbers の最新請求書番号を更新',
+    'UPDATE ' + numbersRef,
+    "SET latest_invoice_number = '" + escSql_(newInvoiceNumber) + "'",
+    "WHERE id = '" + escSql_(invoiceNumberId) + "';",
+    '',
+  ] : [])
+  .concat([
     'COMMIT;',
-  ];
+  ]);
   return sqlLines.join('\n');
 }
 
@@ -1148,6 +1169,8 @@ function buildMappedResubmitTransactionSql_(params) {
  * @param {Object} params.remarks          - { [customerCode]: string }
  * @param {Object} params.handovers        - { [customerCode]: string } 否認時の加盟店との合意内容
  * @param {Object} params.disputedReasons  - { [customerCode]: string } 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason）
+ * @param {Object} params.invoiceStatuses  - { [customerCode]: string } 引き継ぐ加盟店ステータス（旧レコードが 'DISPUTED' の場合のみ 'DISPUTED'）
+ * @param {Object} params.invoiceNumbers   - { [customerCode]: {number: string, id: string} } 新レコードに登録する請求書番号（枝番+1済み）と引き継ぐ invoice_number_id
  * @param {Object} params.accountInfo      - getServerAccountInfo_() の返り値
  * @param {Object} params.mallCodeMap      - { [customerCode]: mallCode }
  * @param {string} params.csvUrl           - Drive 保存後の CSV URL
@@ -1161,13 +1184,15 @@ function buildMappedResubmitTransactionSql_(params) {
 function buildMappedBulkResubmitTransactionSql_(params) {
   const {
     parentInvoiceId, stagingId, summaryData, remarks,
-    handovers, disputedReasons,
+    handovers, disputedReasons, invoiceStatuses, invoiceNumbers,
     accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
     csvFormatRules, latestWi, oldStoreAmounts,
   } = params;
 
   const _handovers = handovers || {};
   const _disputedReasons = disputedReasons || {};
+  const _invoiceStatuses = invoiceStatuses || {};
+  const _invoiceNumbers = invoiceNumbers || {};
 
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
@@ -1196,6 +1221,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   const merchantsRef = q('wholesaler_merchants');
   const linesRef     = q('invoice_lines');
   const invRef       = q('wholesaler_invoices');
+  const numbersRef   = q('invoice_numbers');
 
   const newWiUuid = Utilities.getUuid();
 
@@ -1211,13 +1237,22 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     const handoverSql = handover ? "'" + escSql_(handover) + "'" : 'NULL';
     const disputedReason = _disputedReasons[String(m.customerCode)] || '';
     const disputedReasonSql = disputedReason ? "'" + escSql_(disputedReason) + "'" : 'NULL';
+    // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
+    const invoiceStatus = _invoiceStatuses[String(m.customerCode)] || '';
+    const invoiceStatusSql = invoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
+    // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+    // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
+    const invNum = _invoiceNumbers[String(m.customerCode)] || {};
+    const hasInvNumPair = !!(invNum.number && invNum.id);
+    const invoiceNumberSql   = hasInvNumPair ? "'" + escSql_(invNum.number) + "'" : 'NULL';
+    const invoiceNumberIdSql = hasInvNumPair ? "'" + escSql_(invNum.id) + "'" : 'NULL';
     const managedNameSql = m.managedStoreName ? "'" + escSql_(m.managedStoreName) + "'" : 'NULL';
     return (
       "  ('" + childUuid + "', '" + escSql_(newWiUuid) + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
       Math.round(Number(m.totalAmount || 0)) + ', ' + Math.round(Number(m.subtotalAmount || 0)) + ', ' + Math.round(Number(m.taxAmount || 0)) + ', ' +
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10 || 0)) + ', ' +
       Math.round(Number(m.exTax8 || 0)) + ', ' + Math.round(Number(m.tax8 || 0)) + ', 0, ' +
-      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ', ' + invoiceStatusSql + ', ' + invoiceNumberSql + ', ' + invoiceNumberIdSql + ", 'PENDING_REVIEW', TRUE, '" + escSql_(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -1306,7 +1341,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     '  total_amount, subtotal_amount, tax_amount,',
     '  standard_tax_target_amount, standard_tax_amount,',
     '  reduced_tax_target_amount, reduced_tax_amount,',
-    '  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
+    '  non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason, invoice_status, invoice_number, invoice_number_id,',
     '  backoffice_review_status, is_latest, final_updated_by, created_at',
     ')',
     'VALUES',
@@ -1336,8 +1371,27 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
     "   '" + escSql_(parentInvoiceId) + "', '" + escSql_(csvUrl) + "', CURRENT_TIMESTAMP());",
     '',
+  ]
+  // ⑥ 枝番をインクリメントした加盟店の invoice_numbers.latest_invoice_number を同一トランザクションで更新する
+  .concat((function () {
+    const updates = [];
+    summaryData.merchantTotals.forEach(function (m) {
+      const invNum = _invoiceNumbers[String(m.customerCode)] || {};
+      if (invNum.number && invNum.id) {
+        updates.push(
+          '-- invoice_numbers の最新請求書番号を更新 (customer_code: ' + escSql_(String(m.customerCode)) + ')',
+          'UPDATE ' + numbersRef,
+          "SET latest_invoice_number = '" + escSql_(invNum.number) + "'",
+          "WHERE id = '" + escSql_(invNum.id) + "';",
+          ''
+        );
+      }
+    });
+    return updates;
+  })())
+  .concat([
     'COMMIT;',
-  ];
+  ]);
   return sqlLines.join('\n');
 }
 

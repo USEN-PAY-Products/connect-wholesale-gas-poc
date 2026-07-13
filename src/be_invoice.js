@@ -558,6 +558,31 @@ function recalcWholesalerTotal_(merchantTotals) {
 }
 
 /**
+ * 旧レコードの請求書番号の枝番をインクリメントした新しい請求書番号を生成する。
+ * フォーマット: 「請求番号(10桁)-枝番(2桁)」例: 1000000001-01 → 1000000001-02
+ * 旧番号が未採番（NULL/空）や想定外フォーマットの場合は null を返す（新レコードは NULL で登録）。
+ *
+ * @param {string|null} oldInvoiceNumber - 旧 store_invoices.invoice_number
+ * @returns {string|null} 枝番を +1 した新しい請求書番号。生成不可の場合は null。
+ * @throws {Error} 枝番が上限（99）に達している場合
+ */
+function buildNextInvoiceNumber_(oldInvoiceNumber) {
+  const s = String(oldInvoiceNumber || '').trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{10})-(\d{2})$/);
+  if (!m) {
+    Logger.log('[Invoice] buildNextInvoiceNumber_: 想定外の請求書番号フォーマットのため引き継ぎをスキップ: ' + s);
+    return null;
+  }
+  const branch = parseInt(m[2], 10);
+  if (branch >= 99) {
+    logError_('Invoice', '[buildNextInvoiceNumber_] 枝番が上限(99)に達しています: ' + s);
+    throw new Error('請求書番号の枝番が上限に達しているため、再請求できません。サポートにお問い合わせください。');
+  }
+  return m[1] + '-' + String(branch + 1).padStart(2, '0');
+}
+
+/**
  * 差し戻し・否認後の再送信用 SQL を組み立てる。
  * sendInvoiceData の buildTransactionSql_ と同じ構造だが:
  *   - wholesaler_invoices には既存の parentInvoiceId を使ってINSERT（新しい親は作らない）
@@ -571,6 +596,9 @@ function recalcWholesalerTotal_(merchantTotals) {
  * @param {Object} remarks
  * @param {string|null} wholesalerHandover - 否認の場合の加盟店との合意内容
  * @param {string|null} storeDisputedReason - 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason。再請求後も表示を維持するため）
+ * @param {string|null} storeInvoiceStatus - 引き継ぐ加盟店ステータス（旧レコードが 'DISPUTED' の場合のみ 'DISPUTED'。それ以外は null → NULL で登録）
+ * @param {string|null} newInvoiceNumber - 新レコードに登録する請求書番号（旧番号の枝番+1。未採番なら null → NULL）
+ * @param {string|null} invoiceNumberId - 引き継ぐ invoice_numbers.id（旧レコードの invoice_number_id。未採番なら null）
  * @param {Object} accountInfo
  * @param {Object} mallCodeMap
  * @param {string} csvUrl
@@ -578,7 +606,7 @@ function recalcWholesalerTotal_(merchantTotals) {
  * @param {string} datasetId
  * @returns {string}
  */
-function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks, wholesalerHandover, storeDisputedReason, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
+function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks, wholesalerHandover, storeDisputedReason, storeInvoiceStatus, newInvoiceNumber, invoiceNumberId, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
@@ -615,6 +643,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
   const invRef       = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
   const stagingRef   = '`' + projectId + '.' + datasetId + '.' + stagingId + '`';
   const merchantsRef = '`' + projectId + '.' + datasetId + '.wholesaler_merchants`';
+  const numbersRef   = '`' + projectId + '.' + datasetId + '.invoice_numbers`';
 
   const newWiUuid = Utilities.getUuid();
 
@@ -624,6 +653,13 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
   const disputedReasonSql = storeDisputedReason
     ? "'" + esc(storeDisputedReason) + "'"
     : 'NULL';
+  // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
+  const invoiceStatusSql = storeInvoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
+  // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+  // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
+  const hasInvoiceNumberPair = !!(newInvoiceNumber && invoiceNumberId);
+  const invoiceNumberSql   = hasInvoiceNumberPair ? "'" + esc(newInvoiceNumber) + "'" : 'NULL';
+  const invoiceNumberIdSql = hasInvoiceNumberPair ? "'" + esc(invoiceNumberId) + "'" : 'NULL';
 
   const childUuids = [];
   const childValues = summaryData.merchantTotals.map((m) => {
@@ -639,7 +675,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
-      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ', ' + invoiceStatusSql + ', ' + invoiceNumberSql + ', ' + invoiceNumberIdSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -676,7 +712,7 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '   total_amount, subtotal_amount, tax_amount,',
     '   standard_tax_target_amount, standard_tax_amount,',
     '   reduced_tax_target_amount, reduced_tax_amount,',
-    '   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
+    '   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason, invoice_status, invoice_number, invoice_number_id,',
     '   backoffice_review_status, is_latest,',
     '   final_updated_by, created_at)',
     'VALUES',
@@ -730,8 +766,18 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
     "   '" + parentInvoiceId + "', '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
     '',
+  ]
+  // 枝番をインクリメントした場合は invoice_numbers.latest_invoice_number も同一トランザクションで更新する
+  .concat(newInvoiceNumber && invoiceNumberId ? [
+    '-- invoice_numbers の最新請求書番号を更新',
+    'UPDATE ' + numbersRef,
+    "SET latest_invoice_number = '" + esc(newInvoiceNumber) + "'",
+    "WHERE id = '" + esc(invoiceNumberId) + "';",
+    '',
+  ] : [])
+  .concat([
     'COMMIT;',
-  ];
+  ]);
   return lines.join('\n');
 }
 
@@ -822,11 +868,19 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
     // 再請求後も否認理由の表示を維持するため、対象 storeInvoiceId の旧レコードから否認理由を引き継ぐ
     const targetStoreRow = storeRows.find(function (s) { return String(s.store_invoice_id) === String(storeInvoiceId); });
     const storeDisputedReason = targetStoreRow ? (targetStoreRow.store_disputed_reason || null) : null;
+    // 否認(DISPUTED)の場合のみ加盟店ステータスを新レコードへ引き継ぐ（未検収+否認の状態にする）
+    const storeInvoiceStatus = (targetStoreRow && targetStoreRow.invoice_status === 'DISPUTED') ? 'DISPUTED' : null;
 
     // ── BE防御(1): 対象加盟店が取引終了（end）なら再請求不可 ──
     if (endMallCodeSet[String(targetMallCode)]) {
       throw new Error('この加盟店は取引終了済みのため、再請求できません。');
     }
+
+    // 旧番号の枝番を +1 した請求書番号を新レコードに登録し、invoice_number_id も引き継ぐ（例: 1000000001-01 → 1000000001-02。未採番なら NULL）。
+    // 採番（枝番上限99で例外）は end 店舗チェックの後に行い、そもそも再請求不可な店舗に対して
+    // 枝番上限エラーが先に出ないようにする（bulkResubmitInvoiceData の「対象確定後に採番」と同じ方針）。
+    const newInvoiceNumber = buildNextInvoiceNumber_(targetStoreRow ? targetStoreRow.invoice_number : null);
+    const invoiceNumberId  = targetStoreRow ? (targetStoreRow.invoice_number_id || null) : null;
 
     // ── BE防御(2): リレーションに存在しない customer_code を拒否（不正データの混入防止）──
     // 空/未定義は String(... || '') で '' にし、後続の filter（cc &&）で除外する（'undefined' 文字列の混入防止）。
@@ -902,6 +956,9 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
         parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
         wholesalerHandover: wholesalerHandover || null,
         storeDisputedReason,
+        storeInvoiceStatus,
+        newInvoiceNumber,
+        invoiceNumberId,
         accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         csvFormatRules: accountInfo.csv_format_rules,
         latestWi, oldStoreAmounts,
@@ -909,7 +966,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
     } else {
       sql = buildResubmitTransactionSql_(
         parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
-        wholesalerHandover || null, storeDisputedReason, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+        wholesalerHandover || null, storeDisputedReason, storeInvoiceStatus, newInvoiceNumber, invoiceNumberId, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         latestWi, oldStoreAmounts
       );
     }
@@ -962,6 +1019,8 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
  * @param {Object}  remarks
  * @param {Object}  handovers        - { [customerCode]: string } 否認時の加盟店との合意内容
  * @param {Object}  disputedReasons  - { [customerCode]: string } 引き継ぐ否認理由（旧 store_invoices.store_disputed_reason）
+ * @param {Object}  invoiceStatuses  - { [customerCode]: string } 引き継ぐ加盟店ステータス（旧レコードが 'DISPUTED' の場合のみ 'DISPUTED'）
+ * @param {Object}  invoiceNumbers   - { [customerCode]: {number: string, id: string} } 新レコードに登録する請求書番号（枝番+1済み）と引き継ぐ invoice_number_id
  * @param {Object}  accountInfo
  * @param {Object}  mallCodeMap
  * @param {string}  csvUrl
@@ -971,7 +1030,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
  * @param {Object}  oldStoreAmounts  - 旧要対応 store_invoices の合計金額
  * @returns {string} SQL
  */
-function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryData, remarks, handovers, disputedReasons, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
+function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryData, remarks, handovers, disputedReasons, invoiceStatuses, invoiceNumbers, accountInfo, mallCodeMap, csvUrl, projectId, datasetId, latestWi, oldStoreAmounts) {
   const wsId     = Number(accountInfo.wholesaler_id);
   const wsUserId = String(accountInfo.wholesaler_user_id);
   const feeRate  = Number(accountInfo.fee_rate || 0);
@@ -1004,6 +1063,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
   const invRef       = '`' + projectId + '.' + datasetId + '.wholesaler_invoices`';
   const stagingRef   = '`' + projectId + '.' + datasetId + '.' + stagingId + '`';
   const merchantsRef = '`' + projectId + '.' + datasetId + '.wholesaler_merchants`';
+  const numbersRef   = '`' + projectId + '.' + datasetId + '.invoice_numbers`';
 
   const newWiUuid = Utilities.getUuid();
 
@@ -1018,6 +1078,15 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     const handoverSql = handover ? "'" + esc(handover) + "'" : 'NULL';
     const disputedReason = (disputedReasons || {})[String(m.customerCode)] || '';
     const disputedReasonSql = disputedReason ? "'" + esc(disputedReason) + "'" : 'NULL';
+    // 否認(DISPUTED)の再請求時は加盟店ステータスを引き継ぐ（未検収+否認の状態で登録する）
+    const invoiceStatus = (invoiceStatuses || {})[String(m.customerCode)] || '';
+    const invoiceStatusSql = invoiceStatus === 'DISPUTED' ? "'DISPUTED'" : 'NULL';
+    // 再請求時は旧番号の枝番を +1 した請求書番号と invoice_number_id を登録する。
+    // 片方だけ入った不整合レコードを防ぐため、番号+IDが揃った場合のみ両方登録し、揃わなければ両方 NULL にする。
+    const invNum = (invoiceNumbers || {})[String(m.customerCode)] || {};
+    const hasInvNumPair = !!(invNum.number && invNum.id);
+    const invoiceNumberSql   = hasInvNumPair ? "'" + esc(invNum.number) + "'" : 'NULL';
+    const invoiceNumberIdSql = hasInvNumPair ? "'" + esc(invNum.id) + "'" : 'NULL';
     const managedNameSql = m.managedStoreName ? "'" + esc(m.managedStoreName) + "'" : 'NULL';
     return (
       "('" + childUuid + "', '" + newWiUuid + "', " + wsId + ", '" + mallCode + "', " + managedNameSql + ", " +
@@ -1025,7 +1094,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
       Math.round(Number(m.exTax10 || 0)) + ', ' + Math.round(Number(m.tax10  || 0))    + ', ' +
       Math.round(Number(m.exTax8  || 0)) + ', ' + Math.round(Number(m.tax8   || 0))    + ', ' +
       '0, ' +
-      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
+      remarkSql + ', ' + handoverSql + ', ' + disputedReasonSql + ', ' + invoiceStatusSql + ', ' + invoiceNumberSql + ', ' + invoiceNumberIdSql + ", 'PENDING_REVIEW', TRUE, '" + esc(wsUserId) + "', CURRENT_TIMESTAMP())"
     );
   });
 
@@ -1082,7 +1151,7 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '   total_amount, subtotal_amount, tax_amount,',
     '   standard_tax_target_amount, standard_tax_amount,',
     '   reduced_tax_target_amount, reduced_tax_amount,',
-    '   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,',
+    '   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason, invoice_status, invoice_number, invoice_number_id,',
     '   backoffice_review_status, is_latest,',
     '   final_updated_by, created_at)',
     'VALUES',
@@ -1136,8 +1205,27 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     '   ' + feeRate + ', ' + newFeeAmount + ', ' + newPaymentAmount + ',',
     "   '" + parentInvoiceId + "', '" + esc(csvUrl) + "', CURRENT_TIMESTAMP());",
     '',
+  ]
+  // ⑥ 枝番をインクリメントした加盟店の invoice_numbers.latest_invoice_number を同一トランザクションで更新する
+  .concat((function () {
+    const updates = [];
+    summaryData.merchantTotals.forEach(function (m) {
+      const invNum = (invoiceNumbers || {})[String(m.customerCode)] || {};
+      if (invNum.number && invNum.id) {
+        updates.push(
+          '-- invoice_numbers の最新請求書番号を更新 (customer_code: ' + esc(String(m.customerCode)) + ')',
+          'UPDATE ' + numbersRef,
+          "SET latest_invoice_number = '" + esc(invNum.number) + "'",
+          "WHERE id = '" + esc(invNum.id) + "';",
+          ''
+        );
+      }
+    });
+    return updates;
+  })())
+  .concat([
     'COMMIT;',
-  ];
+  ]);
   return lines.join('\n');
 }
 
@@ -1197,6 +1285,8 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     const storeBasedMappings = [];
     const managedNameByCustomer = {};
     const disputedReasonByCustomer = {}; // customer_code → 旧レコードの否認理由（再請求後も表示を維持するため引き継ぐ）
+    const invoiceStatusByCustomer = {}; // customer_code → 旧レコードの加盟店ステータス（否認 DISPUTED の場合のみ新レコードへ引き継ぐ）
+    const rawInvoiceNumberByCustomer = {}; // customer_code → { number: 旧レコードの請求書番号(生値), id: invoice_number_id }。採番（枝番+1）は再請求対象に確定した後に行う
     const endMallCodeSet = {}; // mall_code → true（取引終了店舗）
     const withdrawRequestedMallCodeSet = {}; // mall_code → true（取り下げ依頼中店舗）
     storeRows.forEach(function (s) {
@@ -1204,6 +1294,11 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
         customerToMall[String(s.customer_code)] = String(s.mall_code);
         managedNameByCustomer[String(s.customer_code)] = s.wholesaler_managed_store_name || '';
         disputedReasonByCustomer[String(s.customer_code)] = s.store_disputed_reason || '';
+        invoiceStatusByCustomer[String(s.customer_code)] = (s.invoice_status === 'DISPUTED') ? 'DISPUTED' : '';
+        rawInvoiceNumberByCustomer[String(s.customer_code)] = {
+          number: s.invoice_number || '',
+          id: s.invoice_number_id || '',
+        };
         storeBasedMappings.push({ customer_code: String(s.customer_code), mall_code: String(s.mall_code) });
       }
       if (s.customer_code && s.store_invoice_id) {
@@ -1239,6 +1334,18 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     // 既存DBの加盟店名を継承（フロント送信値に依存しない）
     summaryData.merchantTotals.forEach(function (m) {
       m.managedStoreName = managedNameByCustomer[String(m.customerCode)] || '';
+    });
+
+    // 請求書番号の採番（枝番+1）は、フィルタ確定後の再請求対象店舗のみに対して行う。
+    // 対象外（要対応でない / end 店舗 / 取り下げ依頼中）の旧レコードに枝番上限(99)が
+    // 混ざっていても、無関係な例外で一括再請求全体が落ちないようにするため。
+    const invoiceNumberByCustomer = {}; // customer_code → { number: 枝番+1済みの新請求書番号, id: 引き継ぐ invoice_number_id }（未採番なら未設定 → NULL 登録）
+    summaryData.merchantTotals.forEach(function (m) {
+      const raw = rawInvoiceNumberByCustomer[String(m.customerCode)] || {};
+      invoiceNumberByCustomer[String(m.customerCode)] = {
+        number: buildNextInvoiceNumber_(raw.number) || '',
+        id: raw.id || '',
+      };
     });
 
     // ── BE防御: 否認(DISPUTED)店舗は handover（加盟店との合意内容）必須 ──
@@ -1318,6 +1425,8 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
         parentInvoiceId, stagingId, summaryData, remarks,
         handovers: handovers || {},
         disputedReasons: disputedReasonByCustomer,
+        invoiceStatuses: invoiceStatusByCustomer,
+        invoiceNumbers: invoiceNumberByCustomer,
         accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         csvFormatRules: accountInfo.csv_format_rules,
         latestWi, oldStoreAmounts,
@@ -1325,7 +1434,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     } else {
       sql = buildBulkResubmitTransactionSql_(
         parentInvoiceId, stagingId, summaryData, remarks,
-        handovers || {}, disputedReasonByCustomer,
+        handovers || {}, disputedReasonByCustomer, invoiceStatusByCustomer, invoiceNumberByCustomer,
         accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
         latestWi, oldStoreAmounts
       );
@@ -1779,7 +1888,7 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
  *   取り下げ依頼前の元ステータス（RETURNED or MERCHANT_CONFIRMATION_REQUESTED）は
  *   withdrawStoreInvoice() が単純UPDATEで上書きするため復元できない。しかし
  *   RETURNED+DISPUTED と MERCHANT_CONFIRMATION_REQUESTED+DISPUTED は画面表示上
- *   （ステータスバッジ「否認差戻」・詳細画面の3ボタンエリア）で区別されないため、
+ *   （ステータスバッジ「否認」・詳細画面の3ボタンエリア）で区別されないため、
  *   どちらに戻しても表示上は同じになる。RETURNED に戻すと TOP画面の has_resubmit
  *   （差戻しあり）フラグを誤って立てる可能性があるため、影響のない
  *   MERCHANT_CONFIRMATION_REQUESTED を選択する。
@@ -1954,8 +2063,16 @@ function fetchInvoiceDetail(invoiceId, sessionToken) {
       return success_(null);
     }
     const stores = fetchStoreInvoicesByParent_(invoiceId, wholesalerId);
-    logInfo_('Invoice', 'fetchInvoiceDetail 完了: stores_count=' + (stores ? stores.length : 0));
-    return success_({ summary: summary, stores: stores });
+    // invoice_number_id（invoice_numbers の内部ID）は再請求時のBE内部処理
+    // （resubmitInvoiceData / bulkResubmitInvoiceData での引き継ぎ）専用のため、
+    // フロントには返さない（必要最小限の返却。fe_js_detail.html でも未参照）。
+    const storesForClient = (stores || []).map(function (s) {
+      const copy = Object.assign({}, s);
+      delete copy.invoice_number_id;
+      return copy;
+    });
+    logInfo_('Invoice', 'fetchInvoiceDetail 完了: stores_count=' + storesForClient.length);
+    return success_({ summary: summary, stores: storesForClient });
   } catch (err) {
     logError_('Invoice', 'fetchInvoiceDetail', err, {
       wholesalerId: accountInfo && accountInfo.wholesaler_id,

@@ -471,6 +471,9 @@ test('buildResubmitTransactionSql_: invoice_lines JOIN は wholesaler_merchants 
     {},
     null,
     null,
+    null,
+    null,
+    null,
     accountInfo,
     {},
     'https://example.test/dummy.csv',
@@ -519,6 +522,8 @@ test('buildBulkResubmitTransactionSql_: invoice_lines JOIN は wholesaler_mercha
     '11111111-1111-1111-1111-111111111111',
     'staging_test_0001',
     summaryData,
+    {},
+    {},
     {},
     {},
     {},
@@ -576,6 +581,26 @@ test('fetchInvoiceDetail: catch のSlack通知コンテキストは invoiceUuid 
   assert.equal(ctx.invoiceUuid, undefined, '誤解を招く invoiceUuid キーは使われないこと（実体はUUIDとは限らないため）');
 });
 
+test('fetchInvoiceDetail: invoice_number_id（invoice_numbersの内部ID）はフロントへ返却しない', () => {
+  const storeRows = [
+    makeStoreRow('CUST001', 'MALL-C001', 'SI-C001-OLD', {
+      invoice_number: '1000000001-01',
+      invoice_number_id: 'inv-num-id-0001',
+    }),
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows, parentSummary: { id: PARENT_INVOICE_ID } });
+
+  const result = sandbox.fetchInvoiceDetail(PARENT_INVOICE_ID, 'dummy-session-token');
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.data.stores.length, 1);
+  const store = result.data.stores[0];
+  assert.equal(store.invoice_number, '1000000001-01', 'invoice_number（表示用）は返却されること');
+  assert.ok(!('invoice_number_id' in store), 'invoice_number_id は内部ID露出防止のため返却されないこと');
+  // 返却前のコピー処理で元データ（BE内部処理用）が破壊されていないことも確認
+  assert.equal(storeRows[0].invoice_number_id, 'inv-num-id-0001', '元のstoreRowsは変更されないこと（再請求処理での引き継ぎに影響しない）');
+});
+
 // =============================================================================
 // 検証8〜11: 再請求時に旧レコードの否認理由（store_disputed_reason）が
 //            新規 INSERT される store_invoices レコードに引き継がれない不具合の修正
@@ -620,6 +645,9 @@ test('buildResubmitTransactionSql_: 否認理由(storeDisputedReason)がINSERT�
     {},
     null,
     '数量に誤りがあったため否認します',
+    null,
+    null,
+    null,
     accountInfo,
     {},
     'https://example.test/dummy.csv',
@@ -633,7 +661,7 @@ test('buildResubmitTransactionSql_: 否認理由(storeDisputedReason)がINSERT�
     sql.includes('   non_taxable_amount, wholesaler_remark, wholesaler_handover, store_disputed_reason,'),
     'INSERT列リストにstore_disputed_reasonが追加されていること'
   );
-  assert.ok(sql.includes("NULL, NULL, '\u6570量に\u8aa4\u308a\u304c\u3042\u3063\u305f\u305f\u3081\u5426\u8a8d\u3057\u307e\u3059', 'PENDING_REVIEW', TRUE,"), 'VALUESに否認理由の値が正しい位置（wholesaler_remark・wholesaler_handoverの直後）に含まれること');
+  assert.ok(sql.includes("NULL, NULL, '\u6570量に\u8aa4\u308a\u304c\u3042\u3063\u305f\u305f\u3081\u5426\u8a8d\u3057\u307e\u3059', NULL, NULL, NULL, 'PENDING_REVIEW', TRUE,"), 'VALUESに否認理由の値が正しい位置（wholesaler_remark・wholesaler_handoverの直後、invoice_status/invoice_number/invoice_number_idの前）に含まれること');
 });
 
 test('buildResubmitTransactionSql_: storeDisputedReasonがnullの場合はVALUESでNULLになる', () => {
@@ -668,6 +696,9 @@ test('buildResubmitTransactionSql_: storeDisputedReasonがnullの場合はVALUES
     {},
     null,
     null,
+    null,
+    null,
+    null,
     accountInfo,
     {},
     'https://example.test/dummy.csv',
@@ -677,7 +708,7 @@ test('buildResubmitTransactionSql_: storeDisputedReasonがnullの場合はVALUES
     oldStoreAmounts
   );
 
-  assert.ok(/NULL, NULL, NULL, 'PENDING_REVIEW', TRUE,/.test(sql), '否認理由未指定時はNULLになること（wholesaler_remark・wholesaler_handover・store_disputed_reasonの3連続）');
+  assert.ok(/NULL, NULL, NULL, NULL, NULL, NULL, 'PENDING_REVIEW', TRUE,/.test(sql), '否認理由未指定時はNULLになること（wholesaler_remark〜invoice_number_idの6連続NULL）');
 });
 
 test('buildBulkResubmitTransactionSql_: 加盟店ごとの否認理由(disputedReasons)がINSERT列とVALUESに反映される', () => {
@@ -713,6 +744,8 @@ test('buildBulkResubmitTransactionSql_: 加盟店ごとの否認理由(disputedR
     {},
     {},
     disputedReasons,
+    {},
+    {},
     accountInfo,
     {},
     'https://example.test/dummy.csv',
@@ -1029,5 +1062,390 @@ test('cancelWithdrawRequest: 契約終了卸（wholesaler_status=\'end\'）の�
   assert.ok(thrown, '例外が投げられるはず');
   assert.equal(thrown.message, '契約が終了しているため、取り下げ依頼の取消ができません。');
   assert.equal(sandbox.__runTransactionSqlCalls.length, 0, '契約終了時はUPDATE自体が実行されないこと');
+});
+
+// =============================================================================
+// 検証19〜: 再請求時の請求書番号枝番インクリメント（buildNextInvoiceNumber_）と
+//           invoice_numbers.latest_invoice_number 更新（MYP-4203）
+//
+// 背景:
+//   再請求時に旧レコードの請求書番号「請求番号(10桁)-枝番(2桁)」の枝番を +1 した
+//   新しい invoice_number を新レコードに登録し、invoice_number_id を引き継ぎ、
+//   invoice_numbers.latest_invoice_number も同一トランザクションで更新する機能が
+//   追加された。本テストは以下を検証する:
+//     (a) buildNextInvoiceNumber_ の枝番インクリメント（1000000001-01 → 1000000001-02）
+//     (b) 未採番（NULL/空）・想定外フォーマット（桁数不一致等）は null を返す
+//     (c) 枝番が上限（99）に達している場合は例外を投げる
+//     (d) buildResubmitTransactionSql_ / buildBulkResubmitTransactionSql_ が
+//         invoice_number / invoice_number_id を VALUES に含め、番号+IDが揃っている
+//         場合のみ invoice_numbers UPDATE 文を生成する（揃っていなければ生成しない）
+// =============================================================================
+
+test('buildNextInvoiceNumber_: 枝番を+1した請求書番号を返す（1000000001-01 → 1000000001-02）', () => {
+  const sandbox = createSandbox();
+  assert.equal(sandbox.buildNextInvoiceNumber_('1000000001-01'), '1000000001-02');
+  assert.equal(sandbox.buildNextInvoiceNumber_('1000000001-09'), '1000000001-10', '繰り上がりも2桁ゼロ埋めで正しいこと');
+  assert.equal(sandbox.buildNextInvoiceNumber_('9999999999-98'), '9999999999-99', '上限手前(98→99)は成功すること');
+});
+
+test('buildNextInvoiceNumber_: 未採番（null/空文字/空白）の場合は null を返す', () => {
+  const sandbox = createSandbox();
+  assert.equal(sandbox.buildNextInvoiceNumber_(null), null);
+  assert.equal(sandbox.buildNextInvoiceNumber_(''), null);
+  assert.equal(sandbox.buildNextInvoiceNumber_('   '), null);
+  assert.equal(sandbox.buildNextInvoiceNumber_(undefined), null);
+});
+
+test('buildNextInvoiceNumber_: 想定外フォーマットの場合は null を返す（10桁-2桁以外は不正扱い）', () => {
+  const sandbox = createSandbox();
+  assert.equal(sandbox.buildNextInvoiceNumber_('ABC'), null, '数字-数字でない文字列');
+  assert.equal(sandbox.buildNextInvoiceNumber_('1000000001'), null, 'ハイフン・枝番なし');
+  assert.equal(sandbox.buildNextInvoiceNumber_('12345-01'), null, '請求番号が10桁でない');
+  assert.equal(sandbox.buildNextInvoiceNumber_('1000000001-1'), null, '枝番が2桁でない（1桁）');
+  assert.equal(sandbox.buildNextInvoiceNumber_('1000000001-001'), null, '枝番が2桁でない（3桁）');
+  assert.equal(sandbox.buildNextInvoiceNumber_('1000000001-01-01'), null, 'ハイフンが複数');
+});
+
+test('buildNextInvoiceNumber_: 枝番が上限(99)に達している場合は例外を投げる', () => {
+  const sandbox = createSandbox();
+  let thrown = null;
+  try {
+    sandbox.buildNextInvoiceNumber_('1000000001-99');
+  } catch (e) {
+    thrown = e;
+  }
+  assert.ok(thrown, '例外が投げられるはず');
+  assert.equal(thrown.message, '請求書番号の枝番が上限に達しているため、再請求できません。サポートにお問い合わせください。');
+});
+
+/**
+ * buildResubmitTransactionSql_ を請求書番号関連引数のみ変えて呼び出すヘルパー。
+ *
+ * @param {vm.Context} sandbox
+ * @param {string|null} newInvoiceNumber
+ * @param {string|null} invoiceNumberId
+ * @returns {string} 生成されたSQL
+ */
+function buildResubmitSqlWithInvoiceNumber(sandbox, newInvoiceNumber, invoiceNumberId) {
+  const summaryData = {
+    wholesalerTotal: {
+      totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100,
+      exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0,
+    },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+  const accountInfo = {
+    wholesaler_id: 123, wholesaler_user_id: '22222222-2222-2222-2222-222222222222',
+    fee_rate: 3, tax_rounding_method: 'floor',
+  };
+  const latestWi = {
+    wholesaler_invoice_date: '2026-07-01',
+    wholesaler_total_amount: 5000, wholesaler_subtotal_amount: 4500, wholesaler_tax_amount: 500,
+    wholesaler_standard_tax_target_amount: 4500, wholesaler_standard_tax_amount: 500,
+    wholesaler_reduced_tax_target_amount: 0, wholesaler_reduced_tax_amount: 0,
+    wholesaler_non_taxable_amount: 0,
+  };
+  const oldStoreAmounts = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 };
+
+  return sandbox.buildResubmitTransactionSql_(
+    '11111111-1111-1111-1111-111111111111',
+    '33333333-3333-3333-3333-333333333333',
+    'staging_test_0001',
+    summaryData,
+    {},
+    null,
+    null,
+    'DISPUTED',
+    newInvoiceNumber,
+    invoiceNumberId,
+    accountInfo,
+    {},
+    'https://example.test/dummy.csv',
+    'test-project',
+    'test_dataset',
+    latestWi,
+    oldStoreAmounts
+  );
+}
+
+test('buildResubmitTransactionSql_: 枝番+1済みの請求書番号とinvoice_number_idがINSERT列・VALUESに反映され、invoice_numbersのUPDATE文が生成される', () => {
+  const sandbox = createSandbox();
+  const sql = buildResubmitSqlWithInvoiceNumber(sandbox, '1000000001-02', 'inv-num-id-0001');
+
+  assert.ok(
+    sql.includes('store_disputed_reason, invoice_status, invoice_number, invoice_number_id,'),
+    'INSERT列リストにinvoice_number/invoice_number_idが含まれること'
+  );
+  assert.ok(
+    sql.includes("'DISPUTED', '1000000001-02', 'inv-num-id-0001', 'PENDING_REVIEW', TRUE,"),
+    'VALUESにinvoice_status/invoice_number/invoice_number_idが正しい順で含まれること'
+  );
+  assert.ok(
+    sql.includes('UPDATE `test-project.test_dataset.invoice_numbers`\n' +
+      "SET latest_invoice_number = '1000000001-02'\n" +
+      "WHERE id = 'inv-num-id-0001';"),
+    'invoice_numbers.latest_invoice_numberのUPDATE文が生成されること'
+  );
+  assert.ok(sql.indexOf('UPDATE `test-project.test_dataset.invoice_numbers`') < sql.indexOf('COMMIT;'),
+    'UPDATE文がCOMMITより前（同一トランザクション内）にあること');
+});
+
+test('buildResubmitTransactionSql_: 未採番（newInvoiceNumber/invoiceNumberIdがnull）の場合はNULLで登録され、invoice_numbersのUPDATE文は生成されない', () => {
+  const sandbox = createSandbox();
+  const sql = buildResubmitSqlWithInvoiceNumber(sandbox, null, null);
+
+  assert.ok(
+    sql.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    'invoice_number/invoice_number_idはNULLで登録されること'
+  );
+  assert.ok(
+    !sql.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
+    '未採番の場合はinvoice_numbersのUPDATE文が生成されないこと'
+  );
+});
+
+test('buildResubmitTransactionSql_: 番号とIDのどちらか一方が欠けている場合は両方NULLで登録し、invoice_numbersのUPDATE文も生成しない', () => {
+  const sandbox = createSandbox();
+
+  const sqlNumberOnly = buildResubmitSqlWithInvoiceNumber(sandbox, '1000000001-02', null);
+  assert.ok(
+    sqlNumberOnly.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    '番号のみ（IDなし）では両方NULLで登録されること（片方だけ入った不整合レコードを作らない）'
+  );
+  assert.ok(
+    !sqlNumberOnly.includes("'1000000001-02'"),
+    '番号のみ（IDなし）では番号がSQLに含まれないこと'
+  );
+  assert.ok(
+    !sqlNumberOnly.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
+    '番号のみ（IDなし）ではUPDATE文を生成しないこと'
+  );
+
+  const sqlIdOnly = buildResubmitSqlWithInvoiceNumber(sandbox, null, 'inv-num-id-0001');
+  assert.ok(
+    sqlIdOnly.includes("'DISPUTED', NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    'IDのみ（番号なし）では両方NULLで登録されること'
+  );
+  assert.ok(
+    !sqlIdOnly.includes("'inv-num-id-0001'"),
+    'IDのみ（番号なし）ではIDがSQLに含まれないこと'
+  );
+  assert.ok(
+    !sqlIdOnly.includes('UPDATE `test-project.test_dataset.invoice_numbers`'),
+    'IDのみ（番号なし）ではUPDATE文を生成しないこと'
+  );
+});
+
+test('buildBulkResubmitTransactionSql_: 加盟店ごとのinvoice_number/invoice_number_idがVALUESに反映され、番号+IDが揃った加盟店分のみinvoice_numbersのUPDATE文が生成される', () => {
+  const sandbox = createSandbox();
+  const summaryData = {
+    wholesalerTotal: {
+      totalAmount: 3300, subtotalAmount: 3000, taxAmount: 300,
+      exTax10: 3000, tax10: 300, exTax8: 0, tax8: 0,
+    },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+      { customerCode: 'CUST003', totalAmount: 2200, subtotalAmount: 2000, taxAmount: 200, exTax10: 2000, tax10: 200, exTax8: 0, tax8: 0 },
+    ],
+  };
+  const accountInfo = {
+    wholesaler_id: 123, wholesaler_user_id: '22222222-2222-2222-2222-222222222222',
+    fee_rate: 3, tax_rounding_method: 'floor',
+  };
+  const latestWi = {
+    wholesaler_invoice_date: '2026-07-01',
+    wholesaler_total_amount: 5000, wholesaler_subtotal_amount: 4500, wholesaler_tax_amount: 500,
+    wholesaler_standard_tax_target_amount: 4500, wholesaler_standard_tax_amount: 500,
+    wholesaler_reduced_tax_target_amount: 0, wholesaler_reduced_tax_amount: 0,
+    wholesaler_non_taxable_amount: 0,
+  };
+  const oldStoreAmounts = { totalAmount: 0, subtotalAmount: 0, taxAmount: 0, exTax10: 0, tax10: 0, exTax8: 0, tax8: 0 };
+  // CUST001は採番済み（番号+ID）、CUST003は片方欠落（IDのみ。不整合データ想定）
+  const invoiceNumbers = {
+    CUST001: { number: '1000000001-02', id: 'inv-num-id-0001' },
+    CUST003: { number: '', id: 'inv-num-id-0003' },
+  };
+
+  const sql = sandbox.buildBulkResubmitTransactionSql_(
+    '11111111-1111-1111-1111-111111111111',
+    'staging_test_0001',
+    summaryData,
+    {},
+    {},
+    {},
+    { CUST001: 'DISPUTED' },
+    invoiceNumbers,
+    accountInfo,
+    {},
+    'https://example.test/dummy.csv',
+    'test-project',
+    'test_dataset',
+    latestWi,
+    oldStoreAmounts
+  );
+
+  assert.ok(
+    sql.includes('store_disputed_reason, invoice_status, invoice_number, invoice_number_id,'),
+    'INSERT列リストにinvoice_number/invoice_number_idが含まれること'
+  );
+  assert.ok(
+    sql.includes("'DISPUTED', '1000000001-02', 'inv-num-id-0001', 'PENDING_REVIEW', TRUE,"),
+    'CUST001のVALUESにinvoice_status/invoice_number/invoice_number_idが含まれること'
+  );
+  assert.ok(
+    sql.includes("NULL, NULL, NULL, 'PENDING_REVIEW', TRUE,"),
+    'CUST003（片方欠落）のVALUESは両方NULLになること（片方だけ入った不整合レコードを作らない）'
+  );
+  assert.ok(
+    !sql.includes("'inv-num-id-0003'"),
+    'CUST003の片方だけのID（inv-num-id-0003）はSQLに含まれないこと'
+  );
+
+  const updateMatches = sql.match(/UPDATE `test-project\.test_dataset\.invoice_numbers`/g) || [];
+  assert.equal(updateMatches.length, 1, '番号+IDが揃ったCUST001の1件分のみUPDATE文が生成されること');
+  assert.ok(
+    sql.includes("SET latest_invoice_number = '1000000001-02'\nWHERE id = 'inv-num-id-0001';"),
+    'CUST001のlatest_invoice_number更新内容が正しいこと'
+  );
+  assert.ok(sql.indexOf('UPDATE `test-project.test_dataset.invoice_numbers`') < sql.indexOf('COMMIT;'),
+    'UPDATE文がCOMMITより前（同一トランザクション内）にあること');
+});
+
+test('resubmitInvoiceData: 旧レコードの請求書番号の枝番+1とinvoice_number_id引き継ぎが実行SQLに反映される', () => {
+  const TARGET_STORE_INVOICE_ID = '33333333-3333-3333-3333-333333333333';
+  const storeRows = [
+    makeStoreRow('CUST001', 'MALL-C001', TARGET_STORE_INVOICE_ID, {
+      backoffice_review_status: 'MERCHANT_CONFIRMATION_REQUESTED',
+      invoice_status: 'DISPUTED',
+      invoice_number: '1000000001-01',
+      invoice_number_id: 'inv-num-id-0001',
+    }),
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows });
+
+  const csvText = buildCsvText(['CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,']);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 1100 },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  const result = sandbox.resubmitInvoiceData(
+    'dummy-raw-csv-base64',
+    csvText,
+    'test.csv',
+    summaryData,
+    {},
+    PARENT_INVOICE_ID,
+    TARGET_STORE_INVOICE_ID,
+    '加盟店と合意済みです',
+    'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1);
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("'1000000001-02'"), '枝番+1済みの請求書番号がSQLに含まれること');
+  assert.ok(sql.includes("'inv-num-id-0001'"), 'invoice_number_idが引き継がれてSQLに含まれること');
+  assert.ok(
+    sql.includes("SET latest_invoice_number = '1000000001-02'\nWHERE id = 'inv-num-id-0001';"),
+    'invoice_numbers.latest_invoice_numberのUPDATE文が実行SQLに含まれること'
+  );
+});
+
+test('bulkResubmitInvoiceData: 再請求対象外の店舗に枝番上限(99)の旧レコードが混ざっていても一括再請求は成功する（対象店舗のみ採番する）', () => {
+  const storeRows = [
+    // 再請求対象: CUST001（要対応・枝番01）
+    makeStoreRow('CUST001', 'MALL-C001', 'SI-C001-OLD', {
+      invoice_number: '1000000001-01',
+      invoice_number_id: 'inv-num-id-0001',
+    }),
+    // 対象外: CUST009 は取引終了(end)店舗で、旧レコードの枝番が上限(99)
+    makeStoreRow('CUST009', 'MALL-C009', 'SI-C009-OLD', {
+      store_status: 'end',
+      invoice_number: '9000000009-99',
+      invoice_number_id: 'inv-num-id-0009',
+    }),
+  ];
+  const actionRequiredRows = [
+    { mall_code: 'MALL-C001', invoice_status: '' },
+    { mall_code: 'MALL-C009', invoice_status: '' }, // 要対応だが end 店舗のため再請求対象外
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows, actionRequiredRows: actionRequiredRows });
+
+  // CSVには対象のCUST001のみ含める
+  const csvText = buildCsvText(['CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,']);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 1100 },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  const result = sandbox.bulkResubmitInvoiceData(
+    'dummy-raw-csv-base64',
+    csvText,
+    'test.csv',
+    summaryData,
+    {},
+    PARENT_INVOICE_ID,
+    {},
+    'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success', '対象外店舗の枝番99は採番対象にならず、一括再請求全体は成功すること');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1);
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("'1000000001-02'"), '対象店舗（CUST001）の枝番+1済み請求書番号がSQLに含まれること');
+  assert.ok(!sql.includes('9000000009'), '対象外店舗（CUST009）の請求書番号はSQLに含まれないこと');
+});
+
+test('resubmitInvoiceData: 取引終了(end)店舗への再請求は、旧レコードの枝番が上限(99)でも枝番上限エラーではなく取引終了エラーになる', () => {
+  const TARGET_STORE_INVOICE_ID = '33333333-3333-3333-3333-333333333333';
+  const storeRows = [
+    // end 店舗かつ枝番が上限(99): 採番より先に end チェックで弾かれるべき
+    makeStoreRow('CUST001', 'MALL-C001', TARGET_STORE_INVOICE_ID, {
+      store_status: 'end',
+      invoice_number: '1000000001-99',
+      invoice_number_id: 'inv-num-id-0001',
+    }),
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows });
+
+  const csvText = buildCsvText(['CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,']);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 1100 },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  let thrown = null;
+  try {
+    sandbox.resubmitInvoiceData(
+      'dummy-raw-csv-base64',
+      csvText,
+      'test.csv',
+      summaryData,
+      {},
+      PARENT_INVOICE_ID,
+      TARGET_STORE_INVOICE_ID,
+      null,
+      'dummy-session-token'
+    );
+  } catch (e) {
+    thrown = e;
+  }
+
+  assert.ok(thrown, '例外が投げられるはず');
+  assert.equal(
+    thrown.message,
+    'この加盟店は取引終了済みのため、再請求できません。',
+    '枝番上限エラーではなく、状況に一致した取引終了エラーが先に出ること'
+  );
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 0, 'SQL は実行されないこと');
 });
 
