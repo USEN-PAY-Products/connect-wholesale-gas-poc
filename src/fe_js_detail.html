@@ -1845,6 +1845,9 @@ function renderDetailLines_(lines, container) {
       const bodyEl4        = resubmitBtn.closest('.store-accordion__body');
       const handoverInput4 = bodyEl4 && bodyEl4.querySelector('.backoffice-remark__handover-input');
       const wholesalerHandover4 = handoverInput4 ? nl2space_(handoverInput4.value || '') : '';
+      // 請求書備考（アコーディオン内で編集された値）を取得
+      const remarksInput4      = bodyEl4 && bodyEl4.querySelector('.remarks-input');
+      const wholesalerRemark4  = remarksInput4 ? nl2space_(remarksInput4.value || '') : '';
       // 否認（handover入力欄がある）の場合、未入力ならエラー（確認画面・個別再請求モーダルと同じ警告バナー表示に統一）
       if (handoverInput4 && !wholesalerHandover4.trim()) {
         handoverInput4.classList.add('confirm-handover-input--error');
@@ -1887,7 +1890,7 @@ function renderDetailLines_(lines, container) {
             hideLoadingOverlay();
             alert('再請求に失敗しました: ' + (err.message || err));
           })
-          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null, getSessionToken_());
+          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null, wholesalerRemark4 || null, getSessionToken_());
       } else {
         console.warn('[resubmitWithoutChanges] google.script.run が利用できません（モック）');
         setTimeout(function () {
