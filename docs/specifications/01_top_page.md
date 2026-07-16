@@ -75,7 +75,7 @@ block-beta
 | 3 | 請求金額 | `wholesaler_total_amount` | `999,999円` | ロケール書式 |
 | 4 | 手数料（税込） | `invoice_fee_amount` | `999,999円` | |
 | 5 | 差戻し有無 | `has_resubmit` | バッジ表示 | `1` → 差戻し有（赤系）, `0` → 差戻し無 |
-| 6 | 否認有無 | `has_denial` | バッジ表示 | `1` → 否認有（赤系）, `0` → 否認無 |
+| 6 | 否認有無 | `has_denial` | バッジ表示 | `1` → 否認有（赤系）, `0` → 否認無。`root_id` 配下の `store_invoices`（`is_latest=TRUE`）に `backoffice_review_status` が `MERCHANT_CONFIRMATION_REQUESTED` または `RETURNED` かつ `invoice_status='DISPUTED'` の行が1件以上あれば `1`。`WITHDRAW_REQUESTED`（取り下げ依頼中）や `PENDING_REVIEW`（再請求済み・再申請中）のみの場合は `0` |
 | 7 | 操作 | - | 「詳細を見る >」ボタン | `#detail?invoiceId=xxx` へ遷移。ID は `root_id`（なければ `wholesaler_invoice_id`）を使用 |
 
 #### ステータスバッジ
