@@ -1890,7 +1890,7 @@ function renderDetailLines_(lines, container) {
             hideLoadingOverlay();
             alert('再請求に失敗しました: ' + (err.message || err));
           })
-          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null, wholesalerRemark4 || null, getSessionToken_());
+          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null, wholesalerRemark4, getSessionToken_());
       } else {
         console.warn('[resubmitWithoutChanges] google.script.run が利用できません（モック）');
         setTimeout(function () {
