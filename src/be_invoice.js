@@ -1685,10 +1685,11 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, rem
  * @param {string}      storeInvoiceId     - 対象の store_invoices.id
  * @param {string}      parentInvoiceId    - 大元の wholesaler_invoices.id
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容（差し戻しの場合はnull）
+ * @param {string|null} [wholesalerRemark] - アコーディオン内で編集された請求書備考（未指定/nullの場合は既存値を維持）
  * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
-function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, sessionToken) {
+function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, wholesalerRemark, sessionToken) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   let wholesalerId = null;
@@ -1728,12 +1729,25 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
       handoverSetClause = 'wholesaler_handover = wholesaler_handover';
     }
 
+    // wholesaler_remark（請求書備考）の更新:
+    //   - 値が渡された場合（アコーディオン内で編集された）→ その値で更新（空文字での上書きも許容）
+    //   - null/undefined の場合 → 既存値を維持
+    let remarkSetClause;
+    if (wholesalerRemark != null) {
+      remarkSetClause = wholesalerRemark === ''
+        ? 'wholesaler_remark = NULL'
+        : "wholesaler_remark = '" + esc(wholesalerRemark) + "'";
+    } else {
+      remarkSetClause = 'wholesaler_remark = wholesaler_remark';
+    }
+
     const sql = [
       'BEGIN TRANSACTION;',
       '',
       'UPDATE ' + storeRef,
       "SET backoffice_review_status = 'PENDING_REVIEW',",
-      '  ' + handoverSetClause,
+      '  ' + handoverSetClause + ',',
+      '  ' + remarkSetClause,
       "WHERE id = '" + storeInvoiceId + "'",
       "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
