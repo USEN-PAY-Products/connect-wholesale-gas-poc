@@ -314,7 +314,7 @@ sequenceDiagram
     U->>FE: 「変更なしで再請求」押下
     FE->>FE: 合意事項チェック
     FE->>BE: resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, wholesalerRemark)
-    BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='PENDING_REVIEW'<br/>WHERE id=? AND wholesaler_id=?
+    BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='PENDING_REVIEW', wholesaler_handover=?, wholesaler_remark=?<br/>WHERE id=? AND wholesaler_id=?
     BQ-->>BE: OK
     BE-->>FE: success
     FE->>FE: initDetailPage(id)
