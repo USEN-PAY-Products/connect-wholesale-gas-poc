@@ -229,9 +229,9 @@ sequenceDiagram
 2. dev で `access: DOMAIN` と `Session.getActiveUser()` の実機検証（§10-2,3）。
 
 ### 9.2 デプロイ順
-1. 卸システム改修（`access: DOMAIN`、`Authz` 移植、自動登録、再認可・再デプロイ）。**BE のシグネチャ（`sessionToken`→`wholesalerId`）と FE の呼び出しが同時に変わるため、実装 PR A+B+C を統合ブランチで積み、一括（アトミック）でデプロイする。個別にデプロイしない**（詳細設計（卸）§12）
-2. BO の deep link
-3. 旧ログイン導線（LP 等）の停止、Script Property の整理
+1. 卸システム改修（`access: DOMAIN`、`Authz` 移植、自動登録、再認可・再デプロイ）。**BE のシグネチャ（`sessionToken`→`wholesalerId`）と FE の呼び出しが同時に変わるため、実装 PR A+B+C を統合ブランチで積み、一括（アトミック）でデプロイする。個別にデプロイしない**（詳細設計（卸）§12）。この時点で旧ログイン導線（`doPost`・`getLoginUrl`・旧 FE ログイン）は同時に無くなる。卸ユーザーは今後このシステムを操作しない前提（ビジネス要件）のため、旧導線の停止自体は許容する。
+2. 直後に BO の deep link をデプロイする。**1 と 2 は同じ作業枠（保守時間枠）で連続実施**し、1 の完了から 2 の完了までの間、BO 担当者は卸システムの exec URL を直接開いて右上メニューから卸を選ぶ（この間の CSV 登録は可能）。
+3. 旧ログイン導線の残骸（LP 等の外部ページ、不要になった Script Property（`LP_URL`・`OAUTH_CLIENT_ID` 等））の整理。旧導線の停止は 1 で完了済みであり、3 は後片付けのみ。
 
 ### 9.3 テスト
 - 単体: `getServerAccountInfo_(wholesalerId)`（許可外、空リスト、不正 ID、存在しない卸、`end` 卸、操作者の wholesaler_user 無し(自動登録)/あり/deleted 済み）

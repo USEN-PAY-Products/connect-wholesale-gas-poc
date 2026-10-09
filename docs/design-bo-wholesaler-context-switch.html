@@ -482,9 +482,9 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...</code></pre>
 </ol>
 <h3 id="s22">9.2 デプロイ順</h3>
 <ol>
-<li>卸システム改修（<code>access: DOMAIN</code>、<code>Authz</code> 移植、自動登録、再認可・再デプロイ）。<strong>BE のシグネチャ（<code>sessionToken</code>→<code>wholesalerId</code>）と FE の呼び出しが同時に変わるため、実装 PR A+B+C を統合ブランチで積み、一括（アトミック）でデプロイする。個別にデプロイしない</strong>（詳細設計（卸）§12）</li>
-<li>BO の deep link</li>
-<li>旧ログイン導線（LP 等）の停止、Script Property の整理</li>
+<li>卸システム改修（<code>access: DOMAIN</code>、<code>Authz</code> 移植、自動登録、再認可・再デプロイ）。<strong>BE のシグネチャ（<code>sessionToken</code>→<code>wholesalerId</code>）と FE の呼び出しが同時に変わるため、実装 PR A+B+C を統合ブランチで積み、一括（アトミック）でデプロイする。個別にデプロイしない</strong>（詳細設計（卸）§12）。この時点で旧ログイン導線（<code>doPost</code>・<code>getLoginUrl</code>・旧 FE ログイン）は同時に無くなる。卸ユーザーは今後このシステムを操作しない前提（ビジネス要件）のため、旧導線の停止自体は許容する。</li>
+<li>直後に BO の deep link をデプロイする。<strong>1 と 2 は同じ作業枠（保守時間枠）で連続実施</strong>し、1 の完了から 2 の完了までの間、BO 担当者は卸システムの exec URL を直接開いて右上メニューから卸を選ぶ（この間の CSV 登録は可能）。</li>
+<li>旧ログイン導線の残骸（LP 等の外部ページ、不要になった Script Property（<code>LP_URL</code>・<code>OAUTH_CLIENT_ID</code> 等））の整理。旧導線の停止は 1 で完了済みであり、3 は後片付けのみ。</li>
 </ol>
 <h3 id="s23">9.3 テスト</h3>
 <ul>

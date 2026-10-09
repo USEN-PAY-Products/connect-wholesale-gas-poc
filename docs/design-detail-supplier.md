@@ -104,7 +104,9 @@ function getConfig_() {
 ```
 
 - 戻り値から `lpUrl` / `oauthClientId` を削除（呼び出し元は §3〜§5 で全て除去）。
-- ファイル先頭のコメント、`setupScriptProperties`、`setLpUrl` 系ヘルパー（`LP_URL` / `OAUTH_CLIENT_ID` を設定する関数）を削除・置換。`ALLOWED_*` / `BACKOFFICE_URL` の設定ヘルパーは任意で追加。
+- ファイル先頭のコメント、`setupScriptProperties`、`overwriteBqDatasetId`、`overwriteGcpProjectId`、`setLpUrl` 系ヘルパーなど、**Script Property を書き換えるトップレベル関数は全て削除する**。トップレベル関数は `google.script.run` から呼べ、`executeAs: USER_DEPLOYING` ではデプロイ者の権限で設定を書き換えられてしまうため（特に dev）。
+- `ALLOWED_*` / `BACKOFFICE_URL` / `SUPPLIER` 関連の設定変更は GAS の UI（プロジェクトの設定 → スクリプト プロパティ）で行い、設定変更用の関数は追加しない（追加が必要になった場合は、一般の操作者から呼べない管理者専用の仕組みを別途設計する）。
+- テスト観点: `src/` に `PropertiesService...setProperty(ies)` を呼ぶトップレベル関数が残っていないこと（grep で確認）。
 
 ---
 
@@ -474,7 +476,7 @@ else                → getAccountInfo(wholesalerId)
 | 種別 | 対象 |
 |---|---|
 | sessionStorage | `shiire_` で始まる全キー（`wholesaler_id/user_id/name/status`、`invoice_fee_rate`、`tax_rounding_method`、`merchant_mappings`、`csv_format_rules`、`invoices_cache`、`schedule_cache_*`、`parsedData`、`resubmit_handover_matter` など）|
-| メモリ状態 | `rawCsvBase64`、`utf8CsvBase64`、`parsedData`、`scheduleMap = {}`、`_scheduleLoaded = false`、`_detailCurrentInvoiceId`、`_isResubmitConfirm`、開いているモーダルを閉じる |
+| メモリ状態 | `rawCsvBase64`、`utf8CsvBase64`、`parsedData`、`scheduleMap = {}`、`_scheduleLoadedFor = null`（§5.4。取得失敗時も `null` に戻す）、`_detailCurrentInvoiceId`、`_isResubmitConfirm`、開いているモーダルを閉じる |
 
 - フルリロードで基本的にメモリは破棄されるが、「同一ドキュメント内で再初期化される経路」と「sessionStorage（同一タブで残る）」の両方を防ぐ二重の安全策として実装。
 - `saveAccountInfo`（285 行）は保存前に旧コンテキストを消去。`setItem` が容量超過で失敗した場合は全体をクリアして再取得するフォールバックを入れる。

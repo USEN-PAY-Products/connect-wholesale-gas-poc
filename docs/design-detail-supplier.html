@@ -16,7 +16,7 @@ pre.mermaid{background:#fff;color:#000;border:1px solid var(--bd);text-align:cen
 blockquote{margin:12px 0;padding:8px 16px;background:#fff7ed;border-left:4px solid #fb923c;color:#7c2d12}blockquote p{margin:4px 0}
 hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 @media(max-width:900px){nav{display:none}main{margin:0;padding:16px}}@media print{nav{display:none}main{margin:0;max-width:none}}
-</style></head><body><nav><div class="t">目次</div><a class="d2" href="#s0">0. このドキュメントの位置づけ</a><a class="d3" href="#s1">0.1 確定している方針（再掲）</a><a class="d3" href="#s2">0.2 スコープ外</a><a class="d2" href="#s3">1. 改修ファイル一覧</a><a class="d2" href="#s4">2. 設定・デプロイ設定</a><a class="d3" href="#s5">2.1 appsscript.json</a><a class="d3" href="#s6">2.2 Script Properties</a><a class="d3" href="#s7">2.3 be_config.js の変更</a><a class="d2" href="#s8">3. 認証・認可（be_authz.js 新規）</a><a class="d2" href="#s9">4. バックエンド詳細</a><a class="d3" href="#s10">4.1 be_server.js</a><a class="d3" href="#s11">4.2 db_bq_query.js</a><a class="d3" href="#s12">4.3 be_main.js（doGet(e)）</a><a class="d3" href="#s13">4.4 be_invoice.js</a><a class="d3" href="#s14">4.5 be_csv_mapper.js</a><a class="d3" href="#s15">4.6 be_slack.js</a><a class="d3" href="#s16">4.7 be_assets.js</a><a class="d3" href="#s17">4.8 be_auth.js（削除）</a><a class="d2" href="#s18">5. フロントエンド詳細</a><a class="d3" href="#s19">5.1 fe_index.html</a><a class="d3" href="#s20">5.2 fe_part_header.html（ヘッダー）</a><a class="d3" href="#s21">5.3 fe_js_common.html</a><a class="d3" href="#s22">5.4 各ページ JS</a><a class="d3" href="#s23">5.5 fe_page_error.html</a><a class="d3" href="#s24">5.6 fe_css.html</a><a class="d2" href="#s25">6. シーケンス（BO から入場 → 登録）</a><a class="d2" href="#s26">7. エラー・例外設計</a><a class="d2" href="#s27">8. セキュリティ</a><a class="d2" href="#s28">9. 監査・ログ</a><a class="d2" href="#s29">10. 既知の制約・方針</a><a class="d2" href="#s30">11. テスト設計</a><a class="d3" href="#s31">11.1 単体（node --test test/）</a><a class="d3" href="#s32">11.2 結合・手動（dev 環境）</a><a class="d2" href="#s33">12. 実装手順（タスク分解・依存関係）</a><a class="d2" href="#s34">13. 更新対象ドキュメント</a><a class="d2" href="#s35">14. 実装前に確認が必要な項目</a></nav><main><div class="cover"><h1>詳細設計書（卸システム側）BackOffice 代行運用</h1></div><blockquote>
+</style></head><body><nav><div class="t">目次</div><a class="d2" href="#s0">0. このドキュメントの位置づけ</a><a class="d3" href="#s1">0.1 確定している方針（再掲）</a><a class="d3" href="#s2">0.2 スコープ外</a><a class="d2" href="#s3">1. 改修ファイル一覧</a><a class="d2" href="#s4">2. 設定・デプロイ設定</a><a class="d3" href="#s5">2.1 appsscript.json</a><a class="d3" href="#s6">2.2 Script Properties</a><a class="d3" href="#s7">2.3 be_config.js の変更</a><a class="d2" href="#s8">3. 認証・認可（be_authz.js 新規）</a><a class="d2" href="#s9">4. バックエンド詳細</a><a class="d3" href="#s10">4.1 be_server.js</a><a class="d3" href="#s11">4.2 db_bq_query.js</a><a class="d3" href="#s12">4.3 be_main.js（doGet(e)）</a><a class="d3" href="#s13">4.4 be_invoice.js</a><a class="d3" href="#s14">4.5 be_csv_mapper.js</a><a class="d3" href="#s15">4.6 be_slack.js</a><a class="d3" href="#s16">4.7 be_assets.js</a><a class="d3" href="#s17">4.8 be_auth.js（削除）</a><a class="d2" href="#s18">5. フロントエンド詳細</a><a class="d3" href="#s19">5.1 fe_index.html</a><a class="d3" href="#s20">5.2 fe_part_header.html（ヘッダー）</a><a class="d3" href="#s21">5.3 fe_js_common.html</a><a class="d3" href="#s22">5.4 各ページ JS</a><a class="d3" href="#s23">5.5 fe_page_error.html</a><a class="d3" href="#s24">5.6 fe_css.html</a><a class="d2" href="#s25">6. シーケンス（BO から入場 → 登録）</a><a class="d2" href="#s26">7. エラー・例外設計</a><a class="d2" href="#s27">8. セキュリティ</a><a class="d2" href="#s28">9. 監査・ログ</a><a class="d2" href="#s29">10. 既知の制約・方針</a><a class="d2" href="#s30">11. テスト設計</a><a class="d3" href="#s31">11.1 単体（node --test test/）</a><a class="d3" href="#s32">11.2 結合・手動（dev 環境）</a><a class="d2" href="#s33">12. 実装手順（タスク分解・依存関係）</a><a class="d2" href="#s34">13. 更新対象ドキュメント</a><a class="d2" href="#s35">14. 実装前に確認が必要な項目</a></nav><main><div class="cover"><h1>詳細設計書（卸システム側）BackOffice 代行運用（コンテキストスイッチ）</h1></div><blockquote>
 <p>ステータス: <strong>レビュー待ち</strong>
 対象リポジトリ: <code>shiire-poc-supplier</code>（GAS / clasp）
 上位設計: <code>docs/design-bo-wholesaler-context-switch.md</code>（決定事項 D-1〜D-15 はそちらが正）
@@ -216,8 +216,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 <hr>
 <h2 id="s4">2. 設定・デプロイ設定</h2>
 <h3 id="s5">2.1 <code>appsscript.json</code></h3>
-<pre><code class="language-json">&quot;webapp&quot;: { &quot;executeAs&quot;: &quot;USER_DEPLOYING&quot;, &quot;access&quot;: &quot;DOMAIN&quot; }
-</code></pre>
+<pre><code class="language-json">"webapp": { "executeAs": "USER_DEPLOYING", "access": "DOMAIN" }</code></pre>
 <ul>
 <li><code>oauthScopes</code> は変更なし（<code>userinfo.email</code> は既に含まれる。<code>Session.getActiveUser()</code> に必要）。</li>
 <li><strong>デプロイ注意</strong>: アクセス権の変更は既存デプロイの「編集 → 新バージョン」で反映し、<strong>デプロイ URL を変えない</strong>（BO の <code>SUPPLIER_APP_URL</code> を差し替え不要にするため）。反映時に再認可ダイアログが出る可能性あり。</li>
@@ -273,37 +272,37 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
   const props = PropertiesService.getScriptProperties();
   // ...既存の必須チェック（DRIVE_ROOT_FOLDER_ID / GCP_PROJECT_ID / BQ_DATASET_ID）は維持
   const splitCsv = function (v) {
-    return String(v || &#39;&#39;).split(&#39;,&#39;).map(function (s) { return s.trim(); }).filter(Boolean);
+    return String(v || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   };
   return {
     driveFolderId, gcpProjectId, bqDatasetId, bqLocation, env,
-    allowedDomains: splitCsv(props.getProperty(&#39;ALLOWED_DOMAINS&#39;)),
-    allowedEmails:  splitCsv(props.getProperty(&#39;ALLOWED_EMAILS&#39;)),
+    allowedDomains: splitCsv(props.getProperty('ALLOWED_DOMAINS')),
+    allowedEmails:  splitCsv(props.getProperty('ALLOWED_EMAILS')),
     // script.google.com の exec URL 形式のみ許可（誤設定時の任意サイトへの誘導防止）
-    backOfficeUrl:  /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test((props.getProperty(&#39;BACKOFFICE_URL&#39;) || &#39;&#39;).trim()) ? props.getProperty(&#39;BACKOFFICE_URL&#39;).trim() : &#39;&#39;,
+    backOfficeUrl:  /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test((props.getProperty('BACKOFFICE_URL') || '').trim()) ? props.getProperty('BACKOFFICE_URL').trim() : '',
   };
-}
-</code></pre>
+}</code></pre>
 <ul>
 <li>戻り値から <code>lpUrl</code> / <code>oauthClientId</code> を削除（呼び出し元は §3〜§5 で全て除去）。</li>
-<li>ファイル先頭のコメント、<code>setupScriptProperties</code>、<code>setLpUrl</code> 系ヘルパー（<code>LP_URL</code> / <code>OAUTH_CLIENT_ID</code> を設定する関数）を削除・置換。<code>ALLOWED_*</code> / <code>BACKOFFICE_URL</code> の設定ヘルパーは任意で追加。</li>
+<li>ファイル先頭のコメント、<code>setupScriptProperties</code>、<code>overwriteBqDatasetId</code>、<code>overwriteGcpProjectId</code>、<code>setLpUrl</code> 系ヘルパーなど、<strong>Script Property を書き換えるトップレベル関数は全て削除する</strong>。トップレベル関数は <code>google.script.run</code> から呼べ、<code>executeAs: USER_DEPLOYING</code> ではデプロイ者の権限で設定を書き換えられてしまうため（特に dev）。</li>
+<li><code>ALLOWED_*</code> / <code>BACKOFFICE_URL</code> / <code>SUPPLIER</code> 関連の設定変更は GAS の UI（プロジェクトの設定 → スクリプト プロパティ）で行い、設定変更用の関数は追加しない（追加が必要になった場合は、一般の操作者から呼べない管理者専用の仕組みを別途設計する）。</li>
+<li>テスト観点: <code>src/</code> に <code>PropertiesService...setProperty(ies)</code> を呼ぶトップレベル関数が残っていないこと（grep で確認）。</li>
 </ul>
 <hr>
 <h2 id="s8">3. 認証・認可（<code>be_authz.js</code> 新規）</h2>
 <p>BO の <code>Authz</code>（<code>connect-backoffice-gas-poc/src/be_utils.js</code>）と同一の判定を、卸システムの命名規則に合わせて実装する。</p>
 <pre><code class="language-js">// be_authz.js
 function requireAuthorizedOperator_() {
-  const email = Session.getActiveUser().getEmail() || &#39;&#39;;
-  if (!email) throw new Error(&#39;UNAUTHORIZED: ユーザーを識別できません。Googleアカウントでアクセスしてください。&#39;);
+  const email = Session.getActiveUser().getEmail() || '';
+  if (!email) throw new Error('UNAUTHORIZED: ユーザーを識別できません。Googleアカウントでアクセスしてください。');
 
   const cfg = getConfig_();
-  const domain = email.split(&#39;@&#39;)[1] || &#39;&#39;;
+  const domain = email.split('@')[1] || '';
   const domainOk = cfg.allowedDomains.length === 0 || cfg.allowedDomains.indexOf(domain) !== -1;
   const emailOk  = cfg.allowedEmails.length  === 0 || cfg.allowedEmails.indexOf(email)  !== -1;
-  if (!domainOk || !emailOk) throw new Error(&#39;FORBIDDEN: このアカウントにはアクセス権がありません。&#39;);
+  if (!domainOk || !emailOk) throw new Error('FORBIDDEN: このアカウントにはアクセス権がありません。');
   return email;
-}
-</code></pre>
+}</code></pre>
 <ul>
 <li>エラーは既存方式（<code>err.message</code> のプレフィックス <code>UNAUTHORIZED:</code> / <code>NOT_REGISTERED:</code>）に合わせ、<code>FORBIDDEN:</code>、<code>WHOLESALER_MISSING:</code>、<code>WHOLESALER_INVALID:</code>、<code>WHOLESALER_INACTIVE:</code> を追加する。</li>
 <li>未設定時が fail-open（全許可）になる点は D-9 のとおり（PoC）。</li>
@@ -315,39 +314,37 @@ function requireAuthorizedOperator_() {
 <pre><code class="language-js">function getServerAccountInfo_(wholesalerId) {
   const operatorEmail = requireAuthorizedOperator_();              // ① 認証・認可
 
-  const idStr = String(wholesalerId == null ? &#39;&#39; : wholesalerId).trim();
-  if (!idStr)                 throw new Error(&#39;WHOLESALER_MISSING: 卸が指定されていません。&#39;);
-  if (!/^\d{1,15}$/.test(idStr)) throw new Error(&#39;WHOLESALER_INVALID: 卸IDの形式が不正です。&#39;); // ② 形式検証（SQLへ渡す値の保護も兼ねる）
+  const idStr = String(wholesalerId == null ? '' : wholesalerId).trim();
+  if (!idStr)                 throw new Error('WHOLESALER_MISSING: 卸が指定されていません。');
+  if (!/^\d{1,15}$/.test(idStr)) throw new Error('WHOLESALER_INVALID: 卸IDの形式が不正です。'); // ② 形式検証（SQLへ渡す値の保護も兼ねる）
 
   // 15 桁以内に制限（Number.MAX_SAFE_INTEGER 未満が保証される）。既存コードが Number(wholesaler_id) 変換を多用する（db_bq_query.js 72、be_invoice.js 307、be_csv_mapper.js 733 等）ため、精度落ちを入口で防ぐ
   const accountInfo = fetchAccountInfoByWholesalerId_(Number(idStr), operatorEmail); // ③ 卸の実在確認 + 操作者の wholesaler_user 特定/自動登録
-  if (!accountInfo) throw new Error(&#39;WHOLESALER_INVALID: 指定された卸が見つかりません。&#39;);
+  if (!accountInfo) throw new Error('WHOLESALER_INVALID: 指定された卸が見つかりません。');
 
   accountInfo.operator_email = operatorEmail;                       // ④ ログ・Slack・監査用に付与
-  logInfo_(&#39;Auth&#39;, &#39;認証成功: wholesaler_id=&#39; + accountInfo.wholesaler_id +
-                   &#39;, operator=&#39; + operatorEmail + &#39;, account_id=&#39; + accountInfo.wholesaler_user_id);
+  logInfo_('Auth', '認証成功: wholesaler_id=' + accountInfo.wholesaler_id +
+                   ', operator=' + operatorEmail + ', account_id=' + accountInfo.wholesaler_user_id);
   return accountInfo;
-}
-</code></pre>
+}</code></pre>
 <ul>
 <li>返却オブジェクトの既存フィールド（<code>wholesaler_id</code> / <code>wholesaler_user_id</code> / <code>wholesaler_name</code> / <code>wholesaler_status</code> / <code>fee_rate</code> / <code>tax_rounding_method</code> / <code>csv_format_rules</code> / <code>merchant_mappings</code>）は<strong>そのまま</strong>。呼び出し側の改修を最小にするため。追加は <code>operator_email</code> のみ。</li>
 <li><code>wholesaler_status</code> が <code>active</code>/<code>end</code> 以外（<code>entry</code> 等）の卸は <code>fetchAccountInfoByWholesalerId_</code> が <code>null</code> を返す → <code>WHOLESALER_INVALID</code> ではなく <code>WHOLESALER_INACTIVE</code> を返したい場合は、SQL 側でステータスを返して分岐する（§4.2 の <code>ws</code> CTE 参照）。<strong>採用</strong>: 実在するがステータス不可 → <code>WHOLESALER_INACTIVE</code>。</li>
 </ul>
 <h4><code>getAccountInfo(wholesalerId)</code>（公開）</h4>
 <pre><code class="language-js">function getAccountInfo(wholesalerId) {
-  let operatorEmail_ = &#39;&#39;;
-  try { operatorEmail_ = Session.getActiveUser().getEmail() || &#39;&#39;; } catch (e) { /* 取得不可でもログのみのため継続 */ }
+  let operatorEmail_ = '';
+  try { operatorEmail_ = Session.getActiveUser().getEmail() || ''; } catch (e) { /* 取得不可でもログのみのため継続 */ }
   try { return success_(getServerAccountInfo_(wholesalerId)); }
   catch (err) {
     // 認証/指定系エラーは err.message をそのままフロントへ（プレフィックスで画面を出し分け）
-    const m = String(err.message || &#39;&#39;);
+    const m = String(err.message || '');
     // SYSTEM: はロック取得失敗など利用者に伝えるべき文言のため、他の認証系と同様にそのまま返す
     if (/^(UNAUTHORIZED|FORBIDDEN|WHOLESALER_MISSING|WHOLESALER_INVALID|WHOLESALER_INACTIVE|SYSTEM):/.test(m)) throw err;
-    logError_(&#39;Auth&#39;, &#39;getAccountInfo&#39;, err, { actionLabel: &#39;アカウント情報取得&#39;, operatorEmail: operatorEmail_ });
-    throw new Error(&#39;アカウント情報の取得に失敗しました。ページを再読み込みしてください。&#39;);
+    logError_('Auth', 'getAccountInfo', err, { actionLabel: 'アカウント情報取得', operatorEmail: operatorEmail_ });
+    throw new Error('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
   }
-}
-</code></pre>
+}</code></pre>
 <ul>
 <li>現行の <code>NOT_REGISTERED:</code>（BQ 未登録）は、自動登録（D-3）により発生しなくなる。<strong>自動登録の失敗は <code>system</code> 扱い</strong>。</li>
 </ul>
@@ -355,10 +352,9 @@ function requireAuthorizedOperator_() {
 <p>ヘッダーの卸切替一覧用。認可（<code>requireAuthorizedOperator_()</code>）のみ通せば呼べる（卸未選択でも使えるため）。</p>
 <pre><code class="language-js">function listWholesalers() {
   const operatorEmail = requireAuthorizedOperator_();
-  logInfo_(&#39;Auth&#39;, &#39;listWholesalers: operator=&#39; + operatorEmail); // 全卸一覧の参照を監査ログに残す
+  logInfo_('Auth', 'listWholesalers: operator=' + operatorEmail); // 全卸一覧の参照を監査ログに残す
   return success_(fetchWholesalerList_()); // [{ wholesaler_id, wholesaler_name, wholesaler_status }]
-}
-</code></pre>
+}</code></pre>
 <ul>
 <li>検索はクライアント側（部分一致）で行う（卸数が数百規模までを想定）。</li>
 </ul>
@@ -386,8 +382,7 @@ SELECT w.id AS wholesaler_id, w.wholesaler_name, w.wholesaler_status,
 FROM ws AS w
 LEFT JOIN latest_merchants AS wm ON wm.rn = 1
 LEFT JOIN `&lt;project&gt;.&lt;dataset&gt;.store` AS s
-  ON s.mall_code = wm.mall_code AND s.store_status = &#39;active&#39;
-</code></pre>
+  ON s.mall_code = wm.mall_code AND s.store_status = 'active'</code></pre>
 <ul>
 <li>操作者の <code>wholesaler_user</code> は<strong>別クエリ</strong>で解決する（直積による <code>rows[0]</code> の不安定化を避ける）。</li>
 <li>処理順:<ol>
@@ -409,14 +404,13 @@ LEFT JOIN `&lt;project&gt;.&lt;dataset&gt;.store` AS s
    ORDER BY (deleted_at IS NULL) DESC, registration_at DESC, id DESC LIMIT 1
    → deleted_at IS NULL の行があればその id を返して終了（通常ケース・ロック不要）
 2. ロック取得: LockService.getScriptLock().waitLock(10000)
-   ※ 取得失敗 → Error(&#39;SYSTEM: 他の処理中のため登録できませんでした。再度お試しください。&#39;)
+   ※ 取得失敗 → Error('SYSTEM: 他の処理中のため登録できませんでした。再度お試しください。')
 3. ロック内で 1 を再実行（他リクエストが先に登録していないか）
    - active 行あり → その id を返す
    - deleted_at 済みの行のみあり → UPDATE wholesaler_user SET deleted_at = NULL WHERE id = @id（復活）→ その id
    - 行なし → INSERT INTO wholesaler_user (id, wholesaler_id, wholesaler_email, registration_at)
-              VALUES (&lt;新規UUID&gt;, @id, @email, CURRENT_DATE(&#39;Asia/Tokyo&#39;))
-4. finally: lock.releaseLock()
-</code></pre>
+              VALUES (&lt;新規UUID&gt;, @id, @email, CURRENT_DATE('Asia/Tokyo'))
+4. finally: lock.releaseLock()</code></pre>
 <ul>
 <li>新規 id は既存の卸システムの慣例に合わせ <code>Utilities.getUuid()</code>（v4）を使う。スキーマ上は UUID v7 とされているが、現行の卸システムの INSERT は v4 であり FK・形式検証に影響しない（<strong>決定 §14-3</strong>：卸システムに揃えて v4。BO の <code>createV7</code> は移植しない）。</li>
 <li><code>registration_at</code> は DATE。タイムゾーンは <code>Asia/Tokyo</code>。</li>
@@ -426,33 +420,31 @@ LEFT JOIN `&lt;project&gt;.&lt;dataset&gt;.store` AS s
 <h4><code>fetchWholesalerList_()</code>（新設）</h4>
 <pre><code class="language-sql">SELECT id AS wholesaler_id, wholesaler_name, wholesaler_status
 FROM `&lt;project&gt;.&lt;dataset&gt;.wholesalers`
-WHERE wholesaler_status IN (&#39;active&#39;, &#39;end&#39;)
-ORDER BY wholesaler_name, id
-</code></pre>
+WHERE wholesaler_status IN ('active', 'end')
+ORDER BY wholesaler_name, id</code></pre>
 <h3 id="s12">4.3 <code>be_main.js</code>（<code>doGet(e)</code>）</h3>
 <pre><code class="language-js">function doGet(e) {
   // 認可（NG なら 403 ページを返す。BO の doGet と同じ作り）
-  let operatorEmail = &#39;&#39;;
+  let operatorEmail = '';
   try { operatorEmail = requireAuthorizedOperator_(); }
   catch (err) {
     // 403 にするのは UNAUTHORIZED / FORBIDDEN のみ。設定不備（getConfig_ の必須プロパティ未設定など）を認可エラーに見せない
-    if (/^(UNAUTHORIZED|FORBIDDEN):/.test(String(err.message || &#39;&#39;))) return forbiddenPage_(err);
-    logError_(&#39;Auth&#39;, &#39;doGet&#39;, err, { actionLabel: &#39;起動&#39; });
+    if (/^(UNAUTHORIZED|FORBIDDEN):/.test(String(err.message || ''))) return forbiddenPage_(err);
+    logError_('Auth', 'doGet', err, { actionLabel: '起動' });
     throw err;  // 設定・システム障害は握りつぶさず GAS のエラー画面＋ログに出す
   }
 
-  const raw = String((e &amp;&amp; e.parameter &amp;&amp; e.parameter.wholesalerId) || &#39;&#39;).trim();
-  const wholesalerId = /^\d{1,15}$/.test(raw) ? raw : &#39;&#39;;      // 不正値は未指定として扱う（空状態へ）
+  const raw = String((e &amp;&amp; e.parameter &amp;&amp; e.parameter.wholesalerId) || '').trim();
+  const wholesalerId = /^\d{1,15}$/.test(raw) ? raw : '';      // 不正値は未指定として扱う（空状態へ）
 
-  const template = HtmlService.createTemplateFromFile(&#39;fe_index&#39;);
+  const template = HtmlService.createTemplateFromFile('fe_index');
   template.isDev = isDev;
   template.wholesalerId = wholesalerId;
   template.operatorEmail = operatorEmail;
   template.webAppUrl = ScriptApp.getService().getUrl();        // 卸切替（top 遷移）のベース URL
   template.backOfficeUrl = getConfig_().backOfficeUrl;          // https のみ許可（isHttpsUrl_ 流用）
   ...
-}
-</code></pre>
+}</code></pre>
 <ul>
 <li><code>e.parameter.token</code> の読み取りと <code>template.sessionToken</code> は削除。</li>
 <li><code>forbiddenPage_</code>: BO と同様、<code>HtmlService.createHtmlOutput(&#39;&lt;h2&gt;403 Forbidden&lt;/h2&gt;&lt;p&gt;アクセス権がありません。&lt;/p&gt;&#39;)</code>（<code>UNAUTHORIZED</code> も同扱い）。</li>
@@ -528,13 +520,12 @@ ORDER BY wholesaler_name, id
 <p>現状（1547 行）: <code>hasCurrentMonthInvoice_</code> がトランザクションの外にあり、2 人の BO 担当者が同時に送ると両方すり抜ける可能性がある。</p>
 <p>変更:</p>
 <pre><code class="language-js">const lock = LockService.getScriptLock();
-if (!lock.tryLock(30000)) throw new Error(&#39;他の担当者が処理中です。しばらくしてから再度お試しください。&#39;);
+if (!lock.tryLock(30000)) throw new Error('他の担当者が処理中です。しばらくしてから再度お試しください。');
 try {
   // 既存の「当月重複チェック」をロック内に移し、チェック〜INSERT をロックで直列化する
-  if (hasCurrentMonthInvoice_(accountInfo.wholesaler_id)) { throw new Error(&#39;今月は既に新規の請求書が登録されています。...&#39;); }
+  if (hasCurrentMonthInvoice_(accountInfo.wholesaler_id)) { throw new Error('今月は既に新規の請求書が登録されています。...'); }
   ... 既存の ⑤ BEGIN TRANSACTION ... COMMIT ...
-} finally { lock.releaseLock(); }
-</code></pre>
+} finally { lock.releaseLock(); }</code></pre>
 <ul>
 <li>ロック単位: GAS の <code>getScriptLock()</code> は全体ロックなので、「卸+年月」単位の細粒度は取れない。<strong>スクリプトロックで直列化する</strong>（処理時間は数秒。BO 担当者の同時利用は少数のため許容。上位設計 §6 の「卸+年月」は論理的な粒度で、実装はスクリプトロック）。</li>
 <li>追加のセーフティ: INSERT のトランザクション内にも当月重複の再確認（<code>IF EXISTS(...) THEN ROLLBACK</code>）を入れ、ロックを抜けた場合でも二重登録にならないようにする。メッセージは既存と同一。</li>
@@ -601,9 +592,8 @@ try {
 <h4>4.4.5 ログ</h4>
 <p>Drive 監査 CSV には <code>setDescription</code> で操作者メールを付与する（上記 §9）。</p>
 <p><code>logInfo_</code> / <code>logError_</code> の context に <code>operatorEmail</code>（<code>accountInfo.operator_email</code>）と <code>wholesalerId</code> を必ず含める。例:</p>
-<pre><code class="language-js">logInfo_(&#39;Invoice&#39;, &#39;sendInvoiceData 開始: wholesaler_id=&#39; + accountInfo.wholesaler_id +
-  &#39;, operator=&#39; + accountInfo.operator_email + &#39;, account_id=&#39; + accountInfo.wholesaler_user_id + ...);
-</code></pre>
+<pre><code class="language-js">logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id +
+  ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id + ...);</code></pre>
 <h3 id="s14">4.5 <code>be_csv_mapper.js</code></h3>
 <ul>
 <li>新規・再請求・一括再請求のトランザクション SQL は、<code>be_invoice.js</code> だけでなく <code>be_csv_mapper.js</code> の <strong><code>buildMappedTransactionSql_</code>（727）／<code>buildMappedResubmitTransactionSql_</code>（981）／<code>buildMappedBulkResubmitTransactionSql_</code>（1184）</strong> が組み立てる（カスタム形式の卸が通る経路）。§4.4.2 のトランザクション内の当月重複再確認と、§4.4.3 の <code>is_latest = FALSE</code> UPDATE（1101 付近、1318／1328 付近）への <code>@@row_count</code> 検証は、<strong>これらのビルダーにも同様に入れる</strong>（標準形式・マッピング形式の両方で同じガードを保証する）。</li>
@@ -640,13 +630,12 @@ try {
 <h2 id="s18">5. フロントエンド詳細</h2>
 <h3 id="s19">5.1 <code>fe_index.html</code></h3>
 <pre><code class="language-html">&lt;script&gt;
-  window.__APP_IS_DEV__ = (&#39;&lt;?= isDev ?&gt;&#39; === &#39;true&#39;);
-  window.__WHOLESALER_ID__ = &#39;&lt;?= wholesalerId ?&gt;&#39;;
-  window.__OPERATOR_EMAIL__ = &#39;&lt;?= operatorEmail ?&gt;&#39;;
-  window.__BACKOFFICE_URL__ = &#39;&lt;?= backOfficeUrl ?&gt;&#39;;
-  window.__WEB_APP_URL__ = &#39;&lt;?= webAppUrl ?&gt;&#39;;
-&lt;/script&gt;
-</code></pre>
+  window.__APP_IS_DEV__ = ('&lt;?= isDev ?&gt;' === 'true');
+  window.__WHOLESALER_ID__ = '&lt;?= wholesalerId ?&gt;';
+  window.__OPERATOR_EMAIL__ = '&lt;?= operatorEmail ?&gt;';
+  window.__BACKOFFICE_URL__ = '&lt;?= backOfficeUrl ?&gt;';
+  window.__WEB_APP_URL__ = '&lt;?= webAppUrl ?&gt;';
+&lt;/script&gt;</code></pre>
 <ul>
 <li><code>&lt;?= ?&gt;</code>（強制エスケープ）を使う。<code>__SESSION_TOKEN__</code> は削除。</li>
 </ul>
@@ -663,8 +652,7 @@ try {
                           │  △△物産 (34) …           │
                           │ ───────────────────────── │
                           │ BackOfficeへ戻る           │
-                          └───────────────────────────┘
-</code></pre>
+                          └───────────────────────────┘</code></pre>
 <ul>
 <li>既存の <code>headerStoreTrigger</code> / <code>headerStoreDropdown</code> の開閉ロジック（<code>initHeaderStoreDropdown</code>、Escape・外クリックで閉じる）を流用。<code>btnLogout</code> を削除し、卸検索入力・一覧・BO 戻りリンクを追加。</li>
 <li>卸一覧は初回ドロップダウンを開いたときに <code>listWholesalers()</code> を呼び、結果をメモリ保持（キャッシュはページ内のみ）。検索は部分一致（大小・全半角は考慮しない、<code>includes</code>）。表示は最大 50 件＋スクロール。</li>
@@ -676,9 +664,8 @@ try {
 <h4>卸 ID の取得</h4>
 <p><code>getSessionToken_()</code>（241 行）を <strong><code>getWholesalerId_()</code></strong> に置換。優先順位は <strong>URL 注入値 → なし</strong>（storage は参照しない。storage を優先すると旧卸が勝つため）。</p>
 <pre><code class="language-js">function getWholesalerId_() {
-  return String(window.__WHOLESALER_ID__ || &#39;&#39;);
-}
-</code></pre>
+  return String(window.__WHOLESALER_ID__ || '');
+}</code></pre>
 <ul>
 <li>実質、卸コンテキストの唯一の真実は「ページロード時に注入された <code>__WHOLESALER_ID__</code>」。<code>shiire_wholesaler_id</code>（sessionStorage）は互換のため保存だけ行い、<strong>判定には使わない</strong>。</li>
 </ul>
@@ -687,8 +674,7 @@ try {
 if (!wholesalerId)  → 空状態を表示（本文「右上のメニューから卸を選択してください」）。getAccountInfo は呼ばない。ヘッダー/メニューは使える
 else                → getAccountInfo(wholesalerId)
    success → saveAccountInfo(data) / バナー表示 / enableUploadUi_() / loadScheduleData_() / navigate()
-   failure → err.message のプレフィックスで showErrorPage_(種別)
-</code></pre>
+   failure → err.message のプレフィックスで showErrorPage_(種別)</code></pre>
 <ul>
 <li><code>reportClientError(payload, getWholesalerId_())</code> に更新（105 行）。</li>
 </ul>
@@ -707,7 +693,7 @@ else                → getAccountInfo(wholesalerId)
 </tr>
 <tr>
 <td>メモリ状態</td>
-<td><code>rawCsvBase64</code>、<code>utf8CsvBase64</code>、<code>parsedData</code>、<code>scheduleMap = {}</code>、<code>_scheduleLoaded = false</code>、<code>_detailCurrentInvoiceId</code>、<code>_isResubmitConfirm</code>、開いているモーダルを閉じる</td>
+<td><code>rawCsvBase64</code>、<code>utf8CsvBase64</code>、<code>parsedData</code>、<code>scheduleMap = {}</code>、<code>_scheduleLoadedFor = null</code>（§5.4。取得失敗時も <code>null</code> に戻す）、<code>_detailCurrentInvoiceId</code>、<code>_isResubmitConfirm</code>、開いているモーダルを閉じる</td>
 </tr>
 </tbody></table>
 <ul>
@@ -719,9 +705,8 @@ else                → getAccountInfo(wholesalerId)
   clearWholesalerContext_();
   // GAS は iframe 配信 → トップレベルを書き換える。ベース URL は doGet が注入した webAppUrl（ScriptApp.getService().getUrl()）を使い、window.top.location は読まない
   const base = window.__WEB_APP_URL__;
-  window.top.location.href = base + &#39;?wholesalerId=&#39; + encodeURIComponent(id) + &#39;#home&#39;;
-}
-</code></pre>
+  window.top.location.href = base + '?wholesalerId=' + encodeURIComponent(id) + '#home';
+}</code></pre>
 <ul>
 <li>ベース URL は <code>doGet</code> が <code>ScriptApp.getService().getUrl()</code> をテンプレート注入（<code>window.__WEB_APP_URL__</code>）する方式を<strong>基本</strong>とする（<code>window.top.location</code> の読み取りは cross-origin で拒否され得るため使わない。レビュー指摘反映）。<code>top.location.href</code> への<strong>代入</strong>のみ行う（代入は可能）。</li>
 <li>フルリロードにより <code>doGet</code> が新しい <code>wholesalerId</code> で再評価される（D-12）。</li>
@@ -796,8 +781,7 @@ else                → getAccountInfo(wholesalerId)
   FE-&gt;&gt;BE: sendInvoiceData(..., 12)
   BE-&gt;&gt;BE: 認可・検証を再実施→Lock取得→当月重複再確認
   BE-&gt;&gt;BQ: INSERT (wholesaler_user_id / final_updated_by = 操作者)
-  BE--&gt;&gt;FE: 結果
-</pre>
+  BE--&gt;&gt;FE: 結果</pre>
 <hr>
 <h2 id="s26">7. エラー・例外設計</h2>
 <table>
@@ -1157,6 +1141,5 @@ else                → getAccountInfo(wholesalerId)
 <td>✅ 卸: MYP-5393 / BO: MYP-5337</td>
 </tr>
 </tbody></table>
-
 </main>
 <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,securityLevel:'loose'});</script></body></html>
