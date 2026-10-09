@@ -403,7 +403,7 @@ LEFT JOIN `&lt;project&gt;.&lt;dataset&gt;.store` AS s
    WHERE wholesaler_id = @id AND wholesaler_email = @email
    ORDER BY (deleted_at IS NULL) DESC, registration_at DESC, id DESC LIMIT 1
    → deleted_at IS NULL の行があればその id を返して終了（通常ケース・ロック不要）
-2. ロック取得: LockService.getScriptLock().waitLock(10000)
+2. ロック取得: LockService.getScriptLock().waitLock(30000)
    ※ 取得失敗 → Error('SYSTEM: 他の処理中のため登録できませんでした。再度お試しください。')
 3. ロック内で 1 を再実行（他リクエストが先に登録していないか）
    - active 行あり → その id を返す
@@ -415,7 +415,7 @@ LEFT JOIN `&lt;project&gt;.&lt;dataset&gt;.store` AS s
 <li>新規 id は既存の卸システムの慣例に合わせ <code>Utilities.getUuid()</code>（v4）を使う。スキーマ上は UUID v7 とされているが、現行の卸システムの INSERT は v4 であり FK・形式検証に影響しない（<strong>決定 §14-3</strong>：卸システムに揃えて v4。BO の <code>createV7</code> は移植しない）。</li>
 <li><code>registration_at</code> は DATE。タイムゾーンは <code>Asia/Tokyo</code>。</li>
 <li>クエリは既存の <code>runQuery_</code>（パラメータクエリ）を使用し、メールを文字列連結しない。DML は既存の DML 実行ヘルパー（<code>be_invoice.js</code> で使用中のもの）に合わせる。</li>
-<li>ロックはスクリプト全体ロックのため、登録処理（数百 ms〜数秒）の間は他の初回登録のみ待たされる。通常ケース（既登録）はロックを取らない。</li>
+<li>ロックは §4.4 の新規・再請求処理と<strong>共用する</strong>スクリプト全体ロックである。そのため登録処理の間だけでなく、請求処理（DML が長い場合）の間も初回登録は待たされる。待機上限は §4.4 と同じ 30 秒に揃え、取得失敗時は上記メッセージで再試行を促す。通常ケース（既登録）はロックを取らないため影響しない。将来、請求ロックと分離したくなった場合は、登録を原子的な <code>MERGE</code>（存在しなければ INSERT）に置き換える。</li>
 </ul>
 <h4><code>fetchWholesalerList_()</code>（新設）</h4>
 <pre><code class="language-sql">SELECT id AS wholesaler_id, wholesaler_name, wholesaler_status
@@ -527,6 +527,7 @@ try {
   ... 既存の ⑤ BEGIN TRANSACTION ... COMMIT ...
 } finally { lock.releaseLock(); }</code></pre>
 <ul>
+<li>待機上限: 新規・再請求・一括再請求・自動登録（§4.2）で共通に <code>waitLock(30000)</code>（30 秒）とする。取得失敗時は共通メッセージ「他の担当者が処理中です。しばらくしてから再度お試しください」。</li>
 <li>ロック単位: GAS の <code>getScriptLock()</code> は全体ロックなので、「卸+年月」単位の細粒度は取れない。<strong>スクリプトロックで直列化する</strong>（処理時間は数秒。BO 担当者の同時利用は少数のため許容。上位設計 §6 の「卸+年月」は論理的な粒度で、実装はスクリプトロック）。</li>
 <li>追加のセーフティ: INSERT のトランザクション内にも当月重複の再確認（<code>IF EXISTS(...) THEN ROLLBACK</code>）を入れ、ロックを抜けた場合でも二重登録にならないようにする。メッセージは既存と同一。</li>
 <li>ステージング（CSV を BQ へロード）などロック不要な重い処理は<strong>ロックの前</strong>に済ませ、ロック保持時間を最小化する（<code>hasCurrentMonthInvoice_</code> 〜 INSERT のみをロック対象にする）。</li>

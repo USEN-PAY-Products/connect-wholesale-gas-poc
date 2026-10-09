@@ -272,19 +272,13 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
   FROM wholesalers
   WHERE id = @wholesaler_id   -- ステータスは絞らず取得し、アプリ側で active/end 以外を WHOLESALER_INACTIVE にする
 ),
-op_user AS (             -- 操作者本人の wholesaler_user（D-3/D-4）。無ければ自動登録してから再取得
-  SELECT id AS wholesaler_user_id
-  FROM wholesaler_user
-  WHERE wholesaler_id = @wholesaler_id
-    AND wholesaler_email = @operator_email
-    AND deleted_at IS NULL
-),
 mm AS (                  -- 加盟店マッピング（現行ロジック踏襲：mall_code ごと最新、active store のみ）
   ...
 )
-SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...</code></pre>
+SELECT ... FROM ws LEFT JOIN mm ...      -- 卸（ws）が 1 行取れれば存在。操作者は別クエリで解決する</code></pre>
+<p>処理順: (1) 上記クエリで卸の実在とステータスを判定（0 行 → <code>WHOLESALER_INVALID</code>、<code>active</code>/<code>end</code> 以外 → <code>WHOLESALER_INACTIVE</code>）→ (2) <code>ensureOperatorWholesalerUser_</code> を<strong>別クエリ</strong>で実行して操作者本人の <code>wholesaler_user.id</code> を確保。<code>op_user</code> を同じクエリに <code>CROSS JOIN</code> すると、初回アクセス（未登録）で結果が 0 行になり「卸が存在しない」と区別できないため、結合しない（詳細設計（卸）§4.2）。</p>
 <ul>
-<li><code>op_user</code> が 0 件のときは、<code>wholesaler_user</code> へ「無ければ追加」（MERGE、または <code>LockService</code> 配下で INSERT）してから再取得する。同一担当者の複数タブ同時初回アクセスでも重複行を作らない。<code>deleted_at</code> 済みの行は復活させる。</li>
+<li>操作者の <code>wholesaler_user</code> が 0 件のときは、<code>wholesaler_user</code> へ「無ければ追加」（MERGE、または <code>LockService</code> 配下で INSERT）してから再取得する。同一担当者の複数タブ同時初回アクセスでも重複行を作らない。<code>deleted_at</code> 済みの行は復活させる。</li>
 <li>新規請求は「有効な加盟店のみ」、再請求は履歴ベースという現行の 2 系統（<code>be_invoice.js</code>）は維持する。</li>
 </ul>
 <h3 id="s10">3.4 シーケンス</h3>

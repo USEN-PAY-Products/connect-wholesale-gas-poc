@@ -23,11 +23,11 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 <ul>
 <li>既存卸ユーザーの流用（§1・§5）→ 操作者本人の <code>wholesaler_user</code> 行を自動登録（D-3/D-4）</li>
 <li>許可リスト未設定時の拒否（fail-close、§6.1）→ dev は空リスト許容、prd は 1 件以上必須（D-9）</li>
-<li>引数名 <code>sessionToken</code> の維持（§4.3）→ <code>wholesalerId</code> に差し替え
-作成日: 2026-10-02
-対象: 卸システム（<code>shiire-poc-supplier</code>）/ BackOffice（<code>connect-backoffice-gas-poc</code>）
-本書は旧 2 ドキュメント（初版・v2）を統合し、論点を「<strong>現状実装からの変更を最小にして、BackOffice ユーザーだけが卸のデータとして CSV をアップロードし BQ へ登録できるようにする方法</strong>」に絞って再構成したもの。</li>
+<li>引数名 <code>sessionToken</code> の維持（§4.3）→ <code>wholesalerId</code> に差し替え</li>
 </ul>
+<p>作成日: 2026-10-02
+対象: 卸システム（<code>shiire-poc-supplier</code>）/ BackOffice（<code>connect-backoffice-gas-poc</code>）
+本書は旧 2 ドキュメント（初版・v2）を統合し、論点を「<strong>現状実装からの変更を最小にして、BackOffice ユーザーだけが卸のデータとして CSV をアップロードし BQ へ登録できるようにする方法</strong>」に絞って再構成したもの。</p>
 </blockquote>
 <hr>
 <h2 id="s0">1. 結論</h2>
