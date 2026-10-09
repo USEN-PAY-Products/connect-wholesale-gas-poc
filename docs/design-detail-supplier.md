@@ -46,7 +46,7 @@
 | 6 | `src/db_bq_query.js` | 変更 | `fetchAccountInfoByEmail_` → `fetchAccountInfoByWholesalerId_`、`ensureOperatorWholesalerUser_`、`fetchWholesalerList_` を追加 |
 | 7 | `src/be_main.js` | 変更 | `doGet(e)` で認可・`wholesalerId` / 操作者メール / BO URL をテンプレート注入 |
 | 8 | `src/be_invoice.js` | 変更 | 公開関数の引数 `sessionToken` → `wholesalerId`、ロック導入、`final_updated_by` 更新、`@@row_count` 追加、ログに操作者追加 |
-| 9 | `src/be_csv_mapper.js` | 原則変更なし | `wsUserId`（= `accountInfo.wholesaler_user_id`）の受け渡しのみ。確認用テスト追加 |
+| 9 | `src/be_csv_mapper.js` | 変更 | `buildMappedTransactionSql_` / `buildMappedResubmitTransactionSql_` / `buildMappedBulkResubmitTransactionSql_` に、§4.4.2・§4.4.3 と同じ当月重複再確認・`@@row_count` 検証を追加（§4.5）。`wsUserId`（= `accountInfo.wholesaler_user_id`）の受け渡しは変更なし。標準／マッピング両形式のテスト追加 |
 | 10 | `src/be_slack.js` | 変更 | 通知に操作者を追加、`reportClientError` の卸名をサーバー補完 |
 | 11 | `src/be_assets.js` | 変更 | ファビコンの `LP_URL` 依存を廃止（`FAVICON_URL` のみ）|
 | 12 | `src/fe_index.html` | 変更 | `window.__WHOLESALER_ID__` / `__OPERATOR_EMAIL__` / `__BACKOFFICE_URL__` 注入、`__SESSION_TOKEN__` 廃止 |
@@ -603,7 +603,7 @@ sequenceDiagram
 | `sendInvoiceData` | `wholesalerId` で卸が確定／ロック取得失敗メッセージ／当月重複（ロック内）|
 | `resubmitInvoiceData` / `bulkResubmit` | `@@row_count` 検証が SQL に含まれる／ロック失敗 |
 | 取り下げ系 3 関数 | UPDATE の SET 句に `final_updated_by` が含まれる（値が `accountInfo.wholesaler_user_id`）|
-| `be_csv_mapper` | INSERT の `wholesaler_user_id` / `final_updated_by` が `accountInfo` の値 |
+| `be_csv_mapper` | INSERT の `wholesaler_user_id` / `final_updated_by` が `accountInfo` の値。3 つのマッピングビルダーに重複再確認・`@@row_count` 検証が含まれる |
 | Drive 監査 CSV | 新規／再請求／一括再請求の保存で `setDescription` に操作者メールが入る（`createFile` をモックして検証）|
 | `be_slack` | 操作者が通知の Who に含まれる／`reportClientError` が卸名をサーバー補完 |
 

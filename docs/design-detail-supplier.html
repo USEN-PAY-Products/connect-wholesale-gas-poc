@@ -149,8 +149,8 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 <tr>
 <td>9</td>
 <td><code>src/be_csv_mapper.js</code></td>
-<td>原則変更なし</td>
-<td><code>wsUserId</code>（= <code>accountInfo.wholesaler_user_id</code>）の受け渡しのみ。確認用テスト追加</td>
+<td>変更</td>
+<td><code>buildMappedTransactionSql_</code> / <code>buildMappedResubmitTransactionSql_</code> / <code>buildMappedBulkResubmitTransactionSql_</code> に、§4.4.2・§4.4.3 と同じ当月重複再確認・<code>@@row_count</code> 検証を追加（§4.5）。<code>wsUserId</code>（= <code>accountInfo.wholesaler_user_id</code>）の受け渡しは変更なし。標準／マッピング両形式のテスト追加</td>
 </tr>
 <tr>
 <td>10</td>
@@ -942,7 +942,7 @@ else                → getAccountInfo(wholesalerId)
 </tr>
 <tr>
 <td><code>be_csv_mapper</code></td>
-<td>INSERT の <code>wholesaler_user_id</code> / <code>final_updated_by</code> が <code>accountInfo</code> の値</td>
+<td>INSERT の <code>wholesaler_user_id</code> / <code>final_updated_by</code> が <code>accountInfo</code> の値。3 つのマッピングビルダーに重複再確認・<code>@@row_count</code> 検証が含まれる</td>
 </tr>
 <tr>
 <td>Drive 監査 CSV</td>
