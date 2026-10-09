@@ -98,7 +98,7 @@ function getConfig_() {
     allowedDomains: splitCsv(props.getProperty('ALLOWED_DOMAINS')),
     allowedEmails:  splitCsv(props.getProperty('ALLOWED_EMAILS')),
     // script.google.com の exec URL 形式のみ許可（誤設定時の任意サイトへの誘導防止）
-    backOfficeUrl:  /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+\/)?s\/[A-Za-z0-9_-]+\/exec$/.test((props.getProperty('BACKOFFICE_URL') || '').trim()) ? props.getProperty('BACKOFFICE_URL').trim() : '',
+    backOfficeUrl:  /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test((props.getProperty('BACKOFFICE_URL') || '').trim()) ? props.getProperty('BACKOFFICE_URL').trim() : '',
   };
 }
 ```

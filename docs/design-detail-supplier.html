@@ -280,7 +280,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
     allowedDomains: splitCsv(props.getProperty(&#39;ALLOWED_DOMAINS&#39;)),
     allowedEmails:  splitCsv(props.getProperty(&#39;ALLOWED_EMAILS&#39;)),
     // script.google.com の exec URL 形式のみ許可（誤設定時の任意サイトへの誘導防止）
-    backOfficeUrl:  /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+\/)?s\/[A-Za-z0-9_-]+\/exec$/.test((props.getProperty(&#39;BACKOFFICE_URL&#39;) || &#39;&#39;).trim()) ? props.getProperty(&#39;BACKOFFICE_URL&#39;).trim() : &#39;&#39;,
+    backOfficeUrl:  /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test((props.getProperty(&#39;BACKOFFICE_URL&#39;) || &#39;&#39;).trim()) ? props.getProperty(&#39;BACKOFFICE_URL&#39;).trim() : &#39;&#39;,
   };
 }
 </code></pre>
