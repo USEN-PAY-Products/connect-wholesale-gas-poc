@@ -591,7 +591,7 @@ sequenceDiagram
 1. **自己承認**: 許容（D-2）。`wholesaler_user_id`（→メール）と BO の `operation_updated_by` の突合で事後追跡可能。
 2. **`wholesaler_user` に BO 担当者の行が増える**: 自動登録（D-3）。退職者の行は残る（削除運用は今回対象外）。
 3. **`customer_code` の再請求時の取得元**: 最新 `wholesaler_merchants` 由来のまま（スナップショットなし。スコープ外 §0.2）。
-4. **スクリプトロック**: 全体で 1 つ。同時操作が多い運用になった場合は、卸単位の分離（`LockService.getDocumentLock` 等の使い分け）や処理時間の短縮を検討。
+4. **スクリプトロック**: 全体で 1 つ。同時操作が多い運用になった場合は、ロック保持時間の短縮（ステージング等の重い処理をロック外へ）を優先して検討する。卸単位の分離が必要になった場合は、`getDocumentLock` は独立スクリプトでは `null` でキー別に使えないため、条件付き BigQuery DML やロック用テーブルなどキー付きの仕組みを別途設計する。
 5. **シート/Drive 権限**: `executeAs: USER_DEPLOYING` のままのため、BQ・Drive へのアクセスはデプロイ者権限（現行と同じ）。
 
 ---
@@ -610,6 +610,7 @@ sequenceDiagram
 | `ensureOperatorWholesalerUser_` | 既存 active→INSERT しない／無し→INSERT／deleted 済み→復活／ロック失敗→エラー／ロック内再確認で他者が先に登録→INSERT しない |
 | `sendInvoiceData` | `wholesalerId` で卸が確定／ロック取得失敗メッセージ／当月重複（ロック内）|
 | `resubmitInvoiceData` / `bulkResubmit` | `@@row_count` 検証が SQL に含まれる／ロック失敗 |
+| `listWholesalers` | 許可外/メール空は `FORBIDDEN`/`UNAUTHORIZED` で拒否（`fetchWholesalerList_` を呼ばない）／返却は `active`・`end` の卸のみ／呼び出し時に操作者付きの監査ログが出る |
 | 取り下げ系 3 関数 | UPDATE の SET 句に `final_updated_by` が含まれる（値が `accountInfo.wholesaler_user_id`）|
 | `be_csv_mapper` | INSERT の `wholesaler_user_id` / `final_updated_by` が `accountInfo` の値。3 つのマッピングビルダーに重複再確認・`@@row_count` 検証が含まれる |
 | Drive 監査 CSV | 新規／再請求／一括再請求の保存で `setDescription` に操作者メールが入る（`createFile` をモックして検証）|

@@ -906,7 +906,7 @@ else                → getAccountInfo(wholesalerId)
 <li><strong>自己承認</strong>: 許容（D-2）。<code>wholesaler_user_id</code>（→メール）と BO の <code>operation_updated_by</code> の突合で事後追跡可能。</li>
 <li><strong><code>wholesaler_user</code> に BO 担当者の行が増える</strong>: 自動登録（D-3）。退職者の行は残る（削除運用は今回対象外）。</li>
 <li><strong><code>customer_code</code> の再請求時の取得元</strong>: 最新 <code>wholesaler_merchants</code> 由来のまま（スナップショットなし。スコープ外 §0.2）。</li>
-<li><strong>スクリプトロック</strong>: 全体で 1 つ。同時操作が多い運用になった場合は、卸単位の分離（<code>LockService.getDocumentLock</code> 等の使い分け）や処理時間の短縮を検討。</li>
+<li><strong>スクリプトロック</strong>: 全体で 1 つ。同時操作が多い運用になった場合は、ロック保持時間の短縮（ステージング等の重い処理をロック外へ）を優先して検討する。卸単位の分離が必要になった場合は、<code>getDocumentLock</code> は独立スクリプトでは <code>null</code> でキー別に使えないため、条件付き BigQuery DML やロック用テーブルなどキー付きの仕組みを別途設計する。</li>
 <li><strong>シート/Drive 権限</strong>: <code>executeAs: USER_DEPLOYING</code> のままのため、BQ・Drive へのアクセスはデプロイ者権限（現行と同じ）。</li>
 </ol>
 <hr>
@@ -943,6 +943,10 @@ else                → getAccountInfo(wholesalerId)
 <tr>
 <td><code>resubmitInvoiceData</code> / <code>bulkResubmit</code></td>
 <td><code>@@row_count</code> 検証が SQL に含まれる／ロック失敗</td>
+</tr>
+<tr>
+<td><code>listWholesalers</code></td>
+<td>許可外/メール空は <code>FORBIDDEN</code>/<code>UNAUTHORIZED</code> で拒否（<code>fetchWholesalerList_</code> を呼ばない）／返却は <code>active</code>・<code>end</code> の卸のみ／呼び出し時に操作者付きの監査ログが出る</td>
 </tr>
 <tr>
 <td>取り下げ系 3 関数</td>

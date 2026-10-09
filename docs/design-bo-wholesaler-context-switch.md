@@ -166,7 +166,8 @@ sequenceDiagram
 ### 4.4 設定
 | Script Property | 変更 |
 |---|---|
-| `ALLOWED_DOMAINS` / `ALLOWED_EMAILS` | 任意（未設定なら DOMAIN 内全員。将来絞る場合のみ設定）（D-9） |
+| `ALLOWED_DOMAINS` / `ALLOWED_EMAILS` | コード上は未設定なら DOMAIN 内全員（D-9）。ただし prd はどちらか一方の設定を必須運用とする（詳細設計（卸）§2.2） |
+| `BACKOFFICE_URL` | 追加。ヘッダー「BackOffice へ戻る」の遷移先（script.google.com の exec URL のみ許可）。未設定ならメニュー非表示 |
 | `LP_URL` / `OAUTH_CLIENT_ID` | 廃止 |
 | `FAVICON_URL` | ファビコンは LP 依存をやめ、この値（または埋め込み）で提供 |
 
@@ -228,14 +229,14 @@ sequenceDiagram
 2. dev で `access: DOMAIN` と `Session.getActiveUser()` の実機検証（§10-2,3）。
 
 ### 9.2 デプロイ順
-1. 卸システム改修（`access: DOMAIN`、`Authz` 移植、自動登録、再認可・再デプロイ）
+1. 卸システム改修（`access: DOMAIN`、`Authz` 移植、自動登録、再認可・再デプロイ）。**BE のシグネチャ（`sessionToken`→`wholesalerId`）と FE の呼び出しが同時に変わるため、実装 PR A+B+C を統合ブランチで積み、一括（アトミック）でデプロイする。個別にデプロイしない**（詳細設計（卸）§12）
 2. BO の deep link
 3. 旧ログイン導線（LP 等）の停止、Script Property の整理
 
 ### 9.3 テスト
 - 単体: `getServerAccountInfo_(wholesalerId)`（許可外、空リスト、不正 ID、存在しない卸、`end` 卸、操作者の wholesaler_user 無し(自動登録)/あり/deleted 済み）
 - 単体: 排他（ロック取得失敗）、`fetchAccountInfoByWholesalerId_` の決定性
-- 手動/E2E: 卸 A→B 切替時にキャッシュが残らない、確認画面の卸名、別卸への取り違え送信がない、複数タブ、別 Google アカウント
+- 手動/E2E: 卸 A→B 切替時にキャッシュが残らない、確認画面の卸名、別卸への取り違え送信がない、複数タブ（複数 Google アカウントは Workspace 1 アカウント運用のため対象外）
 - CI: `unit_tests.yml`、`bq_integrity_check.yml`（自動登録した行でも FK 検証が通ること）
 
 ### 9.4 更新対象ドキュメント

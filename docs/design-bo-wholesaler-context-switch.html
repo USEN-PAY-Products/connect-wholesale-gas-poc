@@ -337,7 +337,11 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
 </thead>
 <tbody><tr>
 <td><code>ALLOWED_DOMAINS</code> / <code>ALLOWED_EMAILS</code></td>
-<td>任意（未設定なら DOMAIN 内全員。将来絞る場合のみ設定）（D-9）</td>
+<td>コード上は未設定なら DOMAIN 内全員（D-9）。ただし prd はどちらか一方の設定を必須運用とする（詳細設計（卸）§2.2）</td>
+</tr>
+<tr>
+<td><code>BACKOFFICE_URL</code></td>
+<td>追加。ヘッダー「BackOffice へ戻る」の遷移先（script.google.com の exec URL のみ許可）。未設定ならメニュー非表示</td>
 </tr>
 <tr>
 <td><code>LP_URL</code> / <code>OAUTH_CLIENT_ID</code></td>
@@ -481,7 +485,7 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
 </ol>
 <h3 id="s22">9.2 デプロイ順</h3>
 <ol>
-<li>卸システム改修（<code>access: DOMAIN</code>、<code>Authz</code> 移植、自動登録、再認可・再デプロイ）</li>
+<li>卸システム改修（<code>access: DOMAIN</code>、<code>Authz</code> 移植、自動登録、再認可・再デプロイ）。<strong>BE のシグネチャ（<code>sessionToken</code>→<code>wholesalerId</code>）と FE の呼び出しが同時に変わるため、実装 PR A+B+C を統合ブランチで積み、一括（アトミック）でデプロイする。個別にデプロイしない</strong>（詳細設計（卸）§12）</li>
 <li>BO の deep link</li>
 <li>旧ログイン導線（LP 等）の停止、Script Property の整理</li>
 </ol>
@@ -489,7 +493,7 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
 <ul>
 <li>単体: <code>getServerAccountInfo_(wholesalerId)</code>（許可外、空リスト、不正 ID、存在しない卸、<code>end</code> 卸、操作者の wholesaler_user 無し(自動登録)/あり/deleted 済み）</li>
 <li>単体: 排他（ロック取得失敗）、<code>fetchAccountInfoByWholesalerId_</code> の決定性</li>
-<li>手動/E2E: 卸 A→B 切替時にキャッシュが残らない、確認画面の卸名、別卸への取り違え送信がない、複数タブ、別 Google アカウント</li>
+<li>手動/E2E: 卸 A→B 切替時にキャッシュが残らない、確認画面の卸名、別卸への取り違え送信がない、複数タブ（複数 Google アカウントは Workspace 1 アカウント運用のため対象外）</li>
 <li>CI: <code>unit_tests.yml</code>、<code>bq_integrity_check.yml</code>（自動登録した行でも FK 検証が通ること）</li>
 </ul>
 <h3 id="s24">9.4 更新対象ドキュメント</h3>
