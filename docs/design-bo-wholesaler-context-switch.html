@@ -319,7 +319,7 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
 <ol>
 <li><code>Session.getActiveUser().getEmail()</code> を取得（空なら <code>UNAUTHORIZED</code>）</li>
 <li>BO と同じ <code>Authz</code> で判定（D-9。許可リスト未設定なら DOMAIN 内全員）</li>
-<li><code>wholesalerId</code> が <code>/^\d+$/</code> か検証（SQL 文字列連結の保護も兼ねる）</li>
+<li><code>wholesalerId</code> が <code>/^\d{1,15}$/</code>（15 桁以内。既存の <code>Number()</code> 変換で精度が落ちない範囲）か検証（SQL 文字列連結の保護も兼ねる）</li>
 <li>卸の実在・ステータス確認 → <code>accountInfo</code> 構築</li>
 <li>操作者本人の <code>wholesaler_user</code> を特定（無ければ自動登録）し、<code>accountInfo.wholesaler_user_id</code> と <code>accountInfo.operator_email</code> を付与（ログ・Slack・監査列に使用）</li>
 </ol>

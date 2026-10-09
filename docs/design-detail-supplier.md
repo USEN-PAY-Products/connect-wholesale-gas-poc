@@ -371,8 +371,9 @@ logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.whole
 
 ### 4.5 `be_csv_mapper.js`
 
-- 変更なし（`accountInfo` から `wholesaler_user_id` を受け取って INSERT する構造のため）。
-- 回帰テストで「INSERT 文の `wholesaler_user_id` / `final_updated_by` が操作者本人の id になる」ことを確認する（§11）。
+- 新規・再請求・一括再請求のトランザクション SQL は、`be_invoice.js` だけでなく `be_csv_mapper.js` の **`buildMappedTransactionSql_`（727）／`buildMappedResubmitTransactionSql_`（981）／`buildMappedBulkResubmitTransactionSql_`（1184）** が組み立てる（カスタム形式の卸が通る経路）。§4.4.2 のトランザクション内の当月重複再確認と、§4.4.3 の `is_latest = FALSE` UPDATE（1101 付近、1318／1328 付近）への `@@row_count` 検証は、**これらのビルダーにも同様に入れる**（標準形式・マッピング形式の両方で同じガードを保証する）。
+- `wsUserId` の UUID 形式検証（739 付近の `UUID_RE`）はバージョン非依存のため、v4 の `wholesaler_user.id` でも通る。
+- 回帰テストで、標準形式・マッピング形式の両方について「トランザクション内の当月重複再確認と `@@row_count` 検証が SQL に含まれる」ことと「INSERT 文の `wholesaler_user_id` / `final_updated_by` が操作者本人の id になる」ことを確認する（§11）。
 
 ### 4.6 `be_slack.js`
 

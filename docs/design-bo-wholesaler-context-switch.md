@@ -153,7 +153,7 @@ sequenceDiagram
 
 1. `Session.getActiveUser().getEmail()` を取得（空なら `UNAUTHORIZED`）
 2. BO と同じ `Authz` で判定（D-9。許可リスト未設定なら DOMAIN 内全員）
-3. `wholesalerId` が `/^\d+$/` か検証（SQL 文字列連結の保護も兼ねる）
+3. `wholesalerId` が `/^\d{1,15}$/`（15 桁以内。既存の `Number()` 変換で精度が落ちない範囲）か検証（SQL 文字列連結の保護も兼ねる）
 4. 卸の実在・ステータス確認 → `accountInfo` 構築
 5. 操作者本人の `wholesaler_user` を特定（無ければ自動登録）し、`accountInfo.wholesaler_user_id` と `accountInfo.operator_email` を付与（ログ・Slack・監査列に使用）
 
