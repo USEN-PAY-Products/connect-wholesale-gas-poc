@@ -100,7 +100,7 @@ WITH ws AS (
   SELECT id, wholesaler_name, wholesaler_status, wholesaler_fee_rate,
          tax_rounding_method, csv_format_rules
   FROM wholesalers
-  WHERE id = @wholesaler_id AND wholesaler_status IN ('active','end')
+  WHERE id = @wholesaler_id   -- ステータスは絞らず取得し、アプリ側で active/end 以外を WHOLESALER_INACTIVE にする
 ),
 op_user AS (             -- 操作者本人の wholesaler_user（D-3/D-4）。無ければ自動登録してから再取得
   SELECT id AS wholesaler_user_id

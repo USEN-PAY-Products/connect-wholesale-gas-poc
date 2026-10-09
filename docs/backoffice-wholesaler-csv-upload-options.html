@@ -82,8 +82,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
     LP-&gt;&gt;GAS: doGet(?token=...) → 画面
     LP-&gt;&gt;GAS: google.script.run.xxx(..., sessionToken)
     GAS-&gt;&gt;Cache: token → email
-    GAS-&gt;&gt;BQ: メール→wholesaler_user→wholesaler_id
-</pre>
+    GAS-&gt;&gt;BQ: メール→wholesaler_user→wholesaler_id</pre>
 <h3 id="s4">3.2 変更範囲を小さくできる根拠</h3>
 <table>
 <thead>
@@ -252,8 +251,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
     BO-&gt;&gt;FE: CSV アップロード → 確認 → 登録
     FE-&gt;&gt;GAS: sendInvoiceData(..., wholesalerId)
     GAS-&gt;&gt;GAS: 毎回 Authz と wholesalerId を再検証
-    GAS-&gt;&gt;BQ: 登録（wholesaler_id=指定卸 / 操作者メールをログ・通知に記録）
-</pre>
+    GAS-&gt;&gt;BQ: 登録（wholesaler_id=指定卸 / 操作者メールをログ・通知に記録）</pre>
 <h4>変更箇所（卸システム側）</h4>
 <table>
 <thead>
@@ -265,7 +263,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 </thead>
 <tbody><tr>
 <td><code>appsscript.json</code></td>
-<td><code>webapp.access</code> を <code>ANYONE</code> → <code>DOMAIN</code>（BackOffice と同じ）。<code>script.storage</code> は Cache 不使用なら削除可</td>
+<td><code>webapp.access</code> を <code>ANYONE</code> → <code>DOMAIN</code>（BackOffice と同じ）。<code>oauthScopes</code> は変更しない（<code>script.storage</code> は <code>PropertiesService.getScriptProperties()</code> の設定取得で引き続き必要）</td>
 <td>小</td>
 </tr>
 <tr>

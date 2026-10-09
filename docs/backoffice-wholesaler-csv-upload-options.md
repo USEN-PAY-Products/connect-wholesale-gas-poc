@@ -132,7 +132,7 @@ sequenceDiagram
 
 | 対象 | 変更内容 | 規模 |
 |------|---------|------|
-| `appsscript.json` | `webapp.access` を `ANYONE` → `DOMAIN`（BackOffice と同じ）。`script.storage` は Cache 不使用なら削除可 | 小 |
+| `appsscript.json` | `webapp.access` を `ANYONE` → `DOMAIN`（BackOffice と同じ）。`oauthScopes` は変更しない（`script.storage` は `PropertiesService.getScriptProperties()` の設定取得で引き続き必要） | 小 |
 | `be_main.js` `doGet` | `Authz.requireAuthorizedUser()` を追加（BackOffice の `Authz` を移植）。許可外は 403。`?wholesalerId=` をテンプレートへ注入（現在の `?token=` 注入を置換） | 小 |
 | `be_server.js` `getServerAccountInfo_` | ① 操作者メールを `Session.getActiveUser()` で取得 → 許可リスト検証 ② 受け取った値（これまでの `sessionToken` の位置）を **`wholesalerId` として形式検証（数字のみ）** ③ `fetchAccountInfoByWholesalerId_` で `accountInfo` を取得 ④ `operatorEmail` を `accountInfo` に付与 | 中（本体） |
 | `db_bq_query.js` | `fetchAccountInfoByWholesalerId_(wholesalerId)` を追加（`fetchAccountInfoByEmail_` の SQL の WHERE を `w.id = @wholesalerId` へ。`wholesaler_user_id` は §5 のルールで 1 件決定） | 小 |

@@ -217,19 +217,18 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 <h2 id="s6">3. モデリング</h2>
 <h3 id="s7">3.1 概念モデル</h3>
 <pre class="mermaid">erDiagram
-  OPERATOR ||--o{ OPERATION : &quot;実行する&quot;
-  WHOLESALER ||--o{ WHOLESALER_USER : &quot;所属(BO担当者の行を含む)&quot;
-  WHOLESALER ||--o{ WHOLESALER_INVOICE : &quot;請求&quot;
-  WHOLESALER_USER ||--o{ WHOLESALER_INVOICE : &quot;wholesaler_user_id(NOT NULL,FK)&quot;
-  WHOLESALER_INVOICE ||--o{ STORE_INVOICE : &quot;店別請求&quot;
+  OPERATOR ||--o{ OPERATION : "実行する"
+  WHOLESALER ||--o{ WHOLESALER_USER : "所属(BO担当者の行を含む)"
+  WHOLESALER ||--o{ WHOLESALER_INVOICE : "請求"
+  WHOLESALER_USER ||--o{ WHOLESALER_INVOICE : "wholesaler_user_id(NOT NULL,FK)"
+  WHOLESALER_INVOICE ||--o{ STORE_INVOICE : "店別請求"
   OPERATOR {
-    string email &quot;Session.getActiveUser()&quot;
-    string source &quot;許可リストで認可(DBには持たない)&quot;
+    string email "Session.getActiveUser()"
+    string source "許可リストで認可(DBには持たない)"
   }
   WHOLESALER_USER {
-    string wholesaler_email &quot;BO担当者のメール(自動登録 D-3)&quot;
-  }
-</pre>
+    string wholesaler_email "BO担当者のメール(自動登録 D-3)"
+  }</pre>
 <ul>
 <li><strong>OPERATOR（BO 担当者）は DB エンティティではない</strong>。許可リストで認可し、実行主体は <code>Session.getActiveUser()</code> から取得する。</li>
 <li><code>wholesaler_user_id</code> は操作者本人の <code>wholesaler_user</code> 行 id（D-4）。新しい列は追加せず、<code>final_updated_by</code>（既存列）と合わせて操作者を記録する（D-1）。</li>
@@ -271,7 +270,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
   SELECT id, wholesaler_name, wholesaler_status, wholesaler_fee_rate,
          tax_rounding_method, csv_format_rules
   FROM wholesalers
-  WHERE id = @wholesaler_id AND wholesaler_status IN (&#39;active&#39;,&#39;end&#39;)
+  WHERE id = @wholesaler_id   -- ステータスは絞らず取得し、アプリ側で active/end 以外を WHOLESALER_INACTIVE にする
 ),
 op_user AS (             -- 操作者本人の wholesaler_user（D-3/D-4）。無ければ自動登録してから再取得
   SELECT id AS wholesaler_user_id
@@ -283,8 +282,7 @@ op_user AS (             -- 操作者本人の wholesaler_user（D-3/D-4）。�
 mm AS (                  -- 加盟店マッピング（現行ロジック踏襲：mall_code ごと最新、active store のみ）
   ...
 )
-SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
-</code></pre>
+SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...</code></pre>
 <ul>
 <li><code>op_user</code> が 0 件のときは、<code>wholesaler_user</code> へ「無ければ追加」（MERGE、または <code>LockService</code> 配下で INSERT）してから再取得する。同一担当者の複数タブ同時初回アクセスでも重複行を作らない。<code>deleted_at</code> 済みの行は復活させる。</li>
 <li>新規請求は「有効な加盟店のみ」、再請求は履歴ベースという現行の 2 系統（<code>be_invoice.js</code>）は維持する。</li>
@@ -310,8 +308,7 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
   FE-&gt;&gt;BE: sendInvoiceData(..., wholesalerId)
   BE-&gt;&gt;BE: 検証を再実施 + LockService
   BE-&gt;&gt;BQ: INSERT(wholesaler_user_id=操作者本人, final_updated_by=操作者本人)
-  BE--&gt;&gt;FE: 結果
-</pre>
+  BE--&gt;&gt;FE: 結果</pre>
 <hr>
 <h2 id="s11">4. 認証・認可設計</h2>
 <h3 id="s12">4.1 入口の一本化</h3>
@@ -546,6 +543,5 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
 <li>実装前の検証項目: §10-2/3（<code>access: DOMAIN</code> と <code>Session.getActiveUser()</code> の実機検証）。§10-4（下流参照）は確認済み。</li>
 <li>検証後、実装タスクに分解（認証置換 → FE 切替 → 排他 → 監査 → BO 連携）。</li>
 </ol>
-
 </main>
 <script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,securityLevel:'loose'});</script></body></html>
