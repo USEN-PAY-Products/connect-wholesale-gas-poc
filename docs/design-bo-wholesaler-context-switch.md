@@ -188,7 +188,7 @@ sequenceDiagram
 | 対象 | 対策 |
 |---|---|
 | 新規請求の二重登録 | `LockService.getScriptLock()`（GAS 制約により実装は全体ロック。論理粒度は「卸+年月」。詳細設計（卸）§4.4 で合意）を取得し、**トランザクション内で再確認**（`hasCurrentMonthInvoice_` を外に置かない） |
-| 再請求の並行更新 | 親請求 ID は論理的な競合対象（実装は新規請求と共用の全体 `getScriptLock()` による直列化）。新親金額は SQL 内で現在値から再計算。`is_latest=FALSE` の UPDATE に `@@row_count` 検証を追加し、0 件なら rollback |
+| 再請求の並行更新 | 親請求 ID は論理的な競合対象（実装は新規請求と共用の全体 `getScriptLock()` による直列化）。ロック取得後に `latestWi` / `oldStoreAmounts` を再読込し、新親金額はアプリ側で計算して SQL に値を埋め込む（詳細設計（卸）§4.4.3）。`is_latest=FALSE` の UPDATE に `@@row_count` 検証を追加し、0 件なら rollback |
 | 複数 BO 担当者 | ロック待ち時間の上限（例: 30 秒）とユーザー向けメッセージ「他の担当者が処理中です」 |
 
 ---

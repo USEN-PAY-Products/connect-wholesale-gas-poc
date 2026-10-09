@@ -336,7 +336,7 @@ sequenceDiagram
 |---|---|---|---|
 | R-1 | `accountInfo` 組み立て SQL を `wholesaler_id` 指定にすると wholesaler_user × 加盟店の直積になり、`rows[0].wholesaler_user_id` が呼び出しごとに揺れる（`ORDER BY` なし） | `db_bq_query.js:26-87` | 代表ユーザーを別 CTE で `ORDER BY registration_at, id LIMIT 1` と決定的に選ぶ |
 | R-6 | 新規請求の「今月登録済み」判定（`hasCurrentMonthInvoice_`）がトランザクション外。`LockService` なし。BO 担当者 2 人の同時アップロードで同月二重登録 | `be_invoice.js:1538-1633` | `wholesalerId+YYYYMM` 単位の `LockService`、トランザクション内再確認 |
-| R-7 | 再請求は旧データを事前読込して新親金額を計算。`is_latest=FALSE` の UPDATE に `@@row_count` 検証なし。並行再請求で親金額がズレる | `be_invoice.js:701-779, 949-974, 1405-1443` | 親請求単位ロック、SQL 内で現在値から再計算、更新件数検証で rollback |
+| R-7 | 再請求は旧データを事前読込して新親金額を計算。`is_latest=FALSE` の UPDATE に `@@row_count` 検証なし。並行再請求で親金額がズレる | `be_invoice.js:701-779, 949-974, 1405-1443` | 親請求単位ロック、ロック取得後に最新値を再読込してアプリ側で再計算、更新件数検証で rollback |
 | R-8 | 新規請求は有効加盟店のみ（`merchant_mappings`）、再請求は履歴ベースと 2 系統。組み立て変更時に潰すと新規で停止店を通す／再請求が失敗 | `be_invoice.js:522-536, 847-907, 1277-1365` | 2 系統を維持 |
 | R-9 | 再請求時の `customer_code` が最新 `wholesaler_merchants` 由来で請求時点のスナップショットではない（マッピング変更後に失敗しうる。一部推測） | `db_bq_query.js:200-232` | 履歴に customer_code を保存、または再請求時の挙動を明文化 |
 

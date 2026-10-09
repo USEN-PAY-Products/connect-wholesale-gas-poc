@@ -748,7 +748,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 <td>R-7</td>
 <td>再請求は旧データを事前読込して新親金額を計算。<code>is_latest=FALSE</code> の UPDATE に <code>@@row_count</code> 検証なし。並行再請求で親金額がズレる</td>
 <td><code>be_invoice.js:701-779, 949-974, 1405-1443</code></td>
-<td>親請求単位ロック、SQL 内で現在値から再計算、更新件数検証で rollback</td>
+<td>親請求単位ロック、ロック取得後に最新値を再読込してアプリ側で再計算、更新件数検証で rollback</td>
 </tr>
 <tr>
 <td>R-8</td>
