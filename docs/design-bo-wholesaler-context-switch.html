@@ -1,0 +1,547 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>卸システム BackOffice 代行運用（コンテキストスイッチ）設計書</title>
+<style>
+:root{--c:#0f766e;--bd:#e2e8f0}*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;color:#1e293b;background:#f8fafc;line-height:1.75}
+nav{position:fixed;top:0;left:0;bottom:0;width:300px;overflow:auto;background:#fff;border-right:1px solid var(--bd);padding:16px 12px;font-size:13px}
+nav .t{font-weight:700;color:var(--c);margin-bottom:8px}nav a{display:block;color:#334155;text-decoration:none;padding:3px 8px;border-radius:4px}nav a:hover{background:#ccfbf1}
+nav a.d2{font-weight:600;margin-top:6px}nav a.d3{padding-left:22px;color:#64748b;font-size:12px}
+main{margin-left:300px;padding:32px 48px;max-width:1120px}
+.cover{background:linear-gradient(135deg,#0f766e,#14b8a6);color:#fff;border-radius:12px;padding:24px 32px;margin-bottom:20px}.cover h1{margin:0;font-size:25px}
+h2{font-size:21px;border-bottom:2px solid var(--c);padding-bottom:4px;margin-top:44px}h3{font-size:17px;margin-top:28px;color:var(--c)}h4{font-size:15px}
+table{border-collapse:collapse;margin:12px 0;font-size:13.5px;background:#fff;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 10px;vertical-align:top;text-align:left}th{background:#f1f5f9;white-space:nowrap}
+code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-size:.9em;font-family:Menlo,Consolas,monospace}
+pre{background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;overflow:auto}pre code{background:none;color:inherit;padding:0}
+pre.mermaid{background:#fff;color:#000;border:1px solid var(--bd);text-align:center}
+blockquote{margin:12px 0;padding:8px 16px;background:#fff7ed;border-left:4px solid #fb923c;color:#7c2d12}blockquote p{margin:4px 0}
+hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
+@media(max-width:900px){nav{display:none}main{margin:0;padding:16px}}@media print{nav{display:none}main{margin:0;max-width:none}}
+</style></head><body><nav><div class="t">目次</div><a class="d2" href="#s0">1. 目的・スコープ・前提</a><a class="d3" href="#s1">1.1 目的</a><a class="d3" href="#s2">1.2 方針（確定済み）</a><a class="d3" href="#s3">1.2.1 責務分担の原則</a><a class="d3" href="#s4">1.3 スコープ</a><a class="d2" href="#s5">2. 決定事項ログ</a><a class="d2" href="#s6">3. モデリング</a><a class="d3" href="#s7">3.1 概念モデル</a><a class="d3" href="#s8">3.2 テーブル変更（D-1 見直し：新しい列は追加しない）</a><a class="d3" href="#s9">3.3 accountInfo の組み立て（fetchAccountInfoByWholesalerId_）</a><a class="d3" href="#s10">3.4 シーケンス</a><a class="d2" href="#s11">4. 認証・認可設計</a><a class="d3" href="#s12">4.1 入口の一本化</a><a class="d3" href="#s13">4.2 公開関数のシグネチャ変更</a><a class="d3" href="#s14">4.3 廃止するもの</a><a class="d3" href="#s15">4.4 設定</a><a class="d2" href="#s16">5. 画面設計</a><a class="d2" href="#s17">6. 排他制御・整合性（D-13）</a><a class="d2" href="#s18">7. 監査・ログ設計（D-1）</a><a class="d2" href="#s19">8. BackOffice 連携</a><a class="d2" href="#s20">9. 移行・デプロイ・テスト</a><a class="d3" href="#s21">9.1 事前確認</a><a class="d3" href="#s22">9.2 デプロイ順</a><a class="d3" href="#s23">9.3 テスト</a><a class="d3" href="#s24">9.4 更新対象ドキュメント</a><a class="d2" href="#s25">10. リスクと未確認事項</a><a class="d2" href="#s26">11. 次のステップ</a></nav><main><div class="cover"><h1>卸システム BackOffice 代行運用（コンテキストスイッチ）設計書</h1></div><blockquote>
+<p>ステータス: <strong>ドラフト（ローカル作成・未コミット）</strong>／決定事項ログを埋めながら確定する
+作成日: 2026-10-08
+前提資料: <code>docs/backoffice-wholesaler-csv-upload-options.md</code>（方式検討・案 B ボトルネック一覧 §11）
+対象: 卸システム（<code>shiire-poc-supplier</code>）、BackOffice（<code>connect-backoffice-gas-poc</code>）、BigQuery <code>connect_db</code></p>
+</blockquote>
+<hr>
+<h2 id="s0">1. 目的・スコープ・前提</h2>
+<h3 id="s1">1.1 目的</h3>
+<p>卸ユーザーが卸システムを操作せず、BackOffice（社員）が卸を切り替えて CSV を登録・再請求・取り下げ操作できるようにする。</p>
+<h3 id="s2">1.2 方針（確定済み）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>採用方式</td>
+<td><strong>案 B</strong>: 別 GAS のまま、BackOffice 認証へ置換 + <code>wholesalerId</code> 指定のステートレス方式</td>
+</tr>
+<tr>
+<td>LP</td>
+<td>使わない（LP / <code>doPost</code> / ID トークン / Cache セッション廃止）</td>
+</tr>
+<tr>
+<td>認証</td>
+<td><code>Session.getActiveUser().getEmail()</code> + 許可リスト（<code>ALLOWED_DOMAINS</code> / <code>ALLOWED_EMAILS</code>）。<code>appsscript.json</code> の <code>webapp.access</code> を <code>DOMAIN</code> へ</td>
+</tr>
+<tr>
+<td>卸の指定</td>
+<td>サーバーにセッションを持たず、クライアントが毎回 <code>wholesalerId</code> を送り、サーバーが毎回再検証</td>
+</tr>
+</tbody></table>
+<h3 id="s3">1.2.1 責務分担の原則</h3>
+<ul>
+<li><strong>業務ロジック（締切・受付期間・卸ステータス・登録/再請求/取り下げの判定）は、卸システムが選択された卸について現行のまま行う。BO 側では制御しない。</strong></li>
+<li>BO 側の変更は deep link（「CSV 登録」リンク、<code>SUPPLIER_APP_URL</code>）のみ。</li>
+<li>卸システム側で変えるのは「認証」と「卸の確定方法（メール → <code>wholesalerId</code> 指定）」「FE の切替・表示」「排他」「監査記録」のみ。</li>
+</ul>
+<h3 id="s4">1.3 スコープ</h3>
+<ul>
+<li>含む: 卸システムの認証・卸確定・FE の切替／キャッシュ／表示、登録系の排他、監査記録、BO からの導線。</li>
+<li>含まない: BO 側の承認画面の改修（D-2 により自己承認制御なし。BO の変更は deep link のみ）、卸ユーザー向け機能の維持。</li>
+</ul>
+<hr>
+<h2 id="s5">2. 決定事項ログ</h2>
+<p>状態: ⬜ 未決 / ✅ 決定。決定したら「決定内容」「決定者」「日付」を埋める。</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>論点</th>
+<th>選択肢</th>
+<th>推奨</th>
+<th>状態</th>
+<th>決定内容</th>
+<th>決定者/日付</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>D-1</td>
+<td>代理登録者（BO 担当者）を DB に恒久記録するか</td>
+<td>(a) 列追加（<code>registered_by_email</code> 等）(b) ログ/Slack のみ (c) 別監査テーブル</td>
+<td>(a)</td>
+<td>✅</td>
+<td>記録する。ただし新しい列は追加せず（migration 不要）、<code>wholesaler_user_id</code>（操作者本人の行 id、D-4）と既存の <code>final_updated_by</code> で記録する（§3.2）。メールは <code>wholesaler_user</code> を JOIN して特定</td>
+<td>ユーザー 10/8（実現方法を見直し）</td>
+</tr>
+<tr>
+<td>D-2</td>
+<td>登録者と承認者の分離（自己承認）</td>
+<td>(a) システムで強制（登録者は承認/差戻し/取り下げ審査不可）(b) 運用ルールのみ(c) 対象外</td>
+<td>(a)（D-1 が (a) の場合のみ実現可能）</td>
+<td>✅</td>
+<td>自己承認は許容（システム強制しない）。D-1 の記録で事後追跡する。§8 の自己承認防止は不採用</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-3</td>
+<td>有効な <code>wholesaler_user</code> が 0 件の卸</td>
+<td>(a) 代表ユーザーを事前投入 (b) BO 代行専用ユーザーを全卸に投入 (c) 当該卸は対象外</td>
+<td>(b) または (a)。<strong>本番件数確認が前提</strong></td>
+<td>✅</td>
+<td>BO 担当者を各卸の <code>wholesaler_user</code> に<strong>初回アクセス時の自動登録のみ</strong>で登録（一括投入はしない）。同時初回アクセスは <code>LockService</code>/MERGE で重複防止、<code>deleted_at</code> 済みは復活</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-4</td>
+<td><code>wholesaler_user_id</code> の意味づけ</td>
+<td>(a) 「卸の代表ユーザー」と再定義（既存ユーザー決定的選択）(b) 代理専用ユーザーを卸ごとに固定</td>
+<td>(b)（実ユーザーと混同しない）</td>
+<td>✅</td>
+<td><code>wholesaler_user_id</code> = 操作者本人の行 id（<code>wholesaler_id</code> + 操作者メールで一意に特定。代表ユーザー選定・識別列は不要）</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-5</td>
+<td>卸の指定方法</td>
+<td>(i) BO からの deep link (ii) 卸システム内の卸選択画面 (iii) 併用</td>
+<td>(iii)（BO 導線＋直接入場時の選択）</td>
+<td>✅</td>
+<td>(iii) 併用：BO から deep link、直接入場時はヘッダーのメニューから卸を選択（§5）</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-6</td>
+<td><code>end</code>（終了）卸の BO 代行</td>
+<td>(a) 従来どおり新規/再請求/取り下げ不可 (b) BO は後処理可</td>
+<td>要件確認</td>
+<td>✅</td>
+<td>現行どおり（<code>end</code> 卸は新規/再請求/取り下げ不可）。卸システムの現行判定に任せ、BO 側では制御しない</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-7</td>
+<td>締切・受付期間ガード（<code>business_calendar</code>）を BO にも適用するか</td>
+<td>(a) 適用 (b) BO は例外許可（理由入力）</td>
+<td>要件確認</td>
+<td>✅</td>
+<td>適用する。ただし BO 側では制御せず、選択された卸について遷移先の卸システムが現行ロジックのまま判定する（変更なし）</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-8</td>
+<td>差戻し再申請・取り下げ依頼を BO が卸システムで代行する運用</td>
+<td>(a) 代行する (b) BO 側画面に機能を寄せる</td>
+<td>(a)</td>
+<td>✅</td>
+<td>卸システムで BO が代行する（再請求・取り下げ依頼・取消も卸システムの現行機能をそのまま使う）</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-9</td>
+<td>許可リストの運用（誰が使えるか）</td>
+<td>(a) BO と同じリストを複製 (b) 卸システム専用の狭いリスト</td>
+<td>(b)</td>
+<td>✅</td>
+<td>BO ログインできる人全員が利用可（<code>access: DOMAIN</code> + BO と同じ <code>Authz</code>）。許可リスト（<code>ALLOWED_DOMAINS</code>/<code>ALLOWED_EMAILS</code>）は未設定でも DOMAIN 内全員が使える（BO と同じ挙動、PoC のため）。将来絞る場合は <code>ALLOWED_EMAILS</code> を設定するだけで、コード変更は不要。専用リストは作らない</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-10</td>
+<td>許可リストが空のときの挙動</td>
+<td>(a) 全拒否（fail-close）(b) 全許可（BO と同じ）</td>
+<td>(a)</td>
+<td>✅</td>
+<td>D-9 に統合</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-11</td>
+<td>卸名・卸切替の誤操作防止</td>
+<td>固定バナー＋送信前確認ダイアログ＋切替時全キャッシュ消去</td>
+<td>全部入れる</td>
+<td>✅</td>
+<td>固定バナー＋送信前確認ダイアログ＋切替時の全キャッシュ消去を全て入れる（§5）</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-12</td>
+<td>切替方式</td>
+<td>(a) フルリロード（<code>?wholesalerId=xx#home</code>）(b) SPA 内で切替</td>
+<td>(a)（iframe 制約）</td>
+<td>✅</td>
+<td>フルリロード（<code>?wholesalerId=xx#home</code>）。iframe 制約のため SPA 内切替は行わない</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-13</td>
+<td>排他制御</td>
+<td>(a) <code>LockService</code>（卸+年月/親請求単位）+ トランザクション内再確認 (b) 運用で回避</td>
+<td>(a)</td>
+<td>✅</td>
+<td><code>LockService</code>（新規=卸+年月、再請求=親請求単位）+ トランザクション内再確認 + <code>@@row_count</code> 検証（§6）</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-14</td>
+<td>環境別 URL（BO → 卸システム）</td>
+<td>BO Script Property <code>SUPPLIER_APP_URL</code></td>
+<td>そのまま</td>
+<td>✅</td>
+<td>BO の Script Property <code>SUPPLIER_APP_URL</code>（環境別）で卸システム URL を保持</td>
+<td>ユーザー 10/8</td>
+</tr>
+<tr>
+<td>D-15</td>
+<td>既存卸ユーザーの扱い（ログイン不可化、<code>wholesaler_user</code> データ維持）</td>
+<td>(a) データ維持・ログインのみ廃止 (b) 論理削除</td>
+<td>(a)</td>
+<td>✅</td>
+<td>既存卸ユーザーのデータは維持し、ログイン導線のみ廃止（論理削除はしない）</td>
+<td>ユーザー 10/8</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="s6">3. モデリング</h2>
+<h3 id="s7">3.1 概念モデル</h3>
+<pre class="mermaid">erDiagram
+  OPERATOR ||--o{ OPERATION : &quot;実行する&quot;
+  WHOLESALER ||--o{ WHOLESALER_USER : &quot;所属(BO担当者の行を含む)&quot;
+  WHOLESALER ||--o{ WHOLESALER_INVOICE : &quot;請求&quot;
+  WHOLESALER_USER ||--o{ WHOLESALER_INVOICE : &quot;wholesaler_user_id(NOT NULL,FK)&quot;
+  WHOLESALER_INVOICE ||--o{ STORE_INVOICE : &quot;店別請求&quot;
+  OPERATOR {
+    string email &quot;Session.getActiveUser()&quot;
+    string source &quot;許可リストで認可(DBには持たない)&quot;
+  }
+  WHOLESALER_USER {
+    string wholesaler_email &quot;BO担当者のメール(自動登録 D-3)&quot;
+  }
+</pre>
+<ul>
+<li><strong>OPERATOR（BO 担当者）は DB エンティティではない</strong>。許可リストで認可し、実行主体は <code>Session.getActiveUser()</code> から取得する。</li>
+<li><code>wholesaler_user_id</code> は「代理に使うユーザー ID」（D-4）。操作者の実体は D-1 の列で補う。</li>
+</ul>
+<h3 id="s8">3.2 テーブル変更（D-1 見直し：新しい列は追加しない）</h3>
+<table>
+<thead>
+<tr>
+<th>テーブル／列</th>
+<th>現状</th>
+<th>変更</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>wholesaler_invoices.wholesaler_user_id</code></td>
+<td>卸ユーザー id</td>
+<td><strong>操作者本人の <code>wholesaler_user</code> 行 id</strong>（D-4）。新規・再請求の操作者を表す。BO の再計算は元の値を引き継ぐ</td>
+</tr>
+<tr>
+<td><code>store_invoices.final_updated_by</code>（NOT NULL, STRING(50)）</td>
+<td>登録時に <code>wholesaler_user_id</code> を設定</td>
+<td>同上（操作者本人の id）。<strong>取り下げ依頼・取消・変更なし再請求の UPDATE でも <code>final_updated_by = 操作者の wholesaler_user_id</code> を更新</strong>する（現状は未更新）</td>
+</tr>
+<tr>
+<td><code>wholesaler_user</code></td>
+<td>卸ユーザー</td>
+<td>変更なし。BO 担当者の行が初回アクセス時に自動追加される（D-3）</td>
+</tr>
+</tbody></table>
+<ul>
+<li><strong>スキーマ変更・migration は不要</strong>（NULL 許容列の追加なし）。</li>
+<li>操作者のメールは <code>wholesaler_user.wholesaler_email</code> を JOIN して特定する。</li>
+<li>既存の混在: BO の再計算・審査では <code>final_updated_by</code> に BO のメールが入る（現状どおり）。UUID と メールが同一列に混在する点は既存仕様。</li>
+<li><code>STRING(50)</code> に UUID（36 文字）は収まる。</li>
+</ul>
+<h3 id="s9">3.3 <code>accountInfo</code> の組み立て（<code>fetchAccountInfoByWholesalerId_</code>）</h3>
+<p>現行 <code>fetchAccountInfoByEmail_</code> は email → <code>wholesaler_user</code> を起点にしており、<code>wholesaler_id</code> 指定へそのまま変えると「ユーザー × 加盟店」の直積で <code>rows[0]</code> が揺れる。次の構造にする。</p>
+<pre><code class="language-sql">WITH ws AS (
+  SELECT id, wholesaler_name, wholesaler_status, invoice_fee_rate,
+         tax_rounding_method, csv_format_rules
+  FROM wholesalers
+  WHERE id = @wholesaler_id AND wholesaler_status IN (&#39;active&#39;,&#39;end&#39;)
+),
+op_user AS (             -- 操作者本人の wholesaler_user（D-3/D-4）。無ければ自動登録してから再取得
+  SELECT id AS wholesaler_user_id
+  FROM wholesaler_user
+  WHERE wholesaler_id = @wholesaler_id
+    AND wholesaler_email = @operator_email
+    AND deleted_at IS NULL
+),
+mm AS (                  -- 加盟店マッピング（現行ロジック踏襲：mall_code ごと最新、active store のみ）
+  ...
+)
+SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
+</code></pre>
+<ul>
+<li><code>op_user</code> が 0 件のときは、<code>wholesaler_user</code> へ「無ければ追加」（MERGE、または <code>LockService</code> 配下で INSERT）してから再取得する。同一担当者の複数タブ同時初回アクセスでも重複行を作らない。<code>deleted_at</code> 済みの行は復活させる。</li>
+<li>新規請求は「有効な加盟店のみ」、再請求は履歴ベースという現行の 2 系統（<code>be_invoice.js</code>）は維持する。</li>
+</ul>
+<h3 id="s10">3.4 シーケンス</h3>
+<pre class="mermaid">sequenceDiagram
+  actor BO as BO担当者
+  participant BOApp as BackOffice GAS
+  participant FE as 卸システム FE
+  participant BE as 卸システム BE
+  participant BQ as BigQuery
+
+  BO-&gt;&gt;BOApp: 卸請求一覧/詳細を開く
+  BOApp--&gt;&gt;BO: 「CSV登録」リンク (SUPPLIER_APP_URL?wholesalerId=xx)
+  BO-&gt;&gt;FE: リンク遷移 (doGet が wholesalerId を注入)
+  FE-&gt;&gt;BE: getAccountInfo(wholesalerId)
+  BE-&gt;&gt;BE: ①Session.getActiveUser() ②許可リスト ③ID形式 ④卸の実在/ステータス
+  BE-&gt;&gt;BQ: fetchAccountInfoByWholesalerId_
+  BQ--&gt;&gt;BE: accountInfo(操作者本人のwholesaler_user_id含む)
+  BE--&gt;&gt;FE: accountInfo
+  FE--&gt;&gt;BO: 「〇〇(ID:xx)として操作中」バナー
+  BO-&gt;&gt;FE: CSVアップロード→確認
+  FE-&gt;&gt;BE: sendInvoiceData(..., wholesalerId)
+  BE-&gt;&gt;BE: 検証を再実施 + LockService
+  BE-&gt;&gt;BQ: INSERT(wholesaler_user_id=操作者本人, final_updated_by=操作者本人)
+  BE--&gt;&gt;FE: 結果
+</pre>
+<hr>
+<h2 id="s11">4. 認証・認可設計</h2>
+<h3 id="s12">4.1 入口の一本化</h3>
+<p>全公開関数が最初に <code>getServerAccountInfo_(wholesalerId)</code> を呼ぶ（現行と同じ構造を維持）。内部で毎回以下を実施:</p>
+<ol>
+<li><code>Session.getActiveUser().getEmail()</code> を取得（空なら <code>UNAUTHORIZED</code>）</li>
+<li>BO と同じ <code>Authz</code> で判定（D-9。許可リスト未設定なら DOMAIN 内全員）</li>
+<li><code>wholesalerId</code> が <code>/^\d+$/</code> か検証（SQL 文字列連結の保護も兼ねる）</li>
+<li>卸の実在・ステータス確認 → <code>accountInfo</code> 構築</li>
+<li>操作者本人の <code>wholesaler_user</code> を特定（無ければ自動登録）し、<code>accountInfo.wholesaler_user_id</code> と <code>accountInfo.operatorEmail</code> を付与（ログ・Slack・監査列に使用）</li>
+</ol>
+<h3 id="s13">4.2 公開関数のシグネチャ変更</h3>
+<p><code>sessionToken</code> 引数の位置を <code>wholesalerId</code> に差し替える（最小変更）。対象: <code>sendInvoiceData</code>、<code>resubmitInvoiceData</code>、<code>bulkResubmitInvoiceData</code>、<code>resubmitWithoutChanges</code>、<code>withdrawStoreInvoice</code>、<code>cancelWithdrawRequest</code>、<code>fetchInvoices</code>、<code>fetchInvoiceDetail</code>、<code>getInvoiceLinesByStore</code>、<code>fetchScheduleData</code>、<code>getAccountInfo</code>、<code>reportClientError</code>。</p>
+<h3 id="s14">4.3 廃止するもの</h3>
+<p><code>doPost</code>（<code>be_auth.js</code>）、<code>shiire_session:*</code> Cache、<code>getLoginUrl</code> / <code>getLogoutUrl</code>、<code>LP_URL</code>、<code>OAUTH_CLIENT_ID</code>、FE の <code>getSessionToken_</code> と URL ハッシュ <code>#token=</code>。</p>
+<h3 id="s15">4.4 設定</h3>
+<table>
+<thead>
+<tr>
+<th>Script Property</th>
+<th>変更</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ALLOWED_DOMAINS</code> / <code>ALLOWED_EMAILS</code></td>
+<td>任意（未設定なら DOMAIN 内全員。将来絞る場合のみ設定）（D-9）</td>
+</tr>
+<tr>
+<td><code>LP_URL</code> / <code>OAUTH_CLIENT_ID</code></td>
+<td>廃止</td>
+</tr>
+<tr>
+<td><code>FAVICON_URL</code></td>
+<td>ファビコンは LP 依存をやめ、この値（または埋め込み）で提供</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="s16">5. 画面設計</h2>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>起動</td>
+<td><code>doGet(e)</code> が <code>e.parameter.wholesalerId</code> をテンプレートへ注入（<code>window.__WHOLESALER_ID__</code>）。<strong>URL 注入値を storage より優先</strong></td>
+</tr>
+<tr>
+<td>卸選択（D-5 決定）</td>
+<td>専用の選択ページは作らない。<strong>ヘッダーのユーザー名（操作者メール）をクリックしたドロップダウン</strong>で選ぶ（BO のヘッダーと同じ作り）。内容: 操作者メール／現在の卸（名前・ID）／卸を切り替える（検索付き一覧）／BackOffice へ戻る。ログアウトは廃止。一覧用に <code>listWholesalers()</code> を新設</td>
+</tr>
+<tr>
+<td>直接入場（<code>wholesalerId</code> なし）</td>
+<td>本文に「右上のメニューから卸を選択してください」の空状態を表示。<code>getAccountInfo</code> は呼ばない</td>
+</tr>
+<tr>
+<td>切替</td>
+<td>卸を選択したら常に <code>?wholesalerId=yy#home</code> へトップレベル遷移（D-12）。切替関数で <code>shiire_*</code> の全キーとメモリ状態（<code>parsedData</code>、<code>rawCsvBase64</code>、<code>scheduleMap</code>、<code>_scheduleLoaded</code>、開いているモーダル等）を消去</td>
+</tr>
+<tr>
+<td>バナー</td>
+<td>全画面固定「〇〇（ID:xx）として操作中」。確認画面と送信前ダイアログにも卸名・ID を表示</td>
+</tr>
+<tr>
+<td>エラー画面</td>
+<td>種別を分離: <code>forbidden_user</code> / <code>wholesaler_missing</code> / <code>wholesaler_invalid</code> / <code>wholesaler_inactive</code> / <code>system</code>（自動登録失敗を含む）。「ログインページへ戻る」は廃止</td>
+</tr>
+<tr>
+<td>キャッシュ</td>
+<td><code>shiire_invoices_cache</code>・<code>shiire_resubmit_handover_matter</code> のキーに卸 ID を含める。<code>_scheduleLoaded</code> / <code>scheduleMap</code> を卸単位化</td>
+</tr>
+<tr>
+<td>容量</td>
+<td><code>saveAccountInfo</code> は保存前に旧コンテキストを削除し、失敗時は全体をクリアして再取得</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="s17">6. 排他制御・整合性（D-13）</h2>
+<table>
+<thead>
+<tr>
+<th>対象</th>
+<th>対策</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>新規請求の二重登録</td>
+<td><code>LockService.getScriptLock()</code>（GAS 制約により実装は全体ロック。論理粒度は「卸+年月」。詳細設計（卸）§4.4 で合意）を取得し、<strong>トランザクション内で再確認</strong>（<code>hasCurrentMonthInvoice_</code> を外に置かない）</td>
+</tr>
+<tr>
+<td>再請求の並行更新</td>
+<td>親請求 ID 単位でロック。新親金額は SQL 内で現在値から再計算。<code>is_latest=FALSE</code> の UPDATE に <code>@@row_count</code> 検証を追加し、0 件なら rollback</td>
+</tr>
+<tr>
+<td>複数 BO 担当者</td>
+<td>ロック待ち時間の上限（例: 30 秒）とユーザー向けメッセージ「他の担当者が処理中です」</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="s18">7. 監査・ログ設計（D-1）</h2>
+<table>
+<thead>
+<tr>
+<th>手段</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DB</td>
+<td><code>wholesaler_user_id</code>・<code>final_updated_by</code>（操作者本人の行 id）で記録。メールは <code>wholesaler_user</code> を JOIN して特定（D-1, D-4）</td>
+</tr>
+<tr>
+<td>ログ（<code>logInfo_</code>/<code>logError_</code>）</td>
+<td>context に <code>operatorEmail</code>、<code>wholesalerId</code> を必ず含める</td>
+</tr>
+<tr>
+<td>Slack</td>
+<td>通知に操作者を追加（既存の卸名・ファイル名・請求 ID と並べる）</td>
+</tr>
+<tr>
+<td>Drive 監査 CSV</td>
+<td>ファイル名または description に operatorEmail。フォルダ名は <code>wholesaler_id</code> を主にする</td>
+</tr>
+<tr>
+<td><code>reportClientError</code></td>
+<td>卸名はクライアント値を信用せず、サーバーで <code>wholesalerId</code> から補完</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="s19">8. BackOffice 連携</h2>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>deep link</td>
+<td>BO 一覧/詳細（既存の無効な「CSV 一括アップロード」ボタンの置換候補）に「CSV 登録」を設置。<code>SUPPLIER_APP_URL</code> + <code>?wholesalerId=&lt;id&gt;#home</code>（D-12 と統一。D-14）</td>
+</tr>
+<tr>
+<td>環境別 URL</td>
+<td>BO の Script Property <code>SUPPLIER_APP_URL</code>（dev/prd）</td>
+</tr>
+<tr>
+<td>自己承認（D-2 決定）</td>
+<td>自己承認は許容し、システム制御は入れない。登録者（<code>wholesaler_user_id</code> → <code>wholesaler_user.wholesaler_email</code>）と承認者（<code>operation_updated_by</code>）の突合で事後に追跡できる</td>
+</tr>
+<tr>
+<td>文言</td>
+<td>「卸の再申請待ち」「卸の対応待ち」等を代行運用に合わせて見直し（仕様書・ユーザーガイド含む）</td>
+</tr>
+<tr>
+<td>再計算フロー</td>
+<td>BO が新版 <code>wholesaler_invoices</code> を作る処理（<code>db_bq_query.js</code> 1256-1421）で <code>wholesaler_user_id</code> は元の値を引き継ぐ（現行のまま。変更不要）</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="s20">9. 移行・デプロイ・テスト</h2>
+<h3 id="s21">9.1 事前確認</h3>
+<ol>
+<li>下流システムの <code>wholesaler_user</code> / <code>wholesaler_email</code> 参照確認（§10-4）: ✅ <code>mypage-backend</code> に参照なし（確認済み）。</li>
+<li>dev で <code>access: DOMAIN</code> と <code>Session.getActiveUser()</code> の実機検証（§10-2,3）。</li>
+</ol>
+<h3 id="s22">9.2 デプロイ順</h3>
+<ol>
+<li>卸システム改修（<code>access: DOMAIN</code>、<code>Authz</code> 移植、自動登録、再認可・再デプロイ）</li>
+<li>BO の deep link</li>
+<li>旧ログイン導線（LP 等）の停止、Script Property の整理</li>
+</ol>
+<h3 id="s23">9.3 テスト</h3>
+<ul>
+<li>単体: <code>getServerAccountInfo_(wholesalerId)</code>（許可外、空リスト、不正 ID、存在しない卸、<code>end</code> 卸、操作者の wholesaler_user 無し(自動登録)/あり/deleted 済み）</li>
+<li>単体: 排他（ロック取得失敗）、<code>fetchAccountInfoByWholesalerId_</code> の決定性</li>
+<li>手動/E2E: 卸 A→B 切替時にキャッシュが残らない、確認画面の卸名、別卸への取り違え送信がない、複数タブ、別 Google アカウント</li>
+<li>CI: <code>unit_tests.yml</code>、<code>bq_integrity_check.yml</code>（自動登録した行でも FK 検証が通ること）</li>
+</ul>
+<h3 id="s24">9.4 更新対象ドキュメント</h3>
+<p><code>docs/specifications/05_common.md</code>、<code>06_user_guide.md</code>、<code>07_test_scenarios.md</code>、<code>SETUP.md</code>、BO 側 <code>docs/specs/user-guide.md</code>・<code>invoice-withdrawal-review.md</code>・<code>schema_tables.md</code>。</p>
+<hr>
+<h2 id="s25">10. リスクと未確認事項</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>内容</th>
+<th>状態</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>本番の <code>wholesaler_user</code> の状況（D-3 の自動登録で 0 件問題は解消済み。既存行との重複・削除済み行の復活条件のみ確認）</td>
+<td>🟢 影響小</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>access: DOMAIN</code> 時の複数 Google アカウント問題</td>
+<td>✅ 前提で回避: 会社アカウントは Google Workspace で 1 アカウントに絞られ、複数ログインは発生しない運用（2026-10-09 ユーザー確認）。dev 初回デプロイ時に <code>getEmail()</code> が取れることのみ軽く確認</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>Session.getActiveUser()</code> が空になる条件（デプロイ者とユーザーのドメイン関係）</td>
+<td>⬜ 実機検証</td>
+</tr>
+<tr>
+<td>4</td>
+<td>下流（マイページ連携等）が <code>wholesaler_user</code> / <code>wholesaler_email</code> / <code>wholesaler_user_id</code> を参照していないか</td>
+<td>✅ 確認済み（<code>mypage-backend</code> に参照なし）</td>
+</tr>
+<tr>
+<td>5</td>
+<td>再請求時の <code>customer_code</code> が最新マッピング由来（スナップショットでない）</td>
+<td>✅ 今回はスコープ外（現状の挙動を維持。問題が出れば別チケット）</td>
+</tr>
+<tr>
+<td>6</td>
+<td>BO の再計算フローでの操作者引継ぎ</td>
+<td>✅ 解消（列追加なし。<code>wholesaler_user_id</code> は現行どおり引き継がれる）</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="s26">11. 次のステップ</h2>
+<ol>
+<li>§2 の決定事項ログは全項目決定済み。§10-5 もスコープ外で確定。</li>
+<li>実装前の検証項目: §10-2/3（<code>access: DOMAIN</code> と <code>Session.getActiveUser()</code> の実機検証）。§10-4（下流参照）は確認済み。</li>
+<li>検証後、実装タスクに分解（認証置換 → FE 切替 → 排他 → 監査 → BO 連携）。</li>
+</ol>
+
+</main>
+<script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,securityLevel:'loose'});</script></body></html>
