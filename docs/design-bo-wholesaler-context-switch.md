@@ -1,6 +1,6 @@
 # 卸システム BackOffice 代行運用（コンテキストスイッチ）設計書
 
-> ステータス: **ドラフト（ローカル作成・未コミット）**／決定事項ログを埋めながら確定する
+> ステータス: **ドラフト（レビュー中）**／決定事項ログを埋めながら確定する
 > 作成日: 2026-10-08
 > 前提資料: `docs/backoffice-wholesaler-csv-upload-options.md`（方式検討・案 B ボトルネック一覧 §11）
 > 対象: 卸システム（`shiire-poc-supplier`）、BackOffice（`connect-backoffice-gas-poc`）、BigQuery `connect_db`
@@ -76,7 +76,7 @@ erDiagram
 ```
 
 - **OPERATOR（BO 担当者）は DB エンティティではない**。許可リストで認可し、実行主体は `Session.getActiveUser()` から取得する。
-- `wholesaler_user_id` は「代理に使うユーザー ID」（D-4）。操作者の実体は D-1 の列で補う。
+- `wholesaler_user_id` は操作者本人の `wholesaler_user` 行 id（D-4）。新しい列は追加せず、`final_updated_by`（既存列）と合わせて操作者を記録する（D-1）。
 
 ### 3.2 テーブル変更（D-1 見直し：新しい列は追加しない）
 
@@ -97,7 +97,7 @@ erDiagram
 
 ```sql
 WITH ws AS (
-  SELECT id, wholesaler_name, wholesaler_status, invoice_fee_rate,
+  SELECT id, wholesaler_name, wholesaler_status, wholesaler_fee_rate,
          tax_rounding_method, csv_format_rules
   FROM wholesalers
   WHERE id = @wholesaler_id AND wholesaler_status IN ('active','end')
@@ -155,7 +155,7 @@ sequenceDiagram
 2. BO と同じ `Authz` で判定（D-9。許可リスト未設定なら DOMAIN 内全員）
 3. `wholesalerId` が `/^\d+$/` か検証（SQL 文字列連結の保護も兼ねる）
 4. 卸の実在・ステータス確認 → `accountInfo` 構築
-5. 操作者本人の `wholesaler_user` を特定（無ければ自動登録）し、`accountInfo.wholesaler_user_id` と `accountInfo.operatorEmail` を付与（ログ・Slack・監査列に使用）
+5. 操作者本人の `wholesaler_user` を特定（無ければ自動登録）し、`accountInfo.wholesaler_user_id` と `accountInfo.operator_email` を付与（ログ・Slack・監査列に使用）
 
 ### 4.2 公開関数のシグネチャ変更
 `sessionToken` 引数の位置を `wholesalerId` に差し替える（最小変更）。対象: `sendInvoiceData`、`resubmitInvoiceData`、`bulkResubmitInvoiceData`、`resubmitWithoutChanges`、`withdrawStoreInvoice`、`cancelWithdrawRequest`、`fetchInvoices`、`fetchInvoiceDetail`、`getInvoiceLinesByStore`、`fetchScheduleData`、`getAccountInfo`、`reportClientError`。
@@ -192,7 +192,7 @@ sequenceDiagram
 | 対象 | 対策 |
 |---|---|
 | 新規請求の二重登録 | `LockService.getScriptLock()`（GAS 制約により実装は全体ロック。論理粒度は「卸+年月」。詳細設計（卸）§4.4 で合意）を取得し、**トランザクション内で再確認**（`hasCurrentMonthInvoice_` を外に置かない） |
-| 再請求の並行更新 | 親請求 ID 単位でロック。新親金額は SQL 内で現在値から再計算。`is_latest=FALSE` の UPDATE に `@@row_count` 検証を追加し、0 件なら rollback |
+| 再請求の並行更新 | 親請求 ID は論理的な競合対象（実装は新規請求と共用の全体 `getScriptLock()` による直列化）。新親金額は SQL 内で現在値から再計算。`is_latest=FALSE` の UPDATE に `@@row_count` 検証を追加し、0 件なら rollback |
 | 複数 BO 担当者 | ロック待ち時間の上限（例: 30 秒）とユーザー向けメッセージ「他の担当者が処理中です」 |
 
 ---

@@ -1,6 +1,6 @@
 # 詳細設計書（卸システム側）BackOffice 代行運用（コンテキストスイッチ）
 
-> ステータス: **レビュー待ち（ローカル作成・未コミット）**
+> ステータス: **レビュー待ち**
 > 対象リポジトリ: `shiire-poc-supplier`（GAS / clasp）
 > 上位設計: `docs/design-bo-wholesaler-context-switch.md`（決定事項 D-1〜D-15 はそちらが正）
 > 関連: `connect-backoffice-gas-poc` リポジトリの `docs/design-detail-backoffice.md`（BO 側詳細設計）
@@ -144,10 +144,10 @@ function getServerAccountInfo_(wholesalerId) {
 
   const idStr = String(wholesalerId == null ? '' : wholesalerId).trim();
   if (!idStr)                 throw new Error('WHOLESALER_MISSING: 卸が指定されていません。');
-  if (!/^\d{1,18}$/.test(idStr)) throw new Error('WHOLESALER_INVALID: 卸IDの形式が不正です。'); // ② 形式検証（SQLへ渡す値の保護も兼ねる）
+  if (!/^\d{1,15}$/.test(idStr)) throw new Error('WHOLESALER_INVALID: 卸IDの形式が不正です。'); // ② 形式検証（SQLへ渡す値の保護も兼ねる）
 
-  // idStr は数字のみ検証済みの文字列のまま扱う（Number 化すると 2^53 超で精度が落ちるため）。SQL へは INT64 パラメータ（または数字のみのリテラル）で渡す
-  const accountInfo = fetchAccountInfoByWholesalerId_(idStr, operatorEmail); // ③ 卸の実在確認 + 操作者の wholesaler_user 特定/自動登録
+  // 15 桁以内に制限（Number.MAX_SAFE_INTEGER 未満が保証される）。既存コードが Number(wholesaler_id) 変換を多用する（db_bq_query.js 72、be_invoice.js 307、be_csv_mapper.js 733 等）ため、精度落ちを入口で防ぐ
+  const accountInfo = fetchAccountInfoByWholesalerId_(Number(idStr), operatorEmail); // ③ 卸の実在確認 + 操作者の wholesaler_user 特定/自動登録
   if (!accountInfo) throw new Error('WHOLESALER_INVALID: 指定された卸が見つかりません。');
 
   accountInfo.operator_email = operatorEmail;                       // ④ ログ・Slack・監査用に付与
@@ -185,7 +185,8 @@ function getAccountInfo(wholesalerId) {
 
 ```js
 function listWholesalers() {
-  requireAuthorizedOperator_();
+  const operatorEmail = requireAuthorizedOperator_();
+  logInfo_('Auth', 'listWholesalers: operator=' + operatorEmail); // 全卸一覧の参照を監査ログに残す
   return success_(fetchWholesalerList_()); // [{ wholesaler_id, wholesaler_name, wholesaler_status }]
 }
 ```
@@ -278,7 +279,7 @@ function doGet(e) {
   catch (err) { return forbiddenPage_(err); }
 
   const raw = String((e && e.parameter && e.parameter.wholesalerId) || '').trim();
-  const wholesalerId = /^\d{1,18}$/.test(raw) ? raw : '';      // 不正値は未指定として扱う（空状態へ）
+  const wholesalerId = /^\d{1,15}$/.test(raw) ? raw : '';      // 不正値は未指定として扱う（空状態へ）
 
   const template = HtmlService.createTemplateFromFile('fe_index');
   template.isDev = isDev;
@@ -358,6 +359,8 @@ try {
 - 操作者メールの特定は `wholesaler_user` を JOIN して行う（BO・分析側で利用）。
 
 #### 4.4.5 ログ
+
+Drive 監査 CSV には `setDescription` で操作者メールを付与する（上記 §9）。
 
 `logInfo_` / `logError_` の context に `operatorEmail`（`accountInfo.operator_email`）と `wholesalerId` を必ず含める。例:
 
@@ -556,7 +559,7 @@ sequenceDiagram
 | 観点 | 対策 |
 |---|---|
 | なりすまし | 認証は `Session.getActiveUser()` のみ。クライアント送信のメール・卸名・`wholesaler_user_id` は一切信用しない |
-| 入力検証 | `wholesalerId` は `/^\d{1,18}$/`、SQL はパラメータクエリ（既存の `esc()` 連結は現行どおり）。`wholesalerId` を SQL に埋める箇所は `Number()` 化済みの値のみ |
+| 入力検証 | `wholesalerId` は `/^\d{1,15}$/`、SQL はパラメータクエリ（既存の `esc()` 連結は現行どおり）。`wholesalerId` を SQL に埋める箇所は `Number()` 化済みの値のみ（15 桁以内なので精度落ちなし） |
 | 権限 | `access: DOMAIN` + `Authz`（D-9）。公開関数すべてで毎回認可を再実施 |
 | URL 注入 | テンプレートは `<?= ?>`（エスケープあり）。`backOfficeUrl` は https のみ |
 | 情報露出 | `listWholesalers` は卸名/ID/ステータスのみ。認可済みユーザーにのみ返す |
@@ -570,7 +573,7 @@ sequenceDiagram
 | DB | `wholesaler_user_id` / `final_updated_by` に操作者本人の `wholesaler_user.id`（メールは JOIN で特定） |
 | アプリログ | context に `operatorEmail`、`wholesalerId` |
 | Slack | 通知に操作者を追加（§4.6）|
-| Drive 監査 CSV | ファイル名/description に操作者メール、フォルダは `wholesaler_id` 単位（現行どおり。操作者は description へ）|
+| Drive 監査 CSV | フォルダ・ファイル名は現行どおり。操作者メールは、`be_invoice.js` の 3 つの `createFile` 経路（新規 939／再請求 1397／一括再請求 1600 付近）で作成直後に `csvFile.setDescription('operator=' + accountInfo.operator_email)` を設定する |
 
 ---
 
@@ -600,6 +603,7 @@ sequenceDiagram
 | `resubmitInvoiceData` / `bulkResubmit` | `@@row_count` 検証が SQL に含まれる／ロック失敗 |
 | 取り下げ系 3 関数 | UPDATE の SET 句に `final_updated_by` が含まれる（値が `accountInfo.wholesaler_user_id`）|
 | `be_csv_mapper` | INSERT の `wholesaler_user_id` / `final_updated_by` が `accountInfo` の値 |
+| Drive 監査 CSV | 新規／再請求／一括再請求の保存で `setDescription` に操作者メールが入る（`createFile` をモックして検証）|
 | `be_slack` | 操作者が通知の Who に含まれる／`reportClientError` が卸名をサーバー補完 |
 
 ### 11.2 結合・手動（dev 環境）

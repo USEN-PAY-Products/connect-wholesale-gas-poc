@@ -17,7 +17,7 @@ blockquote{margin:12px 0;padding:8px 16px;background:#fff7ed;border-left:4px sol
 hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 @media(max-width:900px){nav{display:none}main{margin:0;padding:16px}}@media print{nav{display:none}main{margin:0;max-width:none}}
 </style></head><body><nav><div class="t">目次</div><a class="d2" href="#s0">0. このドキュメントの位置づけ</a><a class="d3" href="#s1">0.1 確定している方針（再掲）</a><a class="d3" href="#s2">0.2 スコープ外</a><a class="d2" href="#s3">1. 改修ファイル一覧</a><a class="d2" href="#s4">2. 設定・デプロイ設定</a><a class="d3" href="#s5">2.1 appsscript.json</a><a class="d3" href="#s6">2.2 Script Properties</a><a class="d3" href="#s7">2.3 be_config.js の変更</a><a class="d2" href="#s8">3. 認証・認可（be_authz.js 新規）</a><a class="d2" href="#s9">4. バックエンド詳細</a><a class="d3" href="#s10">4.1 be_server.js</a><a class="d3" href="#s11">4.2 db_bq_query.js</a><a class="d3" href="#s12">4.3 be_main.js（doGet(e)）</a><a class="d3" href="#s13">4.4 be_invoice.js</a><a class="d3" href="#s14">4.5 be_csv_mapper.js</a><a class="d3" href="#s15">4.6 be_slack.js</a><a class="d3" href="#s16">4.7 be_assets.js</a><a class="d3" href="#s17">4.8 be_auth.js（削除）</a><a class="d2" href="#s18">5. フロントエンド詳細</a><a class="d3" href="#s19">5.1 fe_index.html</a><a class="d3" href="#s20">5.2 fe_part_header.html（ヘッダー）</a><a class="d3" href="#s21">5.3 fe_js_common.html</a><a class="d3" href="#s22">5.4 各ページ JS</a><a class="d3" href="#s23">5.5 fe_page_error.html</a><a class="d3" href="#s24">5.6 fe_css.html</a><a class="d2" href="#s25">6. シーケンス（BO から入場 → 登録）</a><a class="d2" href="#s26">7. エラー・例外設計</a><a class="d2" href="#s27">8. セキュリティ</a><a class="d2" href="#s28">9. 監査・ログ</a><a class="d2" href="#s29">10. 既知の制約・方針</a><a class="d2" href="#s30">11. テスト設計</a><a class="d3" href="#s31">11.1 単体（node --test test/）</a><a class="d3" href="#s32">11.2 結合・手動（dev 環境）</a><a class="d2" href="#s33">12. 実装手順（タスク分解・依存関係）</a><a class="d2" href="#s34">13. 更新対象ドキュメント</a><a class="d2" href="#s35">14. 実装前に確認が必要な項目</a></nav><main><div class="cover"><h1>詳細設計書（卸システム側）BackOffice 代行運用</h1></div><blockquote>
-<p>ステータス: <strong>レビュー待ち（ローカル作成・未コミット）</strong>
+<p>ステータス: <strong>レビュー待ち</strong>
 対象リポジトリ: <code>shiire-poc-supplier</code>（GAS / clasp）
 上位設計: <code>docs/design-bo-wholesaler-context-switch.md</code>（決定事項 D-1〜D-15 はそちらが正）
 関連: <code>connect-backoffice-gas-poc</code> リポジトリの <code>docs/design-detail-backoffice.md</code>（BO 側詳細設計）</p>
@@ -317,10 +317,10 @@ function requireAuthorizedOperator_() {
 
   const idStr = String(wholesalerId == null ? &#39;&#39; : wholesalerId).trim();
   if (!idStr)                 throw new Error(&#39;WHOLESALER_MISSING: 卸が指定されていません。&#39;);
-  if (!/^\d{1,18}$/.test(idStr)) throw new Error(&#39;WHOLESALER_INVALID: 卸IDの形式が不正です。&#39;); // ② 形式検証（SQLへ渡す値の保護も兼ねる）
+  if (!/^\d{1,15}$/.test(idStr)) throw new Error(&#39;WHOLESALER_INVALID: 卸IDの形式が不正です。&#39;); // ② 形式検証（SQLへ渡す値の保護も兼ねる）
 
-  // idStr は数字のみ検証済みの文字列のまま扱う（Number 化すると 2^53 超で精度が落ちるため）。SQL へは INT64 パラメータ（または数字のみのリテラル）で渡す
-  const accountInfo = fetchAccountInfoByWholesalerId_(idStr, operatorEmail); // ③ 卸の実在確認 + 操作者の wholesaler_user 特定/自動登録
+  // 15 桁以内に制限（Number.MAX_SAFE_INTEGER 未満が保証される）。既存コードが Number(wholesaler_id) 変換を多用する（db_bq_query.js 72、be_invoice.js 307、be_csv_mapper.js 733 等）ため、精度落ちを入口で防ぐ
+  const accountInfo = fetchAccountInfoByWholesalerId_(Number(idStr), operatorEmail); // ③ 卸の実在確認 + 操作者の wholesaler_user 特定/自動登録
   if (!accountInfo) throw new Error(&#39;WHOLESALER_INVALID: 指定された卸が見つかりません。&#39;);
 
   accountInfo.operator_email = operatorEmail;                       // ④ ログ・Slack・監査用に付与
@@ -353,7 +353,8 @@ function requireAuthorizedOperator_() {
 <h4><code>listWholesalers()</code>（新設・公開）</h4>
 <p>ヘッダーの卸切替一覧用。認可（<code>requireAuthorizedOperator_()</code>）のみ通せば呼べる（卸未選択でも使えるため）。</p>
 <pre><code class="language-js">function listWholesalers() {
-  requireAuthorizedOperator_();
+  const operatorEmail = requireAuthorizedOperator_();
+  logInfo_(&#39;Auth&#39;, &#39;listWholesalers: operator=&#39; + operatorEmail); // 全卸一覧の参照を監査ログに残す
   return success_(fetchWholesalerList_()); // [{ wholesaler_id, wholesaler_name, wholesaler_status }]
 }
 </code></pre>
@@ -435,7 +436,7 @@ ORDER BY wholesaler_name, id
   catch (err) { return forbiddenPage_(err); }
 
   const raw = String((e &amp;&amp; e.parameter &amp;&amp; e.parameter.wholesalerId) || &#39;&#39;).trim();
-  const wholesalerId = /^\d{1,18}$/.test(raw) ? raw : &#39;&#39;;      // 不正値は未指定として扱う（空状態へ）
+  const wholesalerId = /^\d{1,15}$/.test(raw) ? raw : &#39;&#39;;      // 不正値は未指定として扱う（空状態へ）
 
   const template = HtmlService.createTemplateFromFile(&#39;fe_index&#39;);
   template.isDev = isDev;
@@ -591,6 +592,7 @@ try {
 <li>操作者メールの特定は <code>wholesaler_user</code> を JOIN して行う（BO・分析側で利用）。</li>
 </ul>
 <h4>4.4.5 ログ</h4>
+<p>Drive 監査 CSV には <code>setDescription</code> で操作者メールを付与する（上記 §9）。</p>
 <p><code>logInfo_</code> / <code>logError_</code> の context に <code>operatorEmail</code>（<code>accountInfo.operator_email</code>）と <code>wholesalerId</code> を必ず含める。例:</p>
 <pre><code class="language-js">logInfo_(&#39;Invoice&#39;, &#39;sendInvoiceData 開始: wholesaler_id=&#39; + accountInfo.wholesaler_id +
   &#39;, operator=&#39; + accountInfo.operator_email + &#39;, account_id=&#39; + accountInfo.wholesaler_user_id + ...);
@@ -848,7 +850,7 @@ else                → getAccountInfo(wholesalerId)
 </tr>
 <tr>
 <td>入力検証</td>
-<td><code>wholesalerId</code> は <code>/^\d{1,18}$/</code>、SQL はパラメータクエリ（既存の <code>esc()</code> 連結は現行どおり）。<code>wholesalerId</code> を SQL に埋める箇所は <code>Number()</code> 化済みの値のみ</td>
+<td><code>wholesalerId</code> は <code>/^\d{1,15}$/</code>、SQL はパラメータクエリ（既存の <code>esc()</code> 連結は現行どおり）。<code>wholesalerId</code> を SQL に埋める箇所は <code>Number()</code> 化済みの値のみ（15 桁以内なので精度落ちなし）</td>
 </tr>
 <tr>
 <td>権限</td>
@@ -886,7 +888,7 @@ else                → getAccountInfo(wholesalerId)
 </tr>
 <tr>
 <td>Drive 監査 CSV</td>
-<td>ファイル名/description に操作者メール、フォルダは <code>wholesaler_id</code> 単位（現行どおり。操作者は description へ）</td>
+<td>フォルダ・ファイル名は現行どおり。操作者メールは、<code>be_invoice.js</code> の 3 つの <code>createFile</code> 経路（新規 939／再請求 1397／一括再請求 1600 付近）で作成直後に <code>csvFile.setDescription(&#39;operator=&#39; + accountInfo.operator_email)</code> を設定する</td>
 </tr>
 </tbody></table>
 <hr>
@@ -940,6 +942,10 @@ else                → getAccountInfo(wholesalerId)
 <tr>
 <td><code>be_csv_mapper</code></td>
 <td>INSERT の <code>wholesaler_user_id</code> / <code>final_updated_by</code> が <code>accountInfo</code> の値</td>
+</tr>
+<tr>
+<td>Drive 監査 CSV</td>
+<td>新規／再請求／一括再請求の保存で <code>setDescription</code> に操作者メールが入る（<code>createFile</code> をモックして検証）</td>
 </tr>
 <tr>
 <td><code>be_slack</code></td>
