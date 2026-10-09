@@ -168,7 +168,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 <td>12</td>
 <td><code>src/fe_index.html</code></td>
 <td>変更</td>
-<td><code>window.__WHOLESALER_ID__</code> / <code>__OPERATOR_EMAIL__</code> / <code>__BACKOFFICE_URL__</code> 注入、<code>__SESSION_TOKEN__</code> 廃止</td>
+<td><code>window.__WHOLESALER_ID__</code> / <code>__OPERATOR_EMAIL__</code> / <code>__BACKOFFICE_URL__</code> / <code>__WEB_APP_URL__</code> 注入、<code>__SESSION_TOKEN__</code> 廃止</td>
 </tr>
 <tr>
 <td>13</td>
@@ -341,7 +341,8 @@ function requireAuthorizedOperator_() {
   catch (err) {
     // 認証/指定系エラーは err.message をそのままフロントへ（プレフィックスで画面を出し分け）
     const m = String(err.message || &#39;&#39;);
-    if (/^(UNAUTHORIZED|FORBIDDEN|WHOLESALER_MISSING|WHOLESALER_INVALID|WHOLESALER_INACTIVE):/.test(m)) throw err;
+    // SYSTEM: はロック取得失敗など利用者に伝えるべき文言のため、他の認証系と同様にそのまま返す
+    if (/^(UNAUTHORIZED|FORBIDDEN|WHOLESALER_MISSING|WHOLESALER_INVALID|WHOLESALER_INACTIVE|SYSTEM):/.test(m)) throw err;
     logError_(&#39;Auth&#39;, &#39;getAccountInfo&#39;, err, { actionLabel: &#39;アカウント情報取得&#39;, operatorEmail: operatorEmail_ });
     throw new Error(&#39;アカウント情報の取得に失敗しました。ページを再読み込みしてください。&#39;);
   }
@@ -433,7 +434,12 @@ ORDER BY wholesaler_name, id
   // 認可（NG なら 403 ページを返す。BO の doGet と同じ作り）
   let operatorEmail = &#39;&#39;;
   try { operatorEmail = requireAuthorizedOperator_(); }
-  catch (err) { return forbiddenPage_(err); }
+  catch (err) {
+    // 403 にするのは UNAUTHORIZED / FORBIDDEN のみ。設定不備（getConfig_ の必須プロパティ未設定など）を認可エラーに見せない
+    if (/^(UNAUTHORIZED|FORBIDDEN):/.test(String(err.message || &#39;&#39;))) return forbiddenPage_(err);
+    logError_(&#39;Auth&#39;, &#39;doGet&#39;, err, { actionLabel: &#39;起動&#39; });
+    throw err;  // 設定・システム障害は握りつぶさず GAS のエラー画面＋ログに出す
+  }
 
   const raw = String((e &amp;&amp; e.parameter &amp;&amp; e.parameter.wholesalerId) || &#39;&#39;).trim();
   const wholesalerId = /^\d{1,15}$/.test(raw) ? raw : &#39;&#39;;      // 不正値は未指定として扱う（空状態へ）
@@ -442,6 +448,7 @@ ORDER BY wholesaler_name, id
   template.isDev = isDev;
   template.wholesalerId = wholesalerId;
   template.operatorEmail = operatorEmail;
+  template.webAppUrl = ScriptApp.getService().getUrl();        // 卸切替（top 遷移）のベース URL
   template.backOfficeUrl = getConfig_().backOfficeUrl;          // https のみ許可（isHttpsUrl_ 流用）
   ...
 }
@@ -637,6 +644,7 @@ try {
   window.__WHOLESALER_ID__ = &#39;&lt;?= wholesalerId ?&gt;&#39;;
   window.__OPERATOR_EMAIL__ = &#39;&lt;?= operatorEmail ?&gt;&#39;;
   window.__BACKOFFICE_URL__ = &#39;&lt;?= backOfficeUrl ?&gt;&#39;;
+  window.__WEB_APP_URL__ = &#39;&lt;?= webAppUrl ?&gt;&#39;;
 &lt;/script&gt;
 </code></pre>
 <ul>

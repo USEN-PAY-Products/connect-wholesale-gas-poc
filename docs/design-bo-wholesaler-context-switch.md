@@ -149,7 +149,7 @@ sequenceDiagram
 ## 4. 認証・認可設計
 
 ### 4.1 入口の一本化
-全公開関数が最初に `getServerAccountInfo_(wholesalerId)` を呼ぶ（現行と同じ構造を維持）。内部で毎回以下を実施:
+卸を対象とする業務 API は、全て最初に `getServerAccountInfo_(wholesalerId)` を呼ぶ（現行と同じ構造を維持）。内部で毎回以下を実施。例外は 2 つ: `listWholesalers()`（卸未選択でも使うため認可のみ）と `reportClientError`（認証・アカウント取得に失敗した場合でもエラー報告を送る必要があるため、アカウント取得は best-effort）。
 
 1. `Session.getActiveUser().getEmail()` を取得（空なら `UNAUTHORIZED`）
 2. BO と同じ `Authz` で判定（D-9。許可リスト未設定なら DOMAIN 内全員）
@@ -181,7 +181,7 @@ sequenceDiagram
 | 直接入場（`wholesalerId` なし） | 本文に「右上のメニューから卸を選択してください」の空状態を表示。`getAccountInfo` は呼ばない |
 | 切替 | 卸を選択したら常に `?wholesalerId=yy#home` へトップレベル遷移（D-12）。切替関数で `shiire_*` の全キーとメモリ状態（`parsedData`、`rawCsvBase64`、`scheduleMap`、`_scheduleLoaded`、開いているモーダル等）を消去 |
 | バナー | 全画面固定「〇〇（ID:xx）として操作中」。確認画面と送信前ダイアログにも卸名・ID を表示 |
-| エラー画面 | 種別を分離: `forbidden_user` / `wholesaler_missing` / `wholesaler_invalid` / `wholesaler_inactive` / `system`（自動登録失敗を含む）。「ログインページへ戻る」は廃止 |
+| エラー画面 | 種別を分離: `forbidden` / `wholesaler_missing` / `wholesaler_invalid` / `wholesaler_inactive` / `system`（自動登録失敗を含む）。「ログインページへ戻る」は廃止 |
 | キャッシュ | `shiire_invoices_cache`・`shiire_resubmit_handover_matter` のキーに卸 ID を含める。`_scheduleLoaded` / `scheduleMap` を卸単位化 |
 | 容量 | `saveAccountInfo` は保存前に旧コンテキストを削除し、失敗時は全体をクリアして再取得 |
 

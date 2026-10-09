@@ -315,7 +315,7 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
 <hr>
 <h2 id="s11">4. 認証・認可設計</h2>
 <h3 id="s12">4.1 入口の一本化</h3>
-<p>全公開関数が最初に <code>getServerAccountInfo_(wholesalerId)</code> を呼ぶ（現行と同じ構造を維持）。内部で毎回以下を実施:</p>
+<p>卸を対象とする業務 API は、全て最初に <code>getServerAccountInfo_(wholesalerId)</code> を呼ぶ（現行と同じ構造を維持）。内部で毎回以下を実施。例外は 2 つ: <code>listWholesalers()</code>（卸未選択でも使うため認可のみ）と <code>reportClientError</code>（認証・アカウント取得に失敗した場合でもエラー報告を送る必要があるため、アカウント取得は best-effort）。</p>
 <ol>
 <li><code>Session.getActiveUser().getEmail()</code> を取得（空なら <code>UNAUTHORIZED</code>）</li>
 <li>BO と同じ <code>Authz</code> で判定（D-9。許可リスト未設定なら DOMAIN 内全員）</li>
@@ -379,7 +379,7 @@ SELECT ... FROM ws CROSS JOIN op_user LEFT JOIN mm ...
 </tr>
 <tr>
 <td>エラー画面</td>
-<td>種別を分離: <code>forbidden_user</code> / <code>wholesaler_missing</code> / <code>wholesaler_invalid</code> / <code>wholesaler_inactive</code> / <code>system</code>（自動登録失敗を含む）。「ログインページへ戻る」は廃止</td>
+<td>種別を分離: <code>forbidden</code> / <code>wholesaler_missing</code> / <code>wholesaler_invalid</code> / <code>wholesaler_inactive</code> / <code>system</code>（自動登録失敗を含む）。「ログインページへ戻る」は廃止</td>
 </tr>
 <tr>
 <td>キャッシュ</td>

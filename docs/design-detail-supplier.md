@@ -49,7 +49,7 @@
 | 9 | `src/be_csv_mapper.js` | 変更 | `buildMappedTransactionSql_` / `buildMappedResubmitTransactionSql_` / `buildMappedBulkResubmitTransactionSql_` に、§4.4.2・§4.4.3 と同じ当月重複再確認・`@@row_count` 検証を追加（§4.5）。`wsUserId`（= `accountInfo.wholesaler_user_id`）の受け渡しは変更なし。標準／マッピング両形式のテスト追加 |
 | 10 | `src/be_slack.js` | 変更 | 通知に操作者を追加、`reportClientError` の卸名をサーバー補完 |
 | 11 | `src/be_assets.js` | 変更 | ファビコンの `LP_URL` 依存を廃止（`FAVICON_URL` のみ）|
-| 12 | `src/fe_index.html` | 変更 | `window.__WHOLESALER_ID__` / `__OPERATOR_EMAIL__` / `__BACKOFFICE_URL__` 注入、`__SESSION_TOKEN__` 廃止 |
+| 12 | `src/fe_index.html` | 変更 | `window.__WHOLESALER_ID__` / `__OPERATOR_EMAIL__` / `__BACKOFFICE_URL__` / `__WEB_APP_URL__` 注入、`__SESSION_TOKEN__` 廃止 |
 | 13 | `src/fe_part_header.html` | 変更 | ユーザー名（操作者メール）ドロップダウンへ作り替え、固定バナー追加 |
 | 14 | `src/fe_js_common.html` | 変更 | `getSessionToken_` → `getWholesalerId_`、初期化フロー、切替関数、キャッシュ全消去、ログアウト/ログインへ戻る処理の削除 |
 | 15 | `src/fe_js_home.html` / `fe_js_detail.html` / `fe_js_confirm.html` / `fe_js_calendar.html` / `fe_js_upload.html` | 変更 | `getSessionToken_()` 呼び出しの置換、キャッシュキー・状態の卸単位化、確認ダイアログに卸名 |
@@ -170,7 +170,8 @@ function getAccountInfo(wholesalerId) {
   catch (err) {
     // 認証/指定系エラーは err.message をそのままフロントへ（プレフィックスで画面を出し分け）
     const m = String(err.message || '');
-    if (/^(UNAUTHORIZED|FORBIDDEN|WHOLESALER_MISSING|WHOLESALER_INVALID|WHOLESALER_INACTIVE):/.test(m)) throw err;
+    // SYSTEM: はロック取得失敗など利用者に伝えるべき文言のため、他の認証系と同様にそのまま返す
+    if (/^(UNAUTHORIZED|FORBIDDEN|WHOLESALER_MISSING|WHOLESALER_INVALID|WHOLESALER_INACTIVE|SYSTEM):/.test(m)) throw err;
     logError_('Auth', 'getAccountInfo', err, { actionLabel: 'アカウント情報取得', operatorEmail: operatorEmail_ });
     throw new Error('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
   }
@@ -276,7 +277,12 @@ function doGet(e) {
   // 認可（NG なら 403 ページを返す。BO の doGet と同じ作り）
   let operatorEmail = '';
   try { operatorEmail = requireAuthorizedOperator_(); }
-  catch (err) { return forbiddenPage_(err); }
+  catch (err) {
+    // 403 にするのは UNAUTHORIZED / FORBIDDEN のみ。設定不備（getConfig_ の必須プロパティ未設定など）を認可エラーに見せない
+    if (/^(UNAUTHORIZED|FORBIDDEN):/.test(String(err.message || ''))) return forbiddenPage_(err);
+    logError_('Auth', 'doGet', err, { actionLabel: '起動' });
+    throw err;  // 設定・システム障害は握りつぶさず GAS のエラー画面＋ログに出す
+  }
 
   const raw = String((e && e.parameter && e.parameter.wholesalerId) || '').trim();
   const wholesalerId = /^\d{1,15}$/.test(raw) ? raw : '';      // 不正値は未指定として扱う（空状態へ）
@@ -285,6 +291,7 @@ function doGet(e) {
   template.isDev = isDev;
   template.wholesalerId = wholesalerId;
   template.operatorEmail = operatorEmail;
+  template.webAppUrl = ScriptApp.getService().getUrl();        // 卸切替（top 遷移）のベース URL
   template.backOfficeUrl = getConfig_().backOfficeUrl;          // https のみ許可（isHttpsUrl_ 流用）
   ...
 }
@@ -403,6 +410,7 @@ logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.whole
   window.__WHOLESALER_ID__ = '<?= wholesalerId ?>';
   window.__OPERATOR_EMAIL__ = '<?= operatorEmail ?>';
   window.__BACKOFFICE_URL__ = '<?= backOfficeUrl ?>';
+  window.__WEB_APP_URL__ = '<?= webAppUrl ?>';
 </script>
 ```
 
