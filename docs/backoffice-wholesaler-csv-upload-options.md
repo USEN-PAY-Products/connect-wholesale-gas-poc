@@ -1,6 +1,12 @@
 # BackOffice ユーザーによる卸データ CSV 登録 方式検討（最小変更案）
 
-> ステータス: 検討用ドラフト（実装・設計確定前）
+> ステータス: **履歴資料（方式検討の記録）**。実装仕様ではありません
+>
+> **確定仕様は次を参照してください**: `docs/design-bo-wholesaler-context-switch.md`（上位設計・決定事項 D-1〜D-15）、`docs/design-detail-supplier.md`（卸システム詳細設計）。
+> 本書の初期推奨のうち、次は確定設計で置き換えられています。
+> - 既存卸ユーザーの流用（§1・§5）→ 操作者本人の `wholesaler_user` 行を自動登録（D-3/D-4）
+> - 許可リスト未設定時の拒否（fail-close、§6.1）→ dev は空リスト許容、prd は 1 件以上必須（D-9）
+> - 引数名 `sessionToken` の維持（§4.3）→ `wholesalerId` に差し替え
 > 作成日: 2026-10-02
 > 対象: 卸システム（`shiire-poc-supplier`）/ BackOffice（`connect-backoffice-gas-poc`）
 > 本書は旧 2 ドキュメント（初版・v2）を統合し、論点を「**現状実装からの変更を最小にして、BackOffice ユーザーだけが卸のデータとして CSV をアップロードし BQ へ登録できるようにする方法**」に絞って再構成したもの。

@@ -17,10 +17,17 @@ blockquote{margin:12px 0;padding:8px 16px;background:#fff7ed;border-left:4px sol
 hr{border:0;border-top:1px solid var(--bd);margin:28px 0}
 @media(max-width:900px){nav{display:none}main{margin:0;padding:16px}}@media print{nav{display:none}main{margin:0;max-width:none}}
 </style></head><body><nav><div class="t">目次</div><a class="d2" href="#s0">1. 結論</a><a class="d2" href="#s1">2. 要件と前提</a><a class="d2" href="#s2">3. 現状実装の要点（調査結果）</a><a class="d3" href="#s3">3.1 現在の認証・卸確定の流れ</a><a class="d3" href="#s4">3.2 変更範囲を小さくできる根拠</a><a class="d3" href="#s5">3.3 BackOffice 側の実装（参照）</a><a class="d2" href="#s6">4. 方式案</a><a class="d3" href="#s7">4.1 案の一覧（変更が小さい順）</a><a class="d3" href="#s8">4.2 案 A: 卸ごとの代理アカウントでログイン（参考）</a><a class="d3" href="#s9">4.3 案 B: BackOffice 認証 + wholesalerId 指定（推奨）</a><a class="d3" href="#s10">4.4 案 C: 案 B + BackOffice の GAS プロジェクトへコード統合（任意）</a><a class="d3" href="#s11">4.5 案 D: BackOffice に機能を移植（非推奨）</a><a class="d3" href="#s12">4.6 案 E: ライブラリ化 / バッチ取込（非推奨）</a><a class="d3" href="#s13">4.7 軸 2: 卸をどこで指定するか（案 B・C 共通）</a><a class="d2" href="#s14">5. 監査・wholesaler_user_id の扱い</a><a class="d2" href="#s15">6. セキュリティ・誤操作防止</a><a class="d3" href="#s16">6.1 セキュリティ</a><a class="d3" href="#s17">6.2 誤操作防止（卸の取り違え）</a><a class="d2" href="#s18">7. 運用・デプロイ</a><a class="d3" href="#s19">7.1 切替リリースの流れ（案）</a><a class="d2" href="#s20">8. 比較（総括）</a><a class="d2" href="#s21">9. 確認したい事項</a><a class="d2" href="#s22">10. 実装ステップ（案 B）</a><a class="d2" href="#s23">11. 案 B ボトルネック・課題一覧（コード調査結果）</a><a class="d3" href="#s24">11.1 致命級（着手前に決める）</a><a class="d3" href="#s25">11.2 登録まわり（🟠）</a><a class="d3" href="#s26">11.3 登録まわり（🟡）</a><a class="d3" href="#s27">11.4 表示まわり</a><a class="d3" href="#s28">11.5 BackOffice 連携・業務・運用</a><a class="d3" href="#s29">11.6 優先順位と先に決めること</a><a class="d2" href="#s30">付録: 調査で確認した事実</a></nav><main><div class="cover"><h1>BackOffice ユーザーによる卸データ CSV 登録 方式検討（最小変更案）</h1></div><blockquote>
-<p>ステータス: 検討用ドラフト（実装・設計確定前）
+<p>ステータス: <strong>履歴資料（方式検討の記録）</strong>。実装仕様ではありません</p>
+<p><strong>確定仕様は次を参照してください</strong>: <code>docs/design-bo-wholesaler-context-switch.md</code>（上位設計・決定事項 D-1〜D-15）、<code>docs/design-detail-supplier.md</code>（卸システム詳細設計）。
+本書の初期推奨のうち、次は確定設計で置き換えられています。</p>
+<ul>
+<li>既存卸ユーザーの流用（§1・§5）→ 操作者本人の <code>wholesaler_user</code> 行を自動登録（D-3/D-4）</li>
+<li>許可リスト未設定時の拒否（fail-close、§6.1）→ dev は空リスト許容、prd は 1 件以上必須（D-9）</li>
+<li>引数名 <code>sessionToken</code> の維持（§4.3）→ <code>wholesalerId</code> に差し替え
 作成日: 2026-10-02
 対象: 卸システム（<code>shiire-poc-supplier</code>）/ BackOffice（<code>connect-backoffice-gas-poc</code>）
-本書は旧 2 ドキュメント（初版・v2）を統合し、論点を「<strong>現状実装からの変更を最小にして、BackOffice ユーザーだけが卸のデータとして CSV をアップロードし BQ へ登録できるようにする方法</strong>」に絞って再構成したもの。</p>
+本書は旧 2 ドキュメント（初版・v2）を統合し、論点を「<strong>現状実装からの変更を最小にして、BackOffice ユーザーだけが卸のデータとして CSV をアップロードし BQ へ登録できるようにする方法</strong>」に絞って再構成したもの。</li>
+</ul>
 </blockquote>
 <hr>
 <h2 id="s0">1. 結論</h2>
