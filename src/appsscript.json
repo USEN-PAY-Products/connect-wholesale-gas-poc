@@ -20,6 +20,6 @@
   ],
   "webapp": {
     "executeAs": "USER_DEPLOYING",
-    "access": "ANYONE"
+    "access": "DOMAIN"
   }
 }

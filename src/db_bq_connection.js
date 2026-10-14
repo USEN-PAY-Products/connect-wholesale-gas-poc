@@ -125,9 +125,10 @@ function waitForLoadJob_(projectId, jobId, location) {
  *
  * @param {string} projectId - GCP プロジェクトID
  * @param {string} sql       - BEGIN TRANSACTION 〜 COMMIT を含む SQL 全文
+ * @param {Array<Object>} [params] - 名前付き BigQuery クエリパラメータ
  * @throws {Error} トランザクション失敗時
  */
-function runTransactionSql_(projectId, sql) {
+function runTransactionSql_(projectId, sql, params) {
   Logger.log('[BQ] トランザクション SQL 実行開始');
   // location はデータセットのリージョンと一致させる必要がある（BQ_LOCATION スクリプトプロパティで設定）。
   // 未指定だと getQueryResults がデフォルト US でジョブを探し「Not found: Job」になる。
@@ -138,6 +139,10 @@ function runTransactionSql_(projectId, sql) {
     timeoutMs:    10000,
     location:     location,
   };
+  if (params && params.length) {
+    request.parameterMode = 'NAMED';
+    request.queryParameters = params;
+  }
 
   let response = BigQuery.Jobs.query(request, projectId);
   if (response.errors && response.errors.length > 0) {

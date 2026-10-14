@@ -6,71 +6,85 @@
 // 依存: be_config.js（getConfig_）
 //
 // 公開する内部関数（末尾アンダースコア）:
-//   fetchAccountInfoByEmail_(email)          … メールアドレスからアカウント情報を取得
-//   fetchInvoicesByWholesaler_(wholesalerId) … 卸IDに紐づく請求一覧を取得
-//   fetchInvoiceDetail_(invoiceId)           … 請求IDに紐づく明細を取得
-//   fetchBusinessCalendar_(wholesalerId)     … 卸IDに紐づくスケジュールを取得
-//   runQuery_(projectId, sql, params)        … 汎用クエリ実行ラッパー
+//   fetchAccountInfoByWholesalerId_(wholesalerId, operatorEmail) … 卸ID+操作者メールからアカウント情報を取得
+//   ensureOperatorWholesalerUser_(wholesalerId, operatorEmail)   … 操作者の wholesaler_user を確認/自動登録
+//   fetchWholesalerList_()                                       … 卸一覧（active/end）を取得
+//   fetchInvoicesByWholesaler_(wholesalerId)                     … 卸IDに紐づく請求一覧を取得
+//   fetchInvoiceDetail_(invoiceId)                               … 請求IDに紐づく明細を取得
+//   fetchBusinessCalendar_(wholesalerId)                         … 卸IDに紐づくスケジュールを取得
+//   runQuery_(projectId, sql, params)                            … 汎用クエリ実行ラッパー
 // =============================================================================
 
 /**
- * メールアドレスからアカウント情報を BQ から取得して集約されたオブジェクトを返す。
- * wholesaler_user → wholesalers → wholesaler_merchants → store を JOIN。
- * 削除済みユーザーは除外する。
- * wholesaler_status は 'active' と 'end' を許容する（end 卸は参照・再請求用途でログイン可能）。
+ * 卸IDからアカウント情報を BQ から取得して集約されたオブジェクトを返す。
+ * 卸（wholesalers）起点で JOIN し、操作者の wholesaler_user は別クエリで解決する。
+ * 処理順:
+ *   1. wholesalers + wholesaler_merchants + store を取得（0行 → null）
+ *   2. wholesaler_status が active/end 以外 → WHOLESALER_INACTIVE を throw
+ *   3. ensureOperatorWholesalerUser_ で操作者の wholesaler_user を確認/自動登録
  *
- * @param {string} email - GAS Session.getActiveUser().getEmail() の値
- * @returns {Object|null} アカウント情報オブジェクト。対応ユーザーがいない場合は null。
- * @throws {Error} クエリ失敗時
+ * @param {number} wholesalerId  - 卸ID（数値）
+ * @param {string} operatorEmail - 操作者のメールアドレス
+ * @returns {Object|null} アカウント情報オブジェクト。卸が存在しない場合は null。
+ * @throws {Error} WHOLESALER_INACTIVE: / クエリ失敗時
  */
-function fetchAccountInfoByEmail_(email) {
+function fetchAccountInfoByWholesalerId_(wholesalerId, operatorEmail) {
   const config = getConfig_();
+  const p = config.gcpProjectId + '.' + config.bqDatasetId;
+
+  // ── ① 卸 + 加盟店マッピング取得 ─────────────────────────────────────────
+  // wholesaler_status は WHERE から外してアプリ側で判定する（INACTIVE の理由を区別するため）
   const sql =
-    'WITH latest_merchants AS ( ' +
+    'WITH ws AS ( ' +
+    '  SELECT id, wholesaler_name, wholesaler_status, wholesaler_fee_rate, ' +
+    '         tax_rounding_method, csv_format_rules ' +
+    '  FROM `' + p + '.wholesalers` ' +
+    '  WHERE id = @wholesaler_id ' +
+    '), ' +
+    'latest_merchants AS ( ' +
+    // registration_at が同一の場合の非決定性を避けるため、id の降順もタイブレークに含める
     '  SELECT customer_code, mall_code, wholesaler_id, ' +
-    // registration_at が同一の場合の非決定性を避けるため、id(UUID v7)の降順もタイブレークに含める
-    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ORDER BY registration_at DESC, id DESC) AS rn ' +
-    '  FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_merchants` ' +
-    '  WHERE deleted_at IS NULL ' +
+    '    ROW_NUMBER() OVER (PARTITION BY mall_code, wholesaler_id ' +
+    '                       ORDER BY registration_at DESC, id DESC) AS rn ' +
+    '  FROM `' + p + '.wholesaler_merchants` ' +
+    '  WHERE deleted_at IS NULL AND wholesaler_id = @wholesaler_id ' +
     ') ' +
-    'SELECT ' +
-    '  wu.id                   AS wholesaler_user_id, ' +
-    '  wu.wholesaler_id, ' +
-    '  w.wholesaler_name, ' +
-    '  w.wholesaler_status, ' +
-    '  w.wholesaler_fee_rate   AS fee_rate, ' +
-    '  w.tax_rounding_method, ' +
-    '  w.csv_format_rules, ' +
-    '  wm.customer_code, ' +
-    '  wm.mall_code, ' +
-    '  s.store_name ' +
-    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesaler_user` AS wu ' +
-    'JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` AS w ' +
-    '  ON w.id = wu.wholesaler_id AND w.wholesaler_status IN (\'active\', \'end\') ' +
-    'LEFT JOIN latest_merchants AS wm ' +
-    '  ON wm.wholesaler_id = wu.wholesaler_id AND wm.rn = 1 ' +
-    'LEFT JOIN `' + config.gcpProjectId + '.' + config.bqDatasetId + '.store` AS s ' +
-    '  ON s.mall_code = wm.mall_code AND s.store_status = \'active\' ' +
-    'WHERE wu.wholesaler_email = @email ' +
-    '  AND wu.deleted_at IS NULL';
+    'SELECT w.id AS wholesaler_id, w.wholesaler_name, w.wholesaler_status, ' +
+    '       w.wholesaler_fee_rate AS fee_rate, w.tax_rounding_method, w.csv_format_rules, ' +
+    '       wm.customer_code, wm.mall_code, s.store_name ' +
+    'FROM ws AS w ' +
+    'LEFT JOIN latest_merchants AS wm ON wm.rn = 1 ' +
+    'LEFT JOIN `' + p + '.store` AS s ' +
+    '  ON s.mall_code = wm.mall_code AND s.store_status = \'active\'';
 
   const params = [
-    { name: 'email', parameterType: { type: 'STRING' }, parameterValue: { value: email } },
+    { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
   ];
 
   const rows = runQuery_(config.gcpProjectId, sql, params);
   if (!rows || rows.length === 0) return null;
 
   const first = rows[0];
+
+  // ── ② wholesaler_status 検証 ─────────────────────────────────────────────
+  const status = first.wholesaler_status;
+  if (status !== 'active' && status !== 'end') {
+    throw new Error('WHOLESALER_INACTIVE: この卸は現在利用できません（status=' + status + '）。');
+  }
+
+  // ── ③ 操作者の wholesaler_user を確認/自動登録 ───────────────────────────
+  const wsUserId = ensureOperatorWholesalerUser_(wholesalerId, operatorEmail);
+
+  // ── ④ merchant_mappings を組み立て（store_name が null → 除外）───────────
   const merchantMappings = rows
-    .filter(function(r) { return r.mall_code && r.store_name; })  // store_name が null → 除外（end 店舗 / store 未登録の両方）
+    .filter(function(r) { return r.mall_code && r.store_name; })
     .map(function(r) {
       return { customer_code: r.customer_code, mall_code: r.mall_code, store_name: r.store_name };
     });
 
   return {
     wholesaler_id:       Number(first.wholesaler_id),
-    wholesaler_user_id:  first.wholesaler_user_id,
+    wholesaler_user_id:  wsUserId,
     wholesaler_name:     first.wholesaler_name,
     wholesaler_status:   first.wholesaler_status,
     fee_rate:            Number(first.fee_rate),
@@ -79,11 +93,145 @@ function fetchAccountInfoByEmail_(email) {
       try {
         return first.csv_format_rules ? JSON.parse(first.csv_format_rules) : null;
       } catch (e) {
-        Logger.log('[fetchAccountInfoByEmail_] csv_format_rules のパースに失敗しました。デフォルトフォーマットを使用します: ' + e.message);
+        Logger.log('[fetchAccountInfoByWholesalerId_] csv_format_rules のパースに失敗しました。デフォルトフォーマットを使用します: ' + e.message);
         return null;
       }
     })(),
     merchant_mappings:   merchantMappings,
+  };
+}
+
+/**
+ * 操作者の wholesaler_user 行を確認し、存在しない場合は自動登録する（D-3）。
+ * 同時初回アクセスによる重複行を防ぐため LockService と再確認を組み合わせる。
+ *
+ * 処理フロー:
+ *   1. active 行がある → そのまま id を返す（ロック不要・通常ケース）
+ *   2. ロック取得 → ロック内で再確認
+ *     a. active 行あり → その id を返す（他リクエストが先に登録済み）
+ *     b. deleted 行のみあり → deleted_at を NULL に戻して復活
+ *     c. 行なし → INSERT（Utilities.getUuid() で v4 UUID を生成）
+ *
+ * @param {number} wholesalerId  - 卸ID
+ * @param {string} operatorEmail - 操作者のメールアドレス
+ * @returns {string} wholesaler_user.id（UUID）
+ * @throws {Error} SYSTEM: ロック取得失敗時
+ */
+function ensureOperatorWholesalerUser_(wholesalerId, operatorEmail) {
+  const config = getConfig_();
+  const p = config.gcpProjectId + '.' + config.bqDatasetId;
+
+  // ── ① active 行の高速チェック（通常ケース・ロック不要）─────────────────
+  const checkSql =
+    'SELECT id, deleted_at ' +
+    'FROM `' + p + '.wholesaler_user` ' +
+    'WHERE wholesaler_id = @wholesaler_id AND wholesaler_email = @email ' +
+    'ORDER BY (deleted_at IS NULL) DESC, registration_at DESC, id DESC ' +
+    'LIMIT 1';
+  const checkParams = [
+    { name: 'wholesaler_id', parameterType: { type: 'INT64'  }, parameterValue: { value: String(wholesalerId) } },
+    { name: 'email',         parameterType: { type: 'STRING' }, parameterValue: { value: operatorEmail } },
+  ];
+  const checkRows = runQuery_(config.gcpProjectId, checkSql, checkParams);
+  if (checkRows && checkRows.length > 0 && checkRows[0].deleted_at === null) {
+    return checkRows[0].id;
+  }
+
+  // ── ② ロック取得（登録・復活処理を直列化）─────────────────────────────
+  const lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(30000)) {
+      throw new Error('SYSTEM: 他の処理中のため登録できませんでした。再度お試しください。');
+    }
+  } catch (lockErr) {
+    // tryLock 自体が例外を投げる場合（タイムアウト含む）
+    const msg = String(lockErr.message || '');
+    if (msg.startsWith('SYSTEM:')) throw lockErr;
+    throw new Error('SYSTEM: 他の処理中のため登録できませんでした。再度お試しください。');
+  }
+
+  try {
+    // ── ③ ロック内で再確認 ────────────────────────────────────────────────
+    const innerRows = runQuery_(config.gcpProjectId, checkSql, checkParams);
+    if (innerRows && innerRows.length > 0) {
+      const row = innerRows[0];
+      if (row.deleted_at === null) {
+        // a. 他リクエストが先に登録済み
+        return row.id;
+      }
+      // b. deleted 行のみ → 復活（deleted_at を NULL に）
+      const updateSql =
+        'UPDATE `' + p + '.wholesaler_user` ' +
+        'SET deleted_at = NULL ' +
+        'WHERE id = @id';
+      runTransactionSql_(config.gcpProjectId, updateSql, [
+        { name: 'id', parameterType: { type: 'STRING' }, parameterValue: { value: String(row.id) } },
+      ]);
+      return row.id;
+    }
+
+    // c. 行なし → INSERT
+    const newId = Utilities.getUuid(); // v4 UUID（現行の卸システムの慣例）
+    const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    const insertSql =
+      'INSERT INTO `' + p + '.wholesaler_user` ' +
+      '(id, wholesaler_id, wholesaler_email, registration_at) ' +
+      'VALUES (@id, @wholesaler_id, @email, @registration_at)';
+    runTransactionSql_(config.gcpProjectId, insertSql, [
+      { name: 'id', parameterType: { type: 'STRING' }, parameterValue: { value: newId } },
+      { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
+      { name: 'email', parameterType: { type: 'STRING' }, parameterValue: { value: operatorEmail } },
+      { name: 'registration_at', parameterType: { type: 'DATE' }, parameterValue: { value: today } },
+    ]);
+    logInfo_('Auth', 'ensureOperatorWholesalerUser_: 新規登録 wholesaler_id=' + wholesalerId + ', email=' + operatorEmail + ', id=' + newId);
+    return newId;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * active / end ステータスの卸一覧を BQ から取得する。
+ * ヘッダーの卸切替ドロップダウン用。
+ *
+ * @returns {Array<{wholesaler_id: number, wholesaler_name: string, wholesaler_status: string}>}
+ * @throws {Error} クエリ失敗時
+ */
+function fetchWholesalerList_() {
+  const config = getConfig_();
+  const sql =
+    'SELECT id AS wholesaler_id, wholesaler_name, wholesaler_status ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` ' +
+    "WHERE wholesaler_status IN ('active', 'end') " +
+    'ORDER BY wholesaler_name, id';
+  const rows = runQuery_(config.gcpProjectId, sql, []);
+  return (rows || []).map(function(r) {
+    return {
+      wholesaler_id:     Number(r.wholesaler_id),
+      wholesaler_name:   r.wholesaler_name,
+      wholesaler_status: r.wholesaler_status,
+    };
+  });
+}
+
+/**
+ * エラー通知用に卸名を ID から取得する（クライアント送信の名称は使用しない）。
+ * @param {string} wholesalerId - 数字のみの卸ID
+ * @returns {{wholesaler_id: number, wholesaler_name: string}|null}
+ */
+function fetchWholesalerNameById_(wholesalerId) {
+  const config = getConfig_();
+  const sql =
+    'SELECT id AS wholesaler_id, wholesaler_name ' +
+    'FROM `' + config.gcpProjectId + '.' + config.bqDatasetId + '.wholesalers` ' +
+    'WHERE id = @wholesaler_id LIMIT 1';
+  const rows = runQuery_(config.gcpProjectId, sql, [
+    { name: 'wholesaler_id', parameterType: { type: 'INT64' }, parameterValue: { value: String(wholesalerId) } },
+  ]);
+  if (!rows || rows.length === 0) return null;
+  return {
+    wholesaler_id: Number(rows[0].wholesaler_id),
+    wholesaler_name: String(rows[0].wholesaler_name || ''),
   };
 }
 

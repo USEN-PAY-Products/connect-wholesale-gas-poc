@@ -63,8 +63,17 @@ function logError_(tag, message, error, context) {
   }
   Logger.log('[ERROR][' + tag + '] ' + sanitizeLogMessage_(errorDetail));
 
+  const slackContext = Object.assign({}, context || {});
+  if (!slackContext.operatorEmail && typeof Session !== 'undefined') {
+    try {
+      slackContext.operatorEmail = Session.getActiveUser().getEmail() || '';
+    } catch (contextErr) {
+      Logger.log('[WARN][' + tag + '] Slack通知用の操作者メールを取得できませんでした: ' + contextErr);
+    }
+  }
+
   try {
-    notifySlackError_(tag, message, error, context);
+    notifySlackError_(tag, message, error, slackContext);
   } catch (_) {
     // notifySlackError_（be_slack.js）内部の想定漏れによる例外も、
     // ここで確実に握りつぶす（二重防御）。ログ出力自体は上記で完了済みのため、

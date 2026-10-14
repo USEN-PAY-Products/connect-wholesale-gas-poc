@@ -880,6 +880,16 @@ function buildMappedTransactionSql_(params) {
     ...declareBlock,
     'BEGIN TRANSACTION;',
     '',
+    '-- トランザクション内でも当月重複を確認し、ロック外の書込経路との競合を防ぐ',
+    'IF EXISTS (',
+    '  SELECT 1 FROM ' + invRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    "    AND created_at >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE('Asia/Tokyo'), MONTH), 'Asia/Tokyo')",
+    "    AND created_at < TIMESTAMP(DATE_ADD(DATE_TRUNC(CURRENT_DATE('Asia/Tokyo'), MONTH), INTERVAL 1 MONTH), 'Asia/Tokyo')",
+    ') THEN',
+    "  RAISE USING MESSAGE = '今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。';",
+    'END IF;',
+    '',
     ...validateBlock,
     '-- =========================================================',
     '-- 1. 子テーブル (store_invoices)',
@@ -1105,6 +1115,10 @@ function buildMappedResubmitTransactionSql_(params) {
     '  AND wholesaler_id = ' + wsId,
     "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND is_latest = TRUE;',
+    'IF @@row_count = 0 THEN',
+    '  ROLLBACK TRANSACTION;',
+    "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+    'END IF;',
     '',
     '-- 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef + ' (',
@@ -1309,6 +1323,12 @@ function buildMappedBulkResubmitTransactionSql_(params) {
   const mallCodeInClause = targetMallCodes.length > 0
     ? targetMallCodes.map(function(mc) { return "'" + mc + "'"; }).join(', ')
     : 'NULL';
+  const hasReturnedTarget = summaryData.merchantTotals.some(function (m) {
+    return (_invoiceStatuses[String(m.customerCode)] || '') !== 'DISPUTED';
+  });
+  const hasDisputedTarget = summaryData.merchantTotals.some(function (m) {
+    return (_invoiceStatuses[String(m.customerCode)] || '') === 'DISPUTED';
+  });
 
   const sqlLines = [
     ...declareBlock,
@@ -1324,6 +1344,12 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     "  AND backoffice_review_status = 'RETURNED'",
     "  AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN')",
     '  AND is_latest = TRUE;',
+    ...(hasReturnedTarget ? [
+      'IF @@row_count = 0 THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+      'END IF;',
+    ] : []),
     '',
     '-- ② 否認 store_invoices を is_latest = FALSE に更新（CSVに含まれる加盟店のみ）',
     'UPDATE ' + storeRef,
@@ -1334,6 +1360,12 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',
+    ...(hasDisputedTarget ? [
+      'IF @@row_count = 0 THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+      'END IF;',
+    ] : []),
     '',
     '-- ③ 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef + ' (',

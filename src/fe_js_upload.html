@@ -325,7 +325,7 @@ function handleFile(file) {
 
     // ── 当月重複チェック（sessionStorage キャッシュ参照）────────────────
     try {
-      const cachedInvoices = JSON.parse(sessionStorage.getItem('shiire_invoices_cache') || '[]');
+      const cachedInvoices = JSON.parse(sessionStorage.getItem('shiire_invoices_cache_' + getWholesalerId_()) || '[]');
       const jstDup = jstNow_();
       const currentYM = jstDup.year + '/' + String(jstDup.month).padStart(2, '0');
       const hasCurrentMonth = cachedInvoices.some(inv => inv.created_at && inv.created_at.startsWith(currentYM));

@@ -2,132 +2,70 @@
 // be_server.js
 //
 // アカウント情報取得の公開関数を管理する。
-// ログイン中の GAS ユーザーのメールアドレスから BQ を直接クエリして取得する。
+// BO の代行運用（コンテキストスイッチ）方式に対応。
+// wholesalerId を引数として受け取り、BQ を直接クエリして取得する。
 //
 // 公開関数:
-//   getAccountInfo() ← フロントから google.script.run 経由で呼ばれる
+//   getAccountInfo(wholesalerId)  ← フロントから google.script.run 経由で呼ばれる
+//   listWholesalers()             ← ヘッダーの卸切替一覧用
 // =============================================================================
 
 /**
- * BQ からアカウント情報を取得する内部ヘルパー。
- * メールアドレスをキーに wholesaler_user を起点に JOIN。
- * メールの取得優先順: 引数 email > sessionToken の Cache 逆引き > Session.getActiveUser()（組織内フォールバック）。
- * エラー種別は用途で2つに分かれる:
- *   - UNAUTHORIZED:  メール未取得（未ログイン/トークン失効）→ フロントは再ログイン案内
- *   - NOT_REGISTERED: メールは取れたが BQ に未登録 → フロントは登録案内（停止卸は弾かず閲覧可）
+ * 指定された wholesalerId のアカウント情報を BQ から取得する内部ヘルパー。
+ * 認証・認可・形式検証・卸の実在確認・操作者の wholesaler_user 特定/自動登録を行う。
  *
- * @param {string} [email] - 認証済みメール。doPost の tokeninfo 検証後に渡される。
- * @param {string} [sessionToken] - セッショントークン。Cache から email を逆引きする。
- * @returns {Object} アカウント情報オブジェクト
- * @throws {Error} BQ クエリ失敗時、メール未取得(UNAUTHORIZED:)、または未登録(NOT_REGISTERED:)
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getAccountInfo から渡される）
+ * @returns {Object} アカウント情報オブジェクト（operator_email が付加される）
+ * @throws {Error} UNAUTHORIZED: / FORBIDDEN: / WHOLESALER_MISSING: / WHOLESALER_INVALID: / WHOLESALER_INACTIVE:
  */
-function getServerAccountInfo_(email, sessionToken) {
-  if (!email && sessionToken) {
-    // サーバー側でも形式/長さを検証（不正値は無視して Session フォールバック）
-    if (typeof sessionToken === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(sessionToken)) {
-      email = CacheService.getScriptCache().get('shiire_session:' + sessionToken) || '';
-    }
-  }
-  if (!email) {
-    email = Session.getActiveUser().getEmail();
-  }
-  if (!email) {
-    logError_('Auth', '認証失敗: メールアドレスを取得できませんでした');
-    throw new Error('UNAUTHORIZED: ログイン情報の取得に失敗しました。再度ログインしてください。');
-  }
+function getServerAccountInfo_(wholesalerId) {
+  const operatorEmail = requireAuthorizedOperator_();              // ① 認証・認可
 
-  const accountInfo = fetchAccountInfoByEmail_(email);
-  if (!accountInfo) {
-    logError_('Auth', '認証失敗: アカウント未登録（BQに該当なし）');
-    throw new Error('NOT_REGISTERED: このアカウントは登録されていません。管理者にお問い合わせください。');
-  }
+  const idStr = String(wholesalerId == null ? '' : wholesalerId).trim();
+  if (!idStr)                   throw new Error('WHOLESALER_MISSING: 卸が指定されていません。');
+  if (!/^\d{1,15}$/.test(idStr)) throw new Error('WHOLESALER_INVALID: 卸IDの形式が不正です。'); // ② 形式検証
 
-  logInfo_('Auth', '認証成功: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
+  // 15桁以内に制限（Number.MAX_SAFE_INTEGER 未満が保証される）。
+  // 既存コードが Number(wholesaler_id) 変換を多用するため、精度落ちを入口で防ぐ。
+  const accountInfo = fetchAccountInfoByWholesalerId_(Number(idStr), operatorEmail); // ③ 卸の実在確認 + 操作者の wholesaler_user 特定/自動登録
+  if (!accountInfo) throw new Error('WHOLESALER_INVALID: 指定された卸が見つかりません。');
+
+  accountInfo.operator_email = operatorEmail;                       // ④ ログ・Slack・監査用に付与
+  logInfo_('Auth', '認証成功: wholesaler_id=' + accountInfo.wholesaler_id +
+                   ', operator=' + operatorEmail + ', account_id=' + accountInfo.wholesaler_user_id);
   return accountInfo;
 }
 
 /**
  * フロントエンドの DOMContentLoaded 時に google.script.run 経由で呼ばれる公開関数。
- * @param {string} [sessionToken] - LP ログイン時に発行されたセッショントークン。
+ * @param {string|number} wholesalerId - 操作対象の卸ID（doGet がテンプレート注入した値）
  * @returns {{ status: 'success', data: Object }}
  */
-function getAccountInfo(sessionToken) {
-  // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
-  let accountInfo = null;
+function getAccountInfo(wholesalerId) {
+  let operatorEmail_ = '';
+  try { operatorEmail_ = Session.getActiveUser().getEmail() || ''; } catch (e) { /* 取得不可でもログのみのため継続 */ }
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    return success_(accountInfo);
+    return success_(getServerAccountInfo_(wholesalerId));
   } catch (err) {
-    logError_('Auth', 'getAccountInfo', err, {
-      wholesalerId: accountInfo && accountInfo.wholesaler_id,
-      wholesalerName: accountInfo && accountInfo.wholesaler_name,
-      actionLabel: 'アカウント情報取得',
-    });
-    // UNAUTHORIZED / NOT_REGISTERED はフロントが err.message で認証エラーを判定するためそのまま再throw
+    // 認証/指定系エラーは err.message をそのままフロントへ（プレフィックスで画面を出し分け）
     const m = String(err.message || '');
-    if (m.startsWith('UNAUTHORIZED:') || m.startsWith('NOT_REGISTERED:')) {
-      throw err;
-    }
+    // SYSTEM: はロック取得失敗など利用者に伝えるべき文言のため、他の認証系と同様にそのまま返す
+    if (/^(UNAUTHORIZED|FORBIDDEN|WHOLESALER_MISSING|WHOLESALER_INVALID|WHOLESALER_INACTIVE|SYSTEM):/.test(m)) throw err;
+    logError_('Auth', 'getAccountInfo', err, { actionLabel: 'アカウント情報取得', operatorEmail: operatorEmail_ });
     throw new Error('アカウント情報の取得に失敗しました。ページを再読み込みしてください。');
   }
 }
 
-// =============================================================================
-// ログアウト: リダイレクト先URL取得
-// =============================================================================
-
 /**
- * ログアウト時のリダイレクト先URLを返す。
- * ScriptProperties の LP_URL に ?logout=true パラメータを付与して返却する。
- * フロントエンドから google.script.run.getLogoutUrl() で呼び出される。
+ * ヘッダーの卸切替一覧用。認可のみ通せば呼べる（卸未選択でも使えるため）。
+ * 呼び出し時に操作者付きの監査ログを記録する。
  *
- * @returns {{ status: 'success', data: { url: string } }}
+ * @returns {{ status: 'success', data: Array<{wholesaler_id, wholesaler_name, wholesaler_status}> }}
  */
-function getLogoutUrl() {
-  try {
-    const { lpUrl } = getConfig_();
-    if (!lpUrl) {
-      throw new Error('ログアウト先URLが設定されていません。管理者にお問い合わせください。');
-    }
-    // セキュリティ: https スキームのみ許可（オープンリダイレクト / XSS 防止）
-    if (!/^https:\/\//i.test(lpUrl)) {
-      logError_('Auth', 'getLogoutUrl: 不正なLP_URL スキーム: ' + lpUrl);
-      throw new Error('ログアウト先URLの設定が不正です。管理者にお問い合わせください。');
-    }
-    const separator = lpUrl.includes('?') ? '&' : '?';
-    const logoutUrl = lpUrl + separator + 'logout=true';
-    return success_({ url: logoutUrl });
-  } catch (err) {
-    logError_('Auth', 'getLogoutUrl', err);
-    throw new Error('ログアウト処理に失敗しました。ページを再読み込みしてください。');
-  }
-}
-
-/**
- * ログインページ（LP）のURLを返す。
- * ScriptProperties の LP_URL をそのまま返却する（logout=true は付与しない）。
- * エラー画面の「ログインページに戻る」ボタンから google.script.run.getLoginUrl() で呼び出される。
- * エラー画面はログイン前提なので、LP側で「ログアウトしました」トーストが出ないよう getLogoutUrl とは別関数にしている。
- *
- * @returns {{ status: 'success', data: { url: string } }}
- */
-function getLoginUrl() {
-  try {
-    const { lpUrl } = getConfig_();
-    if (!lpUrl) {
-      throw new Error('ログインページURLが設定されていません。管理者にお問い合わせください。');
-    }
-    // セキュリティ: https スキームのみ許可（オープンリダイレクト / XSS 防止）
-    if (!/^https:\/\//i.test(lpUrl)) {
-      logError_('Auth', 'getLoginUrl: 不正なLP_URL スキーム: ' + lpUrl);
-      throw new Error('ログインページURLの設定が不正です。管理者にお問い合わせください。');
-    }
-    return success_({ url: lpUrl });
-  } catch (err) {
-    logError_('Auth', 'getLoginUrl', err);
-    throw new Error('ログインページへの遷移に失敗しました。ページを再読み込みしてください。');
-  }
+function listWholesalers() {
+  const operatorEmail = requireAuthorizedOperator_();
+  logInfo_('Auth', 'listWholesalers: operator=' + operatorEmail); // 全卸一覧の参照を監査ログに残す
+  return success_(fetchWholesalerList_());
 }
 
 // --- 請求登録・取得系の公開関数は be_invoice.js で定義 ---
-

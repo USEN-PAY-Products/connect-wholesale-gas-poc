@@ -19,16 +19,8 @@ function generateClientErrorId_() {
 }
 
 /**
- * エラーレポート送信用に URL からセッショントークンをマスクする。
- * getSessionToken_() が読み取る2箇所（LPが付与するクエリ ?token=xxx、
- * および後方互換のフラグメント #token=xxx）の両方をマスク対象とする。
- * トークンはセッション認証に使える秘密情報のため、Slack通知本文に
- * そのまま含めると漏えいにつながる（値のみ ["***"] に置換し、
- * URL構造自体はデバッグ用に残す）。
- * トークン値は次のクエリ区切り（&）またはフラグメント区切り（#）のいずれか手前まで
- * とする（[^&#]*）。# を除外しないと、?token=xxx#section=... のように token= の後ろに
- * & を挟まず # が続くURLで、# 以降のデバッグに有用なフラグメント情報までマスク値に
- * 巻き込んで消してしまうため。
+ * エラーレポート送信用に URL から機微な token パラメーターをマスクする。
+ * URL から token パラメーターをマスクする。
  *
  * @param {string} url
  * @returns {string} token= の値をマスクした URL
@@ -102,7 +94,7 @@ function reportClientError_(message, stack) {
         .withFailureHandler(function (err) {
           console.error('[error] reportClientError の送信に失敗しました:', err);
         })
-        .reportClientError(payload, getSessionToken_());
+        .reportClientError(payload, getWholesalerId_());
     }
   } catch (e) {
     // グローバルエラーハンドラ自体の失敗はコンソールに残すのみ（アプリの動作に影響を与えない）。
@@ -231,33 +223,95 @@ function jstNow_() {
 // =============================================================================
 
 /**
- * セッショントークンを取得する。
- * LP から ?token=xxx クエリパラメータで GAS に渡され、doGet がテンプレート経由で
- * window.__SESSION_TOKEN__ に注入する（fe_index.html で評価）。
- * fe_js_common.html は include() → createHtmlOutputFromFile のため <?= ?> が動かず、
- * グローバル変数経由で受け取る。
- * @returns {string} セッショントークン（組織内アカウントは空で OK）
+ * doGet が注入した卸 ID を返す。sessionStorage の値は参照しない。
+ * @returns {string} 操作対象卸 ID。未選択の場合は空文字
  */
-function getSessionToken_() {
+function getWholesalerId_() {
+  return String((typeof window !== 'undefined' && window.__WHOLESALER_ID__) || '');
+}
+
+/**
+ * 卸切替前に卸固有の保存状態とページ内状態を消去する。
+ * @param {boolean} [removeWholesalerId=true]
+ */
+function clearWholesalerContext_(removeWholesalerId) {
+  const keepWholesalerId = removeWholesalerId === false;
   try {
-    // 1. sessionStorage に既に保存済みならそれを返す
-    var t = sessionStorage.getItem('shiire_session_token');
-    if (t) return t;
-    // 2. doGet がテンプレートから注入したグローバル変数を読む
-    var injected = (typeof window !== 'undefined' && window.__SESSION_TOKEN__) || '';
-    if (injected) {
-      sessionStorage.setItem('shiire_session_token', injected);
-      return injected;
+    const keys = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('shiire_') &&
+          !(keepWholesalerId && key === 'shiire_wholesaler_id')) keys.push(key);
     }
-    // 3. フォールバック: フラグメントからも試す（後方互換）
-    var hash = (typeof window !== 'undefined' && window.location.hash) || '';
-    var match = hash.match(/[#&]token=([A-Za-z0-9_-]{1,128})/);
-    if (match) {
-      sessionStorage.setItem('shiire_session_token', match[1]);
-      return match[1];
+    keys.forEach(function (key) { sessionStorage.removeItem(key); });
+  } catch (e) {
+    console.warn('[account] 卸コンテキストのストレージ消去に失敗しました:', e);
+  }
+  if (typeof selectedFileName !== 'undefined') selectedFileName = null;
+  if (typeof rawCsvBase64 !== 'undefined') rawCsvBase64 = null;
+  if (typeof utf8CsvBase64 !== 'undefined') utf8CsvBase64 = null;
+  if (typeof parsedData !== 'undefined') parsedData = null;
+  if (typeof _currentReader !== 'undefined' && _currentReader) {
+    try {
+      _currentReader.abort();
+    } catch (e) {
+      console.warn('[account] CSV 読み込みの中断に失敗しました:', e);
     }
-  } catch (e) { /* sessionStorage 不可でも組織内は Session フォールバックで動く */ }
-  return '';
+    _currentReader = null;
+  }
+  if (typeof _analyzeTimer !== 'undefined' && _analyzeTimer) {
+    clearTimeout(_analyzeTimer);
+    _analyzeTimer = null;
+  }
+  if (typeof scheduleMap !== 'undefined') scheduleMap = {};
+  if (typeof _rawScheduleItems !== 'undefined') _rawScheduleItems = [];
+  if (typeof _scheduleLoadedFor !== 'undefined') _scheduleLoadedFor = null;
+  if (typeof _scheduleLoaded !== 'undefined') _scheduleLoaded = false;
+  if (typeof homeInitialized !== 'undefined') homeInitialized = false;
+  if (typeof _detailCurrentInvoiceId !== 'undefined') _detailCurrentInvoiceId = null;
+  if (typeof _detailActionRequiredMallCodes !== 'undefined') _detailActionRequiredMallCodes = [];
+  if (typeof _detailReturnedOnlyMallCodes !== 'undefined') _detailReturnedOnlyMallCodes = [];
+  if (typeof _detailMallToCustomerMap !== 'undefined') _detailMallToCustomerMap = {};
+  if (typeof _detailEndStores !== 'undefined') _detailEndStores = [];
+  if (typeof _detailWithdrawRequestedStores !== 'undefined') _detailWithdrawRequestedStores = [];
+  if (typeof _objectionEndAt !== 'undefined') _objectionEndAt = null;
+  if (typeof _detailPendingToastMsg !== 'undefined') _detailPendingToastMsg = null;
+  if (typeof _isResubmitConfirm !== 'undefined') _isResubmitConfirm = false;
+  if (typeof _resubmitParentInvoiceId !== 'undefined') _resubmitParentInvoiceId = null;
+  if (typeof _resubmitRemarks !== 'undefined') _resubmitRemarks = {};
+  if (typeof _resubmitHandovers !== 'undefined') _resubmitHandovers = {};
+  if (typeof _resubmitDisputedCodes !== 'undefined') _resubmitDisputedCodes = [];
+  if (typeof _resubmitDisputedReasons !== 'undefined') _resubmitDisputedReasons = {};
+  if (typeof _modalTrigger !== 'undefined') _modalTrigger = null;
+  if (typeof _toastTimer !== 'undefined' && _toastTimer) {
+    clearTimeout(_toastTimer);
+    _toastTimer = null;
+  }
+  const calendar = document.getElementById('calendarModalOverlay');
+  if (calendar) calendar.classList.add('hidden');
+  const banner = document.getElementById('operatingAsBanner');
+  if (banner) banner.classList.add('hidden');
+  const emptyState = document.getElementById('wholesalerEmptyState');
+  if (emptyState) emptyState.classList.add('hidden');
+  const modal = document.querySelector('.modal-overlay:not(.hidden)');
+  if (modal) modal.classList.add('hidden');
+}
+
+/**
+ * 卸切替時にページ全体を再読み込みする。
+ * @param {string|number} id
+ */
+function switchWholesaler_(id) {
+  const wholesalerId = String(id == null ? '' : id);
+  const base = String(window.__WEB_APP_URL__ || '');
+  if (!/^\d{1,15}$/.test(wholesalerId) ||
+      !/^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test(base)) {
+    showToast('卸の切替先を確認できません。ページを再読み込みしてください。', 'error');
+    return;
+  }
+  if (wholesalerId === getWholesalerId_()) return;
+  clearWholesalerContext_();
+  window.top.location.href = base + '?wholesalerId=' + encodeURIComponent(wholesalerId) + '#home';
 }
 
 /**
@@ -285,6 +339,7 @@ function truncateWholesalerNameForHeader_(name) {
  * @param {Object} data - getAccountInfo() のレスポンス data フィールド
  */
 function saveAccountInfo(data) {
+  clearWholesalerContext_();
   try {
     sessionStorage.setItem('shiire_wholesaler_id',        String(data.wholesaler_id        ?? ''));
     sessionStorage.setItem('shiire_wholesaler_user_id',   String(data.wholesaler_user_id   ?? ''));
@@ -306,6 +361,10 @@ function saveAccountInfo(data) {
     // ドロップダウン内には省略しない全文を表示する
     const dropdownName = document.getElementById('headerStoreDropdownCompanyName');
     if (dropdownName) dropdownName.textContent = fullName;
+    const banner = document.getElementById('operatingAsBanner');
+    const bannerText = document.getElementById('operatingAsText');
+    if (bannerText) bannerText.textContent = fullName + '（ID:' + data.wholesaler_id + '）として操作中';
+    if (banner) banner.classList.remove('hidden');
   } catch (e) {
     console.warn('[account] ヘッダー企業名の更新に失敗しました:', e);
   }
@@ -348,12 +407,26 @@ function applyDevServiceNameLabel_() {
 
 document.addEventListener('DOMContentLoaded', function () {
   applyDevServiceNameLabel_(); // 開発環境ではサービス名に "(Dev)" を付与
+  const operatorEmail = document.getElementById('headerOperatorEmail');
+  if (operatorEmail) operatorEmail.textContent = window.__OPERATOR_EMAIL__ || '―';
+  const backofficeLink = document.getElementById('btnBackToBackoffice');
+  if (backofficeLink &&
+      /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test(String(window.__BACKOFFICE_URL__ || ''))) {
+    backofficeLink.href = window.__BACKOFFICE_URL__;
+    backofficeLink.classList.remove('hidden');
+  }
+
+  if (!getWholesalerId_()) {
+    showEmptyWholesalerState_();
+    return;
+  }
+
   showLoadingOverlay('読み込み中...');
 
   if (typeof google !== 'undefined' && google.script && google.script.run) {
     google.script.run
       .withSuccessHandler(function (result) {
-        if (result && result.data) {
+        if (result && result.data && String(result.data.wholesaler_id) === getWholesalerId_()) {
           saveAccountInfo(result.data);
           enableUploadUi_();
           // スケジュールデータをプリフェッチ（カレンダーを開く前にデータを準備）
@@ -371,7 +444,15 @@ document.addEventListener('DOMContentLoaded', function () {
         const msg = String(err.message || err);
         if (msg.startsWith('UNAUTHORIZED:')) {
           showErrorPage_('unauthorized');
-        } else if (msg.startsWith('NOT_REGISTERED:')) {
+        } else if (msg.startsWith('FORBIDDEN:')) {
+          showErrorPage_('forbidden');
+        } else if (msg.startsWith('WHOLESALER_MISSING:')) {
+          showErrorPage_('wholesaler_missing');
+        } else if (msg.startsWith('WHOLESALER_INVALID:')) {
+          showErrorPage_('wholesaler_invalid');
+        } else if (msg.startsWith('WHOLESALER_INACTIVE:')) {
+          showErrorPage_('wholesaler_inactive');
+        } else if (msg.startsWith('SYSTEM:')) {
           showErrorPage_('system');
         } else {
           showErrorPage_('system');
@@ -380,7 +461,7 @@ document.addEventListener('DOMContentLoaded', function () {
         hideLoadingOverlay();
         navigate(); // エラー時もルーティングは実行する
       })
-      .getAccountInfo(getSessionToken_());
+      .getAccountInfo(getWholesalerId_());
   } else {
     // GAS 環境外での実行は非対応
     console.error('[account] google.script.run が利用できません。GAS Webアプリとして実行してください。');
@@ -390,6 +471,18 @@ document.addEventListener('DOMContentLoaded', function () {
     navigate();
   }
 });
+
+function showEmptyWholesalerState_() {
+  Object.values(ROUTES).forEach(function (id) {
+    const page = document.getElementById(id);
+    if (page) page.classList.add('hidden');
+  });
+  const errorPage = document.getElementById('pageError');
+  if (errorPage) errorPage.classList.add('hidden');
+  const emptyState = document.getElementById('wholesalerEmptyState');
+  if (emptyState) emptyState.classList.remove('hidden');
+  hideLoadingOverlay();
+}
 
 /**
  * アカウント情報取得完了後にアップロードUIを有効化する。
@@ -407,29 +500,31 @@ function enableUploadUi_() {
 /**
  * アカウント情報取得失敗時にエラーページの表示内容を設定する。
  * この関数を呼んだ後に location.hash = '#error' → navigate() の順で実行すること。
- * @param {'unauthorized'|'system'|'env'} type - エラーの種類
+ * @param {'unauthorized'|'forbidden'|'wholesaler_missing'|'wholesaler_invalid'|'wholesaler_inactive'|'system'|'env'} type
  */
 function showErrorPage_(type) {
   const banner   = document.getElementById('errorPageBannerText');
   const message  = document.getElementById('errorPageMessage');
   const sub      = document.getElementById('errorPageSub');
 
-  if (type === 'unauthorized') {
-    // デフォルトの文言をそのまま使用（fe_page_error.html の HTML のまま）
-    return;
-  }
-
   if (type === 'env') {
     if (banner)  banner.textContent  = '環境エラー';
-    if (message) message.innerHTML   = 'この画面はGAS Webアプリとして実行してください。';
+    if (message) message.textContent = 'この画面はGAS Webアプリとして実行してください。';
     if (sub)     sub.textContent     = '';
     return;
   }
 
-  // type === 'system'
-  if (banner)  banner.textContent  = 'ログインに使用されたアカウントの登録が見当たりません。';
-  if (message) message.innerHTML   = '本サイトへのログインにご使用された、Googleアカウントがサービスデータベース上に見当たりません。<br>ご登録時に設定いただいたアカウントで再度ログインしなおしてください。';
-  if (sub)     sub.textContent     = 'ご登録済みのログイン用Googleアカウントが不明の場合は、下記窓口までご連絡ください。';
+  const content = {
+    unauthorized: ['ユーザーを確認できません', 'Google Workspace アカウントでアクセスしてください。', ''],
+    forbidden: ['アクセス権がありません', 'このアカウントには卸システムの利用権限がありません。', '管理者にお問い合わせください。'],
+    wholesaler_missing: ['卸が選択されていません', '右上のメニューから操作する卸を選択してください。', ''],
+    wholesaler_invalid: ['卸を確認できません', '指定された卸が見つかりません。右上のメニューから選び直してください。', ''],
+    wholesaler_inactive: ['この卸は現在利用できません', '別の卸を選択してください。', ''],
+    system: ['システムエラー', '処理に失敗しました。ページを再読み込みして再度お試しください。', '解消しない場合はサポート窓口へお問い合わせください。'],
+  }[type] || ['システムエラー', '処理に失敗しました。ページを再読み込みして再度お試しください。', ''];
+  if (banner) banner.textContent = content[0];
+  if (message) message.textContent = content[1];
+  if (sub) sub.textContent = content[2];
 }
 
 
@@ -569,6 +664,10 @@ function parseHash() {
  * 現在のハッシュに対応するページだけ表示し、他を非表示にする。
  */
 function navigate() {
+  if (!getWholesalerId_()) {
+    showEmptyWholesalerState_();
+    return;
+  }
   const { baseHash, params } = parseHash();
   const targetId = ROUTES[baseHash] || ROUTES[DEFAULT_ROUTE];
 
@@ -649,23 +748,23 @@ function navigate() {
 
 // ハッシュ変化時にルーティング実行（初回ロードは getAccountInfo 完了後に呼ぶ）
 window.addEventListener('hashchange', navigate);
-// ---- logout.js ----
-// =============================================================================
-// Logout: ヘッダーストアドロップダウン & ログアウト処理
-// =============================================================================
-
-/** ヘッダー卸名クリックでドロップダウンを開閉する */
+// ---- wholesaler switch menu ----
 (function initHeaderStoreDropdown() {
   const trigger   = document.getElementById('headerStoreTrigger');
   const dropdown  = document.getElementById('headerStoreDropdown');
-  const btnLogout = document.getElementById('btnLogout');
+  const search    = document.getElementById('wholesalerSearch');
+  const list      = document.getElementById('wholesalerList');
+  const listStatus = document.getElementById('wholesalerListStatus');
   if (!trigger || !dropdown) return;
+  let wholesalers = null;
+  let requestPending = false;
 
   function openDropdown() {
     dropdown.classList.remove('hidden');
     trigger.classList.add('is-open');
     trigger.setAttribute('aria-expanded', 'true');
-    if (btnLogout) btnLogout.focus();
+    if (search) search.focus();
+    if (wholesalers === null) loadWholesalers_();
   }
 
   function closeDropdown(returnFocus) {
@@ -697,83 +796,73 @@ window.addEventListener('hashchange', navigate);
   document.addEventListener('click', function () {
     closeDropdown(false);
   });
-})();
 
-/** ログアウトボタンクリックで sessionStorage クリア → LP へリダイレクト */
-(function initLogout() {
-  const btnLogout = document.getElementById('btnLogout');
-  if (!btnLogout) return;
-
-  const FALLBACK_LOGOUT_URL = 'https://accounts.google.com/Logout';
-
-  btnLogout.addEventListener('click', function (e) {
-    e.stopPropagation();
-
-    // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
-    Object.keys(sessionStorage).forEach(function (key) {
-      if (key.startsWith('shiire_')) sessionStorage.removeItem(key);
+  function renderWholesalers_(query) {
+    if (!list) return;
+    const needle = String(query || '').trim().toLocaleLowerCase();
+    const currentId = getWholesalerId_();
+    const matches = (wholesalers || []).filter(function (item) {
+      return String(item.wholesaler_name || '').toLocaleLowerCase().includes(needle) ||
+        String(item.wholesaler_id || '').includes(needle);
+    }).slice(0, 50);
+    list.replaceChildren();
+    if (listStatus) {
+      listStatus.textContent = matches.length
+        ? ((wholesalers || []).length > 50 && !needle ? '先頭50件を表示しています。検索してください。' : '')
+        : '該当する卸がありません。';
+    }
+    matches.forEach(function (item) {
+      const li = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'wholesaler-list__button';
+      button.setAttribute('aria-current', String(item.wholesaler_id) === currentId ? 'true' : 'false');
+      button.textContent = String(item.wholesaler_name || '名称未設定');
+      const id = document.createElement('span');
+      id.className = 'wholesaler-list__id';
+      id.textContent = 'ID:' + String(item.wholesaler_id);
+      button.appendChild(id);
+      button.addEventListener('click', function () {
+        closeDropdown(false);
+        switchWholesaler_(item.wholesaler_id);
+      });
+      li.appendChild(button);
+      list.appendChild(li);
     });
+  }
 
-    if (typeof google !== 'undefined' && google.script && google.script.run) {
-      google.script.run
-        .withSuccessHandler(function (result) {
-          if (result && result.data && result.data.url) {
-            window.top.location.href = result.data.url;
-          } else {
-            console.warn('[logout] getLogoutUrl: 想定外のレスポンス:', result);
-            window.top.location.href = FALLBACK_LOGOUT_URL;
-          }
-        })
-        .withFailureHandler(function (err) {
-          console.error('[logout] getLogoutUrl failed:', err);
-          window.top.location.href = FALLBACK_LOGOUT_URL;
-        })
-        .getLogoutUrl();
-    } else {
-      // GAS 環境外（ローカル開発時）
-      window.top.location.href = FALLBACK_LOGOUT_URL;
+  function loadWholesalers_() {
+    if (!listStatus || requestPending) return;
+    requestPending = true;
+    listStatus.textContent = '卸一覧を読み込み中...';
+    if (typeof google === 'undefined' || !google.script || !google.script.run) {
+      requestPending = false;
+      listStatus.textContent = 'GAS Webアプリから実行してください。';
+      return;
     }
-  });
-})();
+    google.script.run
+      .withSuccessHandler(function (result) {
+        requestPending = false;
+        if (!result || !Array.isArray(result.data)) {
+          listStatus.textContent = '卸一覧を取得できませんでした。';
+          console.error('[wholesaler] listWholesalers のレスポンスが不正です:', result);
+          return;
+        }
+        wholesalers = result.data;
+        renderWholesalers_(search ? search.value : '');
+      })
+      .withFailureHandler(function (err) {
+        requestPending = false;
+        listStatus.textContent = '卸一覧を取得できませんでした。再度お試しください。';
+        console.error('[wholesaler] listWholesalers failed:', err);
+      })
+      .listWholesalers();
+  }
 
-/** エラー画面「ログインページに戻る」ボタン → LP（ログインページ）へリダイレクト。
- *  エラー画面はログイン前提のため、ログアウトトーストが出ない専用の getLoginUrl()（?logout=true なし・https 検証済み）を使用する。 */
-(function initBackToLogin() {
-  const btn = document.getElementById('btnBackToLogin');
-  if (!btn) return;
-
-  const fallbackToLoginPage = function () {
-    if (window.history.length > 1) {
-      window.history.back();
-    } else {
-      location.hash = '#home';
-    }
-  };
-
-  btn.addEventListener('click', function () {
-    // shiire_ プレフィックスのキーのみ削除（同一オリジンの他アプリへの副作用を防止）
-    Object.keys(sessionStorage).forEach(function (key) {
-      if (key.startsWith('shiire_')) sessionStorage.removeItem(key);
-    });
-
-    if (typeof google !== 'undefined' && google.script && google.script.run) {
-      google.script.run
-        .withSuccessHandler(function (result) {
-          if (result && result.data && result.data.url) {
-            window.top.location.href = result.data.url;
-          } else {
-            console.warn('[backToLogin] getLoginUrl: 想定外のレスポンス:', result);
-            fallbackToLoginPage();
-          }
-        })
-        .withFailureHandler(function (err) {
-          console.error('[backToLogin] getLoginUrl failed:', err);
-          fallbackToLoginPage();
-        })
-        .getLoginUrl();
-    } else {
-      fallbackToLoginPage();
-    }
-  });
+  if (search) {
+    search.addEventListener('input', function () { renderWholesalers_(search.value); });
+    search.addEventListener('click', function (e) { e.stopPropagation(); });
+  }
+  if (dropdown) dropdown.addEventListener('click', function (e) { e.stopPropagation(); });
 })();
 </script>

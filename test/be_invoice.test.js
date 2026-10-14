@@ -146,6 +146,14 @@ function createSandbox(options) {
     DriveApp: {
       getFolderById: function () { return {}; },
     },
+    LockService: {
+      getScriptLock: function () {
+        return {
+          tryLock: function () { return true; },
+          releaseLock: function () {},
+        };
+      },
+    },
 
     // ── be_utils.js 相当のスタブ ──
     logInfo_: function () {},
@@ -157,7 +165,10 @@ function createSandbox(options) {
     getOrCreateSubFolder_: function () {
       return {
         createFile: function () {
-          return { getUrl: function () { return 'https://drive.example.test/dummy.csv'; } };
+          return {
+            getUrl: function () { return 'https://drive.example.test/dummy.csv'; },
+            setDescription: function () {},
+          };
         },
       };
     },
@@ -198,7 +209,9 @@ function createSandbox(options) {
     // ── db_bq_connection.js 相当のスタブ ──
     loadCsvToBq_: function () { return 'fake-job-id'; },
     waitForLoadJob_: function () {},
-    runTransactionSql_: function (projectId, sql) { runTransactionSqlCalls.push({ projectId: projectId, sql: sql }); },
+    runTransactionSql_: function (projectId, sql, params) {
+      runTransactionSqlCalls.push({ projectId: projectId, sql: sql, params: params });
+    },
     dropStagingTable_: function () {},
 
     // ── db_bq_query.js 相当のスタブ ──
@@ -846,6 +859,11 @@ test('cancelWithdrawRequest: 異議申立期間内であれば MERCHANT_CONFIRMA
   assert.ok(sql.includes("AND invoice_status = 'DISPUTED'"), 'invoice_status=DISPUTEDを条件に含むこと');
   assert.ok(sql.includes('BEGIN TRANSACTION;') && sql.includes('COMMIT;'), 'BEGIN TRANSACTION〜COMMITで包んだSQLであること');
   assert.ok(sql.includes('IF @@row_count = 0 THEN'), '@@row_count検証を含むこと');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sandbox.__runTransactionSqlCalls[0].params)),
+    [{ name: 'final_updated_by', parameterType: { type: 'STRING' }, parameterValue: { value: 'user-uuid-0000' } }],
+    '操作者の wholesaler_user_id を final_updated_by にパラメータで設定すること'
+  );
 });
 
 test('cancelWithdrawRequest: 異議申立期間が終了している場合はSQLを実行せずerror_を返す', () => {
@@ -941,6 +959,11 @@ test('withdrawStoreInvoice: 正常系でWITHDRAW_REQUESTEDへの更新SQLが実�
   );
   assert.ok(sql.includes('BEGIN TRANSACTION;') && sql.includes('COMMIT;'), 'BEGIN TRANSACTION〜COMMITで包んだSQLであること');
   assert.ok(sql.includes('IF @@row_count = 0 THEN'), '@@row_count検証を含むこと');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sandbox.__runTransactionSqlCalls[0].params)),
+    [{ name: 'final_updated_by', parameterType: { type: 'STRING' }, parameterValue: { value: 'user-uuid-0000' } }],
+    '操作者の wholesaler_user_id を final_updated_by にパラメータで設定すること'
+  );
 });
 
 test('withdrawStoreInvoice: UPDATEが@@row_count=0（並行更新等）で失敗した場合は例外を投げず業務エラーを返す', () => {
@@ -1448,4 +1471,3 @@ test('resubmitInvoiceData: 取引終了(end)店舗への再請求は、旧レコ
   );
   assert.equal(sandbox.__runTransactionSqlCalls.length, 0, 'SQL は実行されないこと');
 });
-

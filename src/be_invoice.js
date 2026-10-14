@@ -4,7 +4,7 @@
 // 請求データ関連の公開関数（フロントから google.script.run で呼ばれる）を管理する。
 //
 // 公開関数:
-//   sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, sessionToken)
+//   sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, wholesalerId)
 //   fetchInvoices()            ← サーバー側で wholesaler_id を確定（引数不要）
 //   fetchInvoiceDetail(invoiceId)
 //   fetchScheduleData()        ← business_calendar からスケジュール取得
@@ -375,6 +375,16 @@ function buildTransactionSql_(invoiceUuid, stagingId, summaryData, remarks, acco
   const lines = [
     'BEGIN TRANSACTION;',
     '',
+    '-- トランザクション内でも当月重複を確認し、ロック外の書込経路との競合を防ぐ',
+    'IF EXISTS (',
+    '  SELECT 1 FROM ' + invRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    "    AND created_at >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE('Asia/Tokyo'), MONTH), 'Asia/Tokyo')",
+    "    AND created_at < TIMESTAMP(DATE_ADD(DATE_TRUNC(CURRENT_DATE('Asia/Tokyo'), MONTH), INTERVAL 1 MONTH), 'Asia/Tokyo')",
+    ') THEN',
+    "  RAISE USING MESSAGE = '今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。';",
+    'END IF;',
+    '',
     '-- 子: store_invoices（フロントの summaryData.merchantTotals から VALUES 展開）',
     'INSERT INTO ' + storeRef,
     '  (id, wholesaler_invoice_id, wholesaler_id, mall_code, wholesaler_managed_store_name,',
@@ -705,6 +715,10 @@ function buildResubmitTransactionSql_(parentInvoiceId, storeInvoiceId, stagingId
     '  AND wholesaler_id = ' + wsId,
     "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
     '  AND is_latest = TRUE;',
+    'IF @@row_count = 0 THEN',
+    '  ROLLBACK TRANSACTION;',
+    "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+    'END IF;',
     '',
     '-- 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef,
@@ -797,6 +811,29 @@ function assertWholesalerActive_(accountInfo, actionLabel) {
 }
 
 /**
+ * 請求更新をスクリプト全体ロックで直列化する。
+ * @param {Function} callback
+ * @returns {*}
+ */
+function withInvoiceScriptLock_(callback) {
+  const lock = LockService.getScriptLock();
+  let acquired = false;
+  try {
+    acquired = lock.tryLock(30000);
+  } catch (err) {
+    throw new Error('他の担当者が処理中です。しばらくしてから再度お試しください。');
+  }
+  if (!acquired) {
+    throw new Error('他の担当者が処理中です。しばらくしてから再度お試しください。');
+  }
+  try {
+    return callback();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * 差し戻し・否認後の修正CSV再送信。
  * 既存の wholesaler_invoices.id（parentInvoiceId）はそのまま使い、
  * store_invoices を新規INSERT、旧レコードの is_latest を FALSE に更新する。
@@ -809,18 +846,18 @@ function assertWholesalerActive_(accountInfo, actionLabel) {
  * @param {string}      parentInvoiceId   - wholesaler_invoices.id（詳細画面のID）
  * @param {string}      storeInvoiceId    - 差し戻し/否認対象の store_invoices.id
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Object }}
  */
-function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover, sessionToken) {
+function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, parentInvoiceId, storeInvoiceId, wholesalerHandover, wholesalerId) {
   // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
   let projectId = null;
   let datasetId = null;
   let accountInfo = null;
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
+    accountInfo = getServerAccountInfo_(wholesalerId);
+    logInfo_('Invoice', 'resubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId + ', storeInvoiceId=' + storeInvoiceId);
 
     assertWholesalerActive_(accountInfo);
 
@@ -937,6 +974,7 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
     const driveFileName = formatTimestamp_(now) + '_resubmit.csv';
     const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, driveFileName);
     const csvFile     = monthFolder.createFile(saveBlob);
+    csvFile.setDescription('wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email);
     const csvUrl      = csvFile.getUrl();
     Logger.log('[Drive] resubmit 保存完了: ' + csvUrl);
 
@@ -946,32 +984,35 @@ function resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData,
 
     // トランザクション SQL 実行
     // 最新の wholesaler_invoices と旧対象 store_invoices の金額を BQ から取得（再計算用）
-    const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
-    if (!latestWi) throw new Error('請求情報が見つかりませんでした。ページを再読み込みしてください。');
-    const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, [storeInvoiceId]);
+    withInvoiceScriptLock_(function () {
+      // 排他取得後に再読込し、直前の並行更新を反映した金額で再計算する。
+      const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
+      if (!latestWi) throw new Error('請求情報が見つかりませんでした。ページを再読み込みしてください。');
+      const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, [storeInvoiceId]);
 
-    let sql;
-    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
-      sql = buildMappedResubmitTransactionSql_({
-        parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
-        wholesalerHandover: wholesalerHandover || null,
-        storeDisputedReason,
-        storeInvoiceStatus,
-        newInvoiceNumber,
-        invoiceNumberId,
-        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
-        csvFormatRules: accountInfo.csv_format_rules,
-        latestWi, oldStoreAmounts,
-      });
-    } else {
-      sql = buildResubmitTransactionSql_(
-        parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
-        wholesalerHandover || null, storeDisputedReason, storeInvoiceStatus, newInvoiceNumber, invoiceNumberId, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
-        latestWi, oldStoreAmounts
-      );
-    }
-    Logger.log('[BQ] resubmit SQL:\n' + sql);
-    runTransactionSql_(projectId, sql);
+      let sql;
+      if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+        sql = buildMappedResubmitTransactionSql_({
+          parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
+          wholesalerHandover: wholesalerHandover || null,
+          storeDisputedReason,
+          storeInvoiceStatus,
+          newInvoiceNumber,
+          invoiceNumberId,
+          accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+          csvFormatRules: accountInfo.csv_format_rules,
+          latestWi, oldStoreAmounts,
+        });
+      } else {
+        sql = buildResubmitTransactionSql_(
+          parentInvoiceId, storeInvoiceId, stagingId, summaryData, remarks,
+          wholesalerHandover || null, storeDisputedReason, storeInvoiceStatus, newInvoiceNumber, invoiceNumberId, accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+          latestWi, oldStoreAmounts
+        );
+      }
+      Logger.log('[BQ] resubmit SQL:\n' + sql);
+      runTransactionSql_(projectId, sql);
+    });
 
     logInfo_('Invoice', 'resubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
@@ -1121,6 +1162,12 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
   const mallCodeInClause = targetMallCodes.length > 0
     ? targetMallCodes.map(function(mc) { return "'" + mc + "'"; }).join(', ')
     : 'NULL';
+  const hasReturnedTarget = summaryData.merchantTotals.some(function (m) {
+    return (invoiceStatuses[String(m.customerCode)] || '') !== 'DISPUTED';
+  });
+  const hasDisputedTarget = summaryData.merchantTotals.some(function (m) {
+    return (invoiceStatuses[String(m.customerCode)] || '') === 'DISPUTED';
+  });
 
   const lines = [
     'BEGIN TRANSACTION;',
@@ -1134,6 +1181,12 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     "  AND backoffice_review_status = 'RETURNED'",
     "  AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN')",
     '  AND is_latest = TRUE;',
+    ...(hasReturnedTarget ? [
+      'IF @@row_count = 0 THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+      'END IF;',
+    ] : []),
     '',
     '-- ② 否認 store_invoices を is_latest = FALSE に更新（CSVに含まれる加盟店のみ）',
     'UPDATE ' + storeRef,
@@ -1144,6 +1197,12 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
     "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',
+    ...(hasDisputedTarget ? [
+      'IF @@row_count = 0 THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+      'END IF;',
+    ] : []),
     '',
     '-- ③ 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef,
@@ -1240,17 +1299,17 @@ function buildBulkResubmitTransactionSql_(parentInvoiceId, stagingId, summaryDat
  * @param {Object} summaryData    - { wholesalerTotal, merchantTotals }
  * @param {Object} remarks        - { [customerCode]: string }
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Object }}
  */
-function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, parentInvoiceId, handovers, sessionToken) {
+function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, parentInvoiceId, handovers, wholesalerId) {
   // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
   let projectId = null;
   let datasetId = null;
   let accountInfo = null;
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
+    accountInfo = getServerAccountInfo_(wholesalerId);
     logInfo_('Invoice', 'bulkResubmitInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', parentInvoiceId=' + parentInvoiceId);
 
     assertWholesalerActive_(accountInfo);
@@ -1395,6 +1454,7 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     const driveFileName = formatTimestamp_(now) + '_bulk_resubmit.csv';
     const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, driveFileName);
     const csvFile     = monthFolder.createFile(saveBlob);
+    csvFile.setDescription('wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email);
     const csvUrl      = csvFile.getUrl();
     Logger.log('[Drive] bulk_resubmit 保存完了: ' + csvUrl);
 
@@ -1402,12 +1462,6 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     const jobId = loadCsvToBq_(projectId, datasetId, stagingId, utf8Bytes, stagingSchema, location);
     waitForLoadJob_(projectId, jobId, location);
 
-    // 最新の wholesaler_invoices と旧対象 store_invoices の金額を取得（再計算用）
-    // NOTE: 「要対応」全体ではなく、今回のCSVに実際に含まれる加盟店のみを対象にする。
-    //       （CSVに含まれない要対応店舗（例: 一部の加盟店のみを再請求する場合の対象外店舗）を
-    //         誤って差し引いてしまうと、wholesaler_invoices の金額が対象外店舗の分だけズレるため）
-    const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
-    if (!latestWi) throw new Error('請求情報が見つかりませんでした。ページを再読み込みしてください。');
     const targetStoreInvoiceIds = summaryData.merchantTotals
       .map(function (m) { return customerToStoreInvoiceId[String(m.customerCode)] || ''; })
       .filter(function (id) { return id !== ''; });
@@ -1416,31 +1470,35 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
     if (targetStoreInvoiceIds.length === 0) {
       throw new Error('対象の加盟店請求情報が見つかりませんでした。ページを再読み込みしてください。');
     }
-    const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, targetStoreInvoiceIds);
+    withInvoiceScriptLock_(function () {
+      // 排他取得後に再読込し、最新親請求と対象店舗の金額で再計算する。
+      const latestWi = fetchLatestWholesalerInvoice_(parentInvoiceId, accountInfo.wholesaler_id);
+      if (!latestWi) throw new Error('請求情報が見つかりませんでした。ページを再読み込みしてください。');
+      const oldStoreAmounts = fetchTargetStoreInvoiceAmounts_(parentInvoiceId, accountInfo.wholesaler_id, targetStoreInvoiceIds);
 
-    // トランザクション SQL 実行
-    let sql;
-    if (isNewFormatRules_(accountInfo.csv_format_rules)) {
-      sql = buildMappedBulkResubmitTransactionSql_({
-        parentInvoiceId, stagingId, summaryData, remarks,
-        handovers: handovers || {},
-        disputedReasons: disputedReasonByCustomer,
-        invoiceStatuses: invoiceStatusByCustomer,
-        invoiceNumbers: invoiceNumberByCustomer,
-        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
-        csvFormatRules: accountInfo.csv_format_rules,
-        latestWi, oldStoreAmounts,
-      });
-    } else {
-      sql = buildBulkResubmitTransactionSql_(
-        parentInvoiceId, stagingId, summaryData, remarks,
-        handovers || {}, disputedReasonByCustomer, invoiceStatusByCustomer, invoiceNumberByCustomer,
-        accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
-        latestWi, oldStoreAmounts
-      );
-    }
-    Logger.log('[BQ] bulk_resubmit SQL:\n' + sql);
-    runTransactionSql_(projectId, sql);
+      let sql;
+      if (isNewFormatRules_(accountInfo.csv_format_rules)) {
+        sql = buildMappedBulkResubmitTransactionSql_({
+          parentInvoiceId, stagingId, summaryData, remarks,
+          handovers: handovers || {},
+          disputedReasons: disputedReasonByCustomer,
+          invoiceStatuses: invoiceStatusByCustomer,
+          invoiceNumbers: invoiceNumberByCustomer,
+          accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+          csvFormatRules: accountInfo.csv_format_rules,
+          latestWi, oldStoreAmounts,
+        });
+      } else {
+        sql = buildBulkResubmitTransactionSql_(
+          parentInvoiceId, stagingId, summaryData, remarks,
+          handovers || {}, disputedReasonByCustomer, invoiceStatusByCustomer, invoiceNumberByCustomer,
+          accountInfo, mallCodeMap, csvUrl, projectId, datasetId,
+          latestWi, oldStoreAmounts
+        );
+      }
+      Logger.log('[BQ] bulk_resubmit SQL:\n' + sql);
+      runTransactionSql_(projectId, sql);
+    });
 
     logInfo_('Invoice', 'bulkResubmitInvoiceData 完了: parentInvoiceId=' + parentInvoiceId);
     return success_({ csv_url: csvUrl });
@@ -1501,11 +1559,11 @@ function bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryD
  * @param {string} [fileName]   - アップロードされた元CSVファイル名（Slack通知の調査用。省略可）
  * @param {Object} summaryData - フロント確定値 { wholesalerTotal: {...}, merchantTotals: [...] }
  * @param {Object} remarks     - 加盟店別備考 { [customerCode]: string }
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: { csv_url: string, invoice_uuid: string } }}
  * @throws {Error} Drive 操作または BQ 書き込み失敗時
  */
-function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, sessionToken) {
+function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, wholesalerId) {
   const totalStart = Date.now();
   // finally / catch から参照するため try 外で先行宣言（staging の後始末・Slack通知コンテキストに使用）
   let stagingId = null;
@@ -1515,8 +1573,8 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, rem
   let invoiceUuid = null;
   try {
     // ── サーバー側から卸情報を取得（改ざん不可）──────────────────────────
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', merchantTotals_count=' + (summaryData && summaryData.merchantTotals ? summaryData.merchantTotals.length : 0));
+    accountInfo = getServerAccountInfo_(wholesalerId);
+    logInfo_('Invoice', 'sendInvoiceData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id + ', merchantTotals_count=' + (summaryData && summaryData.merchantTotals ? summaryData.merchantTotals.length : 0));
     const mappings    = accountInfo.merchant_mappings || [];
 
     assertWholesalerActive_(accountInfo, '新規請求');
@@ -1598,6 +1656,7 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, rem
     const driveFileName = formatTimestamp_(now) + '_original.csv';
     const saveBlob    = Utilities.newBlob(rawBytes, MimeType.CSV, driveFileName);
     const csvFile     = monthFolder.createFile(saveBlob);
+    csvFile.setDescription('wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email);
     const csvUrl      = csvFile.getUrl();
     logInfo_('Invoice', 'sendInvoiceData Drive保存完了: ' + (Date.now() - driveStart) + 'ms, url=' + csvUrl);
 
@@ -1630,7 +1689,13 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, rem
     const txStart = Date.now();
     logInfo_('Invoice', 'sendInvoiceData トランザクション SQL 実行: invoiceUuid=' + invoiceUuid);
     Logger.log('[BQ] SQL全文:\n' + sql);
-    runTransactionSql_(projectId, sql);
+    withInvoiceScriptLock_(function () {
+      // CSVロード中に別担当者が登録したケースを確定直前に再検知する。
+      if (hasCurrentMonthInvoice_(accountInfo.wholesaler_id)) {
+        throw new Error('今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。');
+      }
+      runTransactionSql_(projectId, sql);
+    });
     logInfo_('Invoice', 'sendInvoiceData トランザクション完了: ' + (Date.now() - txStart) + 'ms');
 
     logInfo_('Invoice', 'sendInvoiceData 完了: invoiceUuid=' + invoiceUuid + ', total=' + (Date.now() - totalStart) + 'ms');
@@ -1685,17 +1750,17 @@ function sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, rem
  * @param {string}      storeInvoiceId     - 対象の store_invoices.id
  * @param {string}      parentInvoiceId    - 大元の wholesaler_invoices.id
  * @param {string|null} wholesalerHandover - 否認時の加盟店との合意内容（差し戻しの場合はnull）
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
-function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, sessionToken) {
+function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, wholesalerId) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
-  let wholesalerId = null;
+  let resolvedWholesalerId = null;
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'resubmitWithoutChanges 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
-    wholesalerId = accountInfo.wholesaler_id;
+    accountInfo = getServerAccountInfo_(wholesalerId);
+    logInfo_('Invoice', 'resubmitWithoutChanges 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
+    resolvedWholesalerId = accountInfo.wholesaler_id;
 
     assertWholesalerActive_(accountInfo);
 
@@ -1734,6 +1799,7 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
       'UPDATE ' + storeRef,
       "SET backoffice_review_status = 'PENDING_REVIEW',",
       '  ' + handoverSetClause,
+      '  final_updated_by = @final_updated_by',
       "WHERE id = '" + storeInvoiceId + "'",
       "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
@@ -1751,7 +1817,11 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
 
     Logger.log('[BQ] resubmitWithoutChanges SQL:\n' + sql);
     try {
-      runTransactionSql_(projectId, sql);
+      withInvoiceScriptLock_(function () {
+        runTransactionSql_(projectId, sql, [
+          { name: 'final_updated_by', parameterType: { type: 'STRING' }, parameterValue: { value: String(accountInfo.wholesaler_user_id) } },
+        ]);
+      });
     } catch (txErr) {
       // @@row_count = 0 による RAISE（並行更新／状態変化）は業務エラーとして error_() を返す
       if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
@@ -1801,16 +1871,16 @@ function resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHando
  *
  * @param {string} storeInvoiceId  - 対象の store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
-function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
+function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, wholesalerId) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'withdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
-    const wholesalerId = accountInfo.wholesaler_id;
+    accountInfo = getServerAccountInfo_(wholesalerId);
+    logInfo_('Invoice', 'withdrawStoreInvoice 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
+    const resolvedWholesalerId = accountInfo.wholesaler_id;
 
     assertWholesalerActive_(accountInfo, '請求取下げ依頼');
 
@@ -1832,7 +1902,8 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
       'BEGIN TRANSACTION;',
       '',
       'UPDATE ' + storeRef,
-      "SET backoffice_review_status = 'WITHDRAW_REQUESTED'",
+      "SET backoffice_review_status = 'WITHDRAW_REQUESTED',",
+      '  final_updated_by = @final_updated_by',
       "WHERE id = '" + storeInvoiceId + "'",
       "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
@@ -1855,7 +1926,11 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
 
     Logger.log('[BQ] withdrawStoreInvoice SQL:\n' + sql);
     try {
-      runTransactionSql_(projectId, sql);
+      withInvoiceScriptLock_(function () {
+        runTransactionSql_(projectId, sql, [
+          { name: 'final_updated_by', parameterType: { type: 'STRING' }, parameterValue: { value: String(accountInfo.wholesaler_user_id) } },
+        ]);
+      });
     } catch (txErr) {
       // @@row_count = 0 による RAISE（並行更新／状態変化）は業務エラーとして error_() を返す
       if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
@@ -1905,16 +1980,16 @@ function withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, sessionToken) {
  *
  * @param {string} storeInvoiceId  - 対象 store_invoices.id
  * @param {string} parentInvoiceId - 大元の wholesaler_invoices.id（IDOR対策）
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Object } | { status: 'error', message: string }}
  */
-function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, sessionToken) {
+function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, wholesalerId) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'cancelWithdrawRequest 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
-    const wholesalerId = accountInfo.wholesaler_id;
+    accountInfo = getServerAccountInfo_(wholesalerId);
+    logInfo_('Invoice', 'cancelWithdrawRequest 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId + ', parentInvoiceId=' + parentInvoiceId);
+    wholesalerId = accountInfo.wholesaler_id;
 
     assertWholesalerActive_(accountInfo, '取り下げ依頼の取消');
 
@@ -1959,7 +2034,8 @@ function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, sessionToken) {
       'BEGIN TRANSACTION;',
       '',
       'UPDATE ' + storeRef,
-      "SET backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
+      "SET backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED',",
+      '  final_updated_by = @final_updated_by',
       "WHERE id = '" + storeInvoiceId + "'",
       "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + parentInvoiceId + "' OR wholesaler_invoice_id = '" + parentInvoiceId + "')",
       '  AND wholesaler_id = ' + Number(wholesalerId),
@@ -1978,7 +2054,11 @@ function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, sessionToken) {
 
     Logger.log('[BQ] cancelWithdrawRequest SQL:\n' + sql);
     try {
-      runTransactionSql_(projectId, sql);
+      withInvoiceScriptLock_(function () {
+        runTransactionSql_(projectId, sql, [
+          { name: 'final_updated_by', parameterType: { type: 'STRING' }, parameterValue: { value: String(accountInfo.wholesaler_user_id) } },
+        ]);
+      });
     } catch (txErr) {
       // @@row_count = 0 による RAISE（並行更新／事前バリデーション後の状態変化）は業務エラーとして error_() を返す
       if (String(txErr.message || '').indexOf('他の操作と競合したため更新できませんでした') !== -1) {
@@ -2009,19 +2089,19 @@ function cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, sessionToken) {
 
 /**
  * ログインユーザーの請求一覧を BQ から取得して返す。
- * wholesaler_id はサーバー側で getServerAccountInfo_('', sessionToken) から確定する。
- * 他卸データ取得を防ぐため wholesaler_id はフロントから受け取らず認証結果だけを使う。
+ * wholesaler_id はサーバー側で getServerAccountInfo_(wholesalerId) から確定する。
+ * 他卸データ取得を防ぐため wholesaler_id はフロントから受け取ったものをそのまま信用せず、サーバー側で検証する。
  *
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Array<Object> }}
  */
-function fetchInvoices(sessionToken) {
+function fetchInvoices(wholesalerId) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'fetchInvoices 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
-    const wholesalerId = accountInfo.wholesaler_id;
+    accountInfo = getServerAccountInfo_(wholesalerId);
+    logInfo_('Invoice', 'fetchInvoices 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id);
+    wholesalerId = accountInfo.wholesaler_id;
     const result = fetchInvoicesByWholesaler_(wholesalerId);
     logInfo_('Invoice', 'fetchInvoices 完了: 取得件数=' + (result ? result.length : 0));
     return success_(result);
@@ -2046,17 +2126,17 @@ function fetchInvoices(sessionToken) {
  * 孫明細（invoice_lines）はアコーディオン開閉時にオンデマンドで getInvoiceLinesByStore() を呼ぶ設計。
  *
  * @param {string} invoiceId - 取得対象の卸インボイスID
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: { summary: Object, stores: Array<Object> } | null }}
  */
-function fetchInvoiceDetail(invoiceId, sessionToken) {
+function fetchInvoiceDetail(invoiceId, wholesalerId) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   try {
     if (!invoiceId) throw new Error('invoiceId が指定されていません');
-    accountInfo = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
+    accountInfo = getServerAccountInfo_(wholesalerId); // 卸IDを検証・確定
     logInfo_('Invoice', 'fetchInvoiceDetail 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', invoiceId=' + invoiceId);
-    const wholesalerId = accountInfo.wholesaler_id;
+    wholesalerId = accountInfo.wholesaler_id;
     const summary = fetchInvoiceDetailSummary_(invoiceId, wholesalerId);
     if (!summary) {
       logInfo_('Invoice', 'fetchInvoiceDetail: 該当なし invoiceId=' + invoiceId);
@@ -2094,17 +2174,17 @@ function fetchInvoiceDetail(invoiceId, sessionToken) {
  * 詳細画面のアコーディオンがクリックされたタイミングでオンデマンドに呼ばれる。
  *
  * @param {string} storeInvoiceId - 加盟店インボイスID（store_invoices.id）
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Array<Object> }}
  */
-function getInvoiceLinesByStore(storeInvoiceId, sessionToken) {
+function getInvoiceLinesByStore(storeInvoiceId, wholesalerId) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   try {
     if (!storeInvoiceId) throw new Error('storeInvoiceId が指定されていません');
-    accountInfo = getServerAccountInfo_('', sessionToken); // ログインユーザーの権限検証
+    accountInfo = getServerAccountInfo_(wholesalerId); // 卸IDを検証・確定
     logInfo_('Invoice', 'getInvoiceLinesByStore 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id + ', storeInvoiceId=' + storeInvoiceId);
-    const wholesalerId = accountInfo.wholesaler_id;
+    wholesalerId = accountInfo.wholesaler_id;
     const result = fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId);
     logInfo_('Invoice', 'getInvoiceLinesByStore 完了: 取得件数=' + (result ? result.length : 0));
     return success_(result);
@@ -2125,17 +2205,17 @@ function getInvoiceLinesByStore(storeInvoiceId, sessionToken) {
 
 /**
  * business_calendar テーブルからスケジュールデータを取得する。
- * wholesaler_id はサーバー側で sessionToken から確定するため、卸IDのフロント指定は不要。
- * @param {string} [sessionToken] - 外部アカウント認証用セッショントークン（getServerAccountInfo_ へ伝携。組織内は Session フォールバック）
+ * wholesaler_id はサーバー側で getServerAccountInfo_(wholesalerId) から確定する。
+ * @param {string|number} wholesalerId - 操作対象の卸ID（getServerAccountInfo_ が検証・確定する）
  * @returns {{ status: 'success', data: Array }}
  */
-function fetchScheduleData(sessionToken) {
+function fetchScheduleData(wholesalerId) {
   // catch から参照するため try 外で先行宣言（Slack通知コンテキストに使用）
   let accountInfo = null;
   try {
-    accountInfo = getServerAccountInfo_('', sessionToken);
-    logInfo_('Invoice', 'fetchScheduleData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', account_id=' + accountInfo.wholesaler_user_id);
-    const wholesalerId = accountInfo.wholesaler_id;
+    accountInfo = getServerAccountInfo_(wholesalerId);
+    logInfo_('Invoice', 'fetchScheduleData 開始: wholesaler_id=' + accountInfo.wholesaler_id + ', operator=' + accountInfo.operator_email + ', account_id=' + accountInfo.wholesaler_user_id);
+    wholesalerId = accountInfo.wholesaler_id;
     const rows = fetchBusinessCalendar_(wholesalerId);
     logInfo_('Invoice', 'fetchScheduleData 完了: 取得件数=' + (rows ? rows.length : 0));
     return success_(rows || []);
