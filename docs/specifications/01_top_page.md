@@ -20,7 +20,7 @@ Top画面は、卸事業者がログイン後最初に表示されるメイン�
 | `fe_js_calendar.html` | 請求スケジュールカレンダー（`renderCalendar()` 等） |
 | `fe_js_common.html` | 共通基盤（ルーター・アカウント初期化・`loadScheduleData_()`） |
 | `fe_css.html` | スタイル定義 |
-| `be_invoice.js` | バックエンド API（`fetchInvoices()`, `fetchScheduleData()`） |
+| `be_invoice.js` | バックエンド API（`fetchInvoices(wholesalerId)`, `fetchScheduleData(wholesalerId)`） |
 | `db_bq_query.js` | BigQuery クエリ関数 |
 
 ---
@@ -112,19 +112,19 @@ sequenceDiagram
     FE->>FE: hideLoadingOverlay()
     FE->>FE: navigate() → initHomePage()
 
-    FE->>BE: fetchScheduleData()
+    FE->>BE: fetchScheduleData(wholesalerId)
     BE->>BQ: business_calendar クエリ
     BQ-->>BE: スケジュールデータ
     BE-->>FE: scheduleData
     FE->>FE: buildScheduleMap(data)
 
     FE->>FE: showLoadingOverlay('請求情報を取得中...')
-    FE->>BE: fetchInvoices()
+    FE->>BE: fetchInvoices(wholesalerId)
     BE->>BQ: wholesaler_invoices クエリ
     BQ-->>BE: 請求一覧データ
     BE-->>FE: { status: 'success', data: invoices[] }
 
-    FE->>FE: sessionStorage.setItem('shiire_invoices_cache', ...)
+    FE->>FE: sessionStorage.setItem('shiire_invoices_cache_{wholesalerId}', ...)
     FE->>FE: renderBillingHistory(invoices)
     FE->>FE: hideLoadingOverlay()
     FE-->>U: 画面表示完了
@@ -137,8 +137,8 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph Backend ["バックエンド (GAS)"]
-        FI["fetchInvoices()"]
-        FS["fetchScheduleData()"]
+        FI["fetchInvoices(wholesalerId)"]
+        FS["fetchScheduleData(wholesalerId)"]
     end
 
     subgraph BQ ["BigQuery"]
@@ -150,7 +150,7 @@ flowchart LR
         IHP["initHomePage()"]
         RBH["renderBillingHistory()"]
         RC["renderCalendar()"]
-        SS["sessionStorage<br/>shiire_invoices_cache"]
+        SS["sessionStorage<br/>shiire_invoices_cache_{wholesalerId}"]
     end
 
     IHP -->|google.script.run| FI
@@ -204,9 +204,9 @@ erDiagram
 
 ```mermaid
 flowchart TD
-    A["loadScheduleData_()"] --> B{"_scheduleLoaded?"}
+    A["loadScheduleData_()"] --> B{"_scheduleLoadedFor === wholesalerId?"}
     B -->|Yes| C["キャッシュ利用"]
-    B -->|No| D["BE: fetchScheduleData()"]
+    B -->|No| D["BE: fetchScheduleData(wholesalerId)"]
     D --> E["buildScheduleMap(items)"]
     E --> F["scheduleMap 構築\n日付 → イベント配列"]
     F --> G["renderCalendar()"]
@@ -250,27 +250,27 @@ flowchart TD
 | `calYear` | `number` | カレンダー表示中の年 |
 | `calMonth` | `number` | カレンダー表示中の月（0始まり） |
 | `scheduleMap` | `Object` | スケジュールデータのキャッシュ（`日付文字列 → イベント配列`） |
-| `_scheduleLoaded` | `boolean` | スケジュールデータ取得済みフラグ |
+| `_scheduleLoadedFor` | `string \| null` | スケジュールデータを取得済みの卸ID（卸切替時に `null` へ戻す。旧 `_scheduleLoaded` は廃止） |
 | `_rawScheduleItems` | `Array` | 取得したスケジュール生データ |
 
 ### SessionStorage キー
 
 | キー | 内容 | 用途 |
 |------|------|------|
-| `shiire_invoices_cache` | 請求一覧データ（JSON） | アップロード画面での当月重複チェック |
+| `shiire_invoices_cache_{wholesalerId}` | 請求一覧データ（JSON。卸ごとに分離） | アップロード画面での当月重複チェック |
 | `shiire_schedule_cache_{wholesalerId}_{YYYY-MM}` | 当月のスケジュールデータ（JSON） | カレンダー初期表示高速化。BQ取得後に当月分のみキャッシュ |
 
 ---
 
 ## 9. BE API 仕様
 
-### 9.1 `fetchInvoices()`
+### 9.1 `fetchInvoices(wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
-| 引数 | なし（ログインユーザーから `wholesaler_id` を自動確定） |
+| 引数 | `wholesalerId`: 操作対象の卸ID（サーバー側で操作者認可・形式・実在・ステータスを再検証） |
 | 戻り値 | `{ status: 'success', data: invoices[] }` |
-| IDOR保護 | `wholesaler_id` によるフィルタリング |
+| IDOR保護 | 検証済みの `wholesaler_id` によるフィルタリング |
 
 #### レスポンス構造
 
@@ -281,7 +281,8 @@ flowchart TD
       wholesaler_invoice_id: "uuid",
       root_id: "uuid",                          // 元の請求ID（再送信時に使用）
       wholesaler_invoice_date: "2026-03-01",     // 請求月
-      created_at: "2026/03/15 10:30:00",         // 登録日時
+      created_at: "2026/03/15",                // 最新版の登録日
+      root_created_at: "2026/03/15",           // 系列の元の新規請求の登録日（当月重複チェック用）
       wholesaler_total_amount: 170000,           // 請求金額
       invoice_fee_amount: 5000,                  // 手数料（税込）
       has_resubmit: 1,                           // 差戻し有無（0 or 1）
@@ -291,11 +292,11 @@ flowchart TD
 }
 ```
 
-### 9.2 `fetchScheduleData()`
+### 9.2 `fetchScheduleData(wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
-| 引数 | なし |
+| 引数 | `wholesalerId`: 操作対象の卸ID（検証あり） |
 | 戻り値 | `{ status: 'success', data: scheduleItems[] }` |
 | データソース | `business_calendar` テーブル |
 
@@ -307,6 +308,6 @@ flowchart TD
 |-------------|------|
 | `getAccountInfo()` 失敗（UNAUTHORIZED / FORBIDDEN / WHOLESALER_*） | `#error` 画面に遷移（種別ごとのメッセージ。卸ID未指定は卸選択の案内） |
 | `getAccountInfo()` 失敗（システムエラー） | `#error` 画面に遷移（`system`。バナー・本文はアカウント未登録時と同一の案内を表示） |
-| `fetchInvoices()` 失敗 | 空の請求履歴を表示（UIが空白にならないよう `renderBillingHistory([])` を呼ぶ） |
-| `fetchScheduleData()` 失敗 | `_scheduleLoaded = false` にして再取得可能にする |
+| `fetchInvoices(wholesalerId)` 失敗 | 空の請求履歴を表示（UIが空白にならないよう `renderBillingHistory([])` を呼ぶ） |
+| `fetchScheduleData(wholesalerId)` 失敗 | `_scheduleLoadedFor = null` にして再取得可能にする |
 | GAS環境外での実行 | `#error` 画面に遷移（環境エラーメッセージ） |

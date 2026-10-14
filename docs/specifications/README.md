@@ -27,14 +27,14 @@
 
 ```mermaid
 flowchart TD
-    LOGIN["GAS Webアプリ アクセス"] --> AUTH{"アカウント認証\ngetAccountInfo()"}
+    LOGIN["GAS Webアプリ アクセス"] --> AUTH{"操作者認可＋卸ID検証\ngetAccountInfo(wholesalerId)"}
     AUTH -->|成功| HOME["Top画面\n#home"]
     AUTH -->|失敗| ERROR["エラー画面\n#error"]
 
     HOME -->|新規請求を登録する| UPLOAD["CSVアップロード画面\n#upload"]
     HOME -->|詳細を見る| DETAIL["詳細画面\n#detail?invoiceId=xxx"]
     HOME -->|請求スケジュール| CAL_MODAL["カレンダーモーダル"]
-    HOME -->|ヘッダー卸名 → ログアウト| LOGOUT["LP へリダイレクト\ngetLogoutUrl()"]
+    HOME -->|ヘッダー卸名 → 卸を選択| SWITCH["卸を切替えて再読み込み\n?wholesalerId=<id>"]
 
     UPLOAD -->|契約終了/受付期間外| BLOCKED["受付期間バナー\n（アップロード不可）"]
     UPLOAD -->|確認画面へ進む| CONFIRM["確認画面\n#confirm"]
@@ -57,7 +57,7 @@ flowchart TD
     CAL_MODAL -->|閉じる| HOME
 ```
 
-> 📌 ヘッダー右上の卸事業者名をクリックするとドロップダウンが開き、「ログアウト」で LP（`LP_URL`）へリダイレクトする（全画面共通）。詳細は [05_common.md](05_common.md#6-認証アカウント管理) を参照。
+> 📌 ヘッダー右上の卸事業者名をクリックするとドロップダウンが開き、卸を検索・選択して切り替えられる（全画面共通。ログアウトは廃止）。詳細は [05_common.md](05_common.md#6-認証アカウント管理) を参照。
 
 ## 関連ファイル
 
@@ -71,7 +71,7 @@ flowchart TD
 | `src/` | `fe_page_detail.html` | 詳細画面 HTML |
 | `src/` | `fe_page_error.html` | エラー画面 HTML |
 | `src/` | `fe_css.html` | 全画面共通 CSS |
-| `src/` | `fe_js_common.html` | 共通基盤（ルーター・トースト・ヘッダー/ログアウト・アカウント初期化） |
+| `src/` | `fe_js_common.html` | 共通基盤（ルーター・トースト・ヘッダー/卸切替・アカウント初期化） |
 | `src/` | `fe_js_csv_common.html` | CSV 共通処理（`sanitizeCsvQuotedNewlines_` / `validateCsv` / `parseCsvLine` / `getCsvFormatRules` / `nl2space_` / `removeEmptyLines_`） |
 | `src/` | `fe_js_calendar.html` | 請求スケジュールカレンダー（ホーム・詳細で共有） |
 | `src/` | `fe_js_home.html` | ホーム画面ロジック |

@@ -381,7 +381,7 @@ flowchart TD
 | キー | 内容 |
 |------|------|
 | `shiire_parsedData` | パース結果（確認画面での表示用） |
-| `shiire_invoices_cache` | 請求一覧キャッシュ（当月重複チェック用） |
+| `shiire_invoices_cache_{wholesalerId}` | 請求一覧キャッシュ（当月重複チェック用。`root_created_at` を参照） |
 | `shiire_merchant_mappings` | 加盟店マッピング（顧客コード検証用、`store_status=end` 除外済み） |
 | `shiire_csv_format_rules` | CSVフォーマットルール |
 | `shiire_tax_rounding_method` | 消費税丸め方式（`floor` / `ceil` / `round`） |

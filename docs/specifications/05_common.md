@@ -11,7 +11,7 @@
 | `fe_index.html` | エントリーポイント HTML（全画面を include） |
 | `fe_part_header.html` | 共通ヘッダー HTML |
 | `fe_css.html` | 全画面共通 CSS（3000行超） |
-| `fe_js_common.html` | ルーター・共通ユーティリティ・トースト・ヘッダー/ログアウト・アカウント初期化 |
+| `fe_js_common.html` | ルーター・共通ユーティリティ・トースト・ヘッダー/卸切替・アカウント初期化 |
 | `fe_js_csv_common.html` | CSV 共通処理（`sanitizeCsvQuotedNewlines_` / `validateCsv` / `parseCsvLine` / `getCsvFormatRules` / `nl2space_` / `removeEmptyLines_`） |
 | `fe_js_calendar.html` | 請求スケジュールカレンダー（ホーム・詳細で共有） |
 | `fe_js_home.html` | ホーム画面ロジック |
@@ -20,7 +20,7 @@
 | `fe_js_detail.html` | 詳細画面ロジック（再アップロードモーダル含む） |
 | `fe_page_error.html` | エラー画面 HTML |
 | `be_main.js` | GAS エントリーポイント（`doGet`, `include`） |
-| `be_server.js` | アカウント認証（`getAccountInfo`）・ログアウト先URL取得（`getLogoutUrl`）・ログインページURL取得（`getLoginUrl`） |
+| `be_server.js` | アカウント認証（`getAccountInfo(wholesalerId)`）・卸一覧取得（`listWholesalers`）。`getLogoutUrl` / `getLoginUrl` は廃止 |
 | `be_config.js` | 環境設定（Script Properties） |
 | `be_utils.js` | 共通ユーティリティ |
 
@@ -35,7 +35,7 @@ flowchart TB
     subgraph GAS ["Google Apps Script"]
         direction TB
         MAIN["be_main.js\ndoGet() / include()"]
-        SERVER["be_server.js\ngetAccountInfo()\ngetLogoutUrl()\ngetLoginUrl()"]
+        SERVER["be_server.js\ngetAccountInfo(wholesalerId)\nlistWholesalers()"]
         INVOICE["be_invoice.js\n請求CRUD API"]
         MAPPER["be_csv_mapper.js\nCSV動的マッピング"]
         CONFIG["be_config.js\n環境設定"]
@@ -176,27 +176,30 @@ block-beta
 | ロゴ（アプリ名リンク） | `headerLogoLink` / `headerServiceName` | 「仕入れコネクト」→ `#home` へのリンク。**エラー画面（`#error`）でのみ押下不可**（`navigate()` が `is-disabled` + `aria-disabled="true"` + `tabindex="-1"` を付与）。開発環境（`window.__APP_IS_DEV__ === true`）ではサービス名末尾に `(Dev)` を付与（`applyDevServiceNameLabel_`） |
 | produced by | - | 「produced by USEN PAY」（`#B9BEC3`） |
 | 請求スケジュール | `btnCalendarOpen` | カレンダーモーダルを開くボタン。Top画面・詳細画面でのみ表示 |
-| 卸事業者名トリガー | `headerStoreTrigger` | ビルSVGアイコン + `headerWholesalerName` + ▼アイコン。クリックでログアウトドロップダウンを開閉（`aria-haspopup` / `aria-expanded`） |
+| 卸事業者名トリガー | `headerStoreTrigger` | ビルSVGアイコン + `headerWholesalerName` + ▼アイコン。クリックで操作者・卸切替メニューを開閉（`aria-expanded`） |
 | 卸事業者名 | `headerWholesalerName` | ログイン時に `saveAccountInfo()` で設定。初期値は `―` |
-| ログアウトドロップダウン | `headerStoreDropdown` | 初期 `hidden`。「🚪 ログアウト」ボタン（`btnLogout`）を含む |
+| 操作者・卸切替メニュー | `headerStoreDropdown` | 初期 `hidden`。操作者メール（`headerOperatorEmail`）・卸名・卸検索欄（`wholesalerSearch`）・卸一覧（`wholesalerList`）・BackOffice へ戻るリンク（`btnBackToBackoffice`）を含む |
 
-### 4.3 ログアウトドロップダウン
+### 4.3 操作者・卸切替メニュー
 
 ```mermaid
 stateDiagram-v2
     [*] --> CLOSED: 初期表示
     CLOSED --> OPEN: 卸名トリガークリック
     OPEN --> CLOSED: 再クリック / 外側クリック / Escキー
-    OPEN --> LOGGING_OUT: 「ログアウト」クリック
-    LOGGING_OUT --> REDIRECT: sessionStorage(shiire_*) クリア → LP へ遷移
+    OPEN --> SWITCHING: 卸一覧から別の卸を選択
+    SWITCHING --> RELOAD: sessionStorage(shiire_*) クリア → ?wholesalerId=<id> で再読み込み
 ```
 
 | 挙動 | 内容 |
 |------|------|
 | 開閉 | 卸名トリガーのクリックでトグル。外側クリック・Escキーで閉じる |
-| フォーカス | 開いたら `btnLogout` へフォーカス。Escで閉じるとトリガーへ復帰 |
-| ログアウト処理 | `shiire_` プレフィックスの SessionStorage キーのみ削除 → `getLogoutUrl()` で取得した URL へ `window.top.location` で遷移 |
-| フォールバック | `getLogoutUrl()` 失敗時・GAS 環境外は `https://accounts.google.com/Logout` へ遷移 |
+| フォーカス | 開いたら卸検索欄へフォーカス。Escで閉じるとトリガーへ復帰 |
+| 卸一覧 | `listWholesalers()` で取得（操作者認可済み）。卸名・IDで絞り込み可能 |
+| 卸切替 | `switchWholesaler_(id)` が卸ID形式と `WEB_APP_URL` を検証し、`shiire_` の SessionStorage を削除して `window.top.location` を `?wholesalerId=<id>#home` へ遷移 |
+| BackOffice へ戻る | `BACKOFFICE_URL` が有効（https の GAS `/exec` URL）な場合のみリンクを表示 |
+
+ログアウト機能（`btnLogout` / `getLogoutUrl()`）は廃止した。
 
 ### 4.3 スタイル
 
@@ -250,9 +253,9 @@ sequenceDiagram
         FE->>FE: saveAccountInfo(data)
         FE->>FE: enableUploadUi_()
         FE->>FE: navigate()
-    else アカウント未登録 (UNAUTHORIZED)
-        BE-->>FE: Error('UNAUTHORIZED: ...')
-        FE->>FE: showErrorPage_('unauthorized')
+    else 認証・認可・卸指定エラー (UNAUTHORIZED / FORBIDDEN / WHOLESALER_*)
+        BE-->>FE: Error('<PREFIX>: ...')
+        FE->>FE: showErrorPage_(種別。§9.2)
         FE->>FE: location.hash = '#error'
     else システムエラー
         BE-->>FE: Error(...)
@@ -274,38 +277,15 @@ sequenceDiagram
 | `shiire_merchant_mappings` | 加盟店マッピング（JSON） | CSVバリデーション。`store_status=end` の加盟店は除外済み |
 | `shiire_csv_format_rules` | CSVフォーマットルール（JSON） | 動的CSV定義 |
 | `shiire_parsedData` | パース済みCSVデータ（JSON） | 確認画面表示用 |
-| `shiire_invoices_cache` | 請求一覧キャッシュ（JSON） | 当月重複チェック |
+| `shiire_invoices_cache_{wholesalerId}` | 請求一覧キャッシュ（JSON。卸ごとに分離） | 当月重複チェック |
 | `shiire_schedule_cache_{wholesalerId}_{YYYY-MM}` | 当月のスケジュール（JSON） | カレンダー初期表示高速化・受付期限チェック |
 | `shiire_resubmit_handover_matter` | USEN PAY社コメント | 一括再送信時の確認画面表示用 |
 
 > ⚠️ `rawCsvBase64` / `utf8CsvBase64`（送信用のBase64）はメモリのみに保持し、SessionStorage には保存しない（容量超過防止）。ページリロード後は再アップロードが必要。
 
-### 6.3 ログアウト
+### 6.3 卸の切替
 
-ヘッダー右上の卸名トリガーをクリックして開くドロップダウンからログアウトできる（全画面共通）。
-
-```mermaid
-sequenceDiagram
-    participant U as ユーザー
-    participant FE as FE
-    participant BE as BE (be_server.js)
-
-    U->>FE: ログアウトボタンクリック
-    FE->>FE: sessionStorage の shiire_* キーを削除
-    FE->>BE: getLogoutUrl()
-    BE->>BE: getConfig_() で LP_URL を取得
-    Note over BE: https スキームのみ許可（オープンリダイレクト/XSS防止）
-    BE-->>FE: { url: LP_URL + '?logout=true' }
-    FE->>FE: window.top.location.href = url
-```
-
-| 項目 | 内容 |
-|------|------|
-| FE処理 | `shiire_` プレフィックスの SessionStorage キーのみ削除（他アプリへの副作用防止） |
-| BE API | `getLogoutUrl()` → `{ status: 'success', data: { url } }` |
-| URL生成 | `LP_URL` に `?logout=true`（既に `?` があれば `&`）を付与 |
-| セキュリティ | `LP_URL` が `https://` で始まらない場合はエラー |
-| フォールバック | API失敗・GAS環境外は `https://accounts.google.com/Logout` へ遷移 |
+ログアウトは廃止し、ヘッダーメニューからの卸切替に置き換えた（§4.3）。切替時は前の卸に紐づく `shiire_` プレフィックスの SessionStorage（請求一覧・スケジュール等のキャッシュ）を削除してから再読み込みする。
 
 ---
 
@@ -376,7 +356,7 @@ hideLoadingOverlay()      // 非表示
 | 画面 | テキスト | タイミング |
 |------|---------|-----------|
 | 認証時 | 「読み込み中...」 | `DOMContentLoaded` |
-| Top画面 | 「請求情報を取得中...」 | `fetchInvoices()` 呼び出し時 |
+| Top画面 | 「請求情報を取得中...」 | `fetchInvoices(wholesalerId)` 呼び出し時 |
 | 確認画面 | 「登録中...」 | 送信ボタン押下時 |
 | 詳細画面 | 「再請求中...」 | 変更なし再請求時 |
 
@@ -403,25 +383,19 @@ block-beta
 
 ### 9.2 エラー種別
 
-`showErrorPage_(type)`（`fe_js_common.html`）がバナー／本文／補足を切り替える。`unauthorized` は HTML の既定文言をそのまま使用し、`system` も**同じ「アカウント未登録」文言を表示する**（取得失敗の技術的詳細はコンソールログに出力し、画面では共通の案内に集約する）。
+`showErrorPage_(type)`（`fe_js_common.html`）がバナー／本文／補足を切り替える。`getAccountInfo(wholesalerId)` の失敗メッセージのプレフィックスで種別を決める。
 
 | 種別 | 発生条件 | バナー | メッセージ |
 |------|---------|--------|-----------|
-| `unauthorized` | `getAccountInfo()` が `UNAUTHORIZED:` で失敗 | 「ログインに使用されたアカウントの登録が見当たりません。」 | 「本サイトへのログインにご使用された、Googleアカウントがサービスデータベース上に見当たりません。ご登録時に設定いただいたアカウントで再度ログインしなおしてください。」 |
-| `system` | `getAccountInfo()` が上記以外で失敗 | （`unauthorized` と同一の文言） | （`unauthorized` と同一の文言） |
+| `unauthorized` | `UNAUTHORIZED:`（操作者を確認できない） | 「ユーザーを確認できません」 | 「Google Workspace アカウントでアクセスしてください。」 |
+| `forbidden` | `FORBIDDEN:`（許可リスト外） | 「アクセス権がありません」 | 「このアカウントには卸システムの利用権限がありません。」＋「管理者にお問い合わせください。」 |
+| `wholesaler_missing` | `WHOLESALER_MISSING:`（卸ID未指定） | 「卸が選択されていません」 | 「右上のメニューから操作する卸を選択してください。」 |
+| `wholesaler_invalid` | `WHOLESALER_INVALID:`（形式不正・実在しない） | 「卸を確認できません」 | 「指定された卸が見つかりません。右上のメニューから選び直してください。」 |
+| `wholesaler_inactive` | `WHOLESALER_INACTIVE:`（active / end 以外） | 「この卸は現在利用できません」 | 「別の卸を選択してください。」 |
+| `system` | 上記以外の失敗 | 「システムエラー」 | 「処理に失敗しました。ページを再読み込みして再度お試しください。」＋「解消しない場合はサポート窓口へお問い合わせください。」 |
 | `env` | GAS 環境外（`google.script.run` 不在） | 「環境エラー」 | 「この画面はGAS Webアプリとして実行してください。」 |
 
-### 9.3 「ログインページに戻る」ボタン（`btnBackToLogin`）
-
-エラー画面フッターのボタン。押下すると `shiire_` プレフィックスの SessionStorage を削除し、`getLoginUrl()` で取得した LP（ログインページ）へ `window.top.location` で遷移する。
-
-| 項目 | 内容 |
-|------|------|
-| FE処理 | `shiire_` プレフィックスの SessionStorage キーのみ削除 → `getLoginUrl()` 呼び出し |
-| BE API | `getLoginUrl()` → `{ status: 'success', data: { url } }`。`LP_URL` を**そのまま**返す（`?logout=true` は付与しない） |
-| ログアウトとの違い | エラー画面はログイン前提のため、LP 側で「ログアウトしました」トーストが出ないよう `getLogoutUrl()`（§6.3）とは別関数 `getLoginUrl()` を使用する |
-| セキュリティ | `LP_URL` が `https://` で始まらない場合はエラー |
-| フォールバック | API失敗・GAS環境外は `window.history.back()`（履歴がなければ `#home`） |
+「ログインページに戻る」ボタン（`btnBackToLogin`）と `getLoginUrl()` は廃止した。卸の選択エラーは、ヘッダーメニューから卸を選び直して復帰する。
 
 ---
 
@@ -556,7 +530,7 @@ BE では BigQuery の単一引用符リテラルに安全に埋め込むため�
 | 対策 | 実装箇所 |
 |------|---------|
 | 操作者の認可と卸IDのサーバー側検証 | `getServerAccountInfo_(wholesalerId)` が `requireAuthorizedOperator_()` で操作者を認可し、卸IDの形式・実在・ステータスを毎回再検証する |
-| 全API に `wholesaler_id` フィルタ | `fetchInvoices`, `fetchInvoiceDetail`, `resubmitInvoiceData` 等 |
+| 全API に `wholesaler_id` フィルタ | `fetchInvoices(wholesalerId)`, `fetchInvoiceDetail(invoiceId, wholesalerId)`, `resubmitInvoiceData(..., wholesalerId)` 等 |
 | 明細取得に `store_invoices` JOIN | `fetchInvoiceDetailLines_` で `wholesaler_id` を検証 |
 | フロントから渡す `wholesalerId` は信頼しない | BackOffice のリンクまたは卸切替で明示指定された卸IDを引数で渡すが、全APIでサーバー側が再検証する（BackOffice 運用者が卸を切り替えて代行登録する方式） |
 
@@ -670,7 +644,9 @@ block-beta
 | `GCP_PROJECT_ID` | BigQuery GCPプロジェクトID | `usenpay-connect-dev` |
 | `BQ_DATASET_ID` | BigQueryデータセットID | `connect_db` |
 | `BQ_LOCATION` | BigQueryリージョン（任意、未設定時は `US`） | `asia-northeast1` |
-| `LP_URL` | ログアウト後のリダイレクト先 LP URL（https のみ許可） | `https://connect-dev.usen-pay.com/` |
+| `ALLOWED_DOMAINS` / `ALLOWED_EMAILS` | 操作者の許可リスト（カンマ区切り。小文字で比較。詳細は `docs/SETUP.md`） | `usen-pay.com` |
+| `BACKOFFICE_URL` | BackOffice へ戻るリンク（任意。https の GAS `/exec` URL のみ有効） | - |
+| `WEB_APP_URL` | 卸切替後に開く Web アプリ URL（任意。未設定時は `ScriptApp.getService().getUrl()`） | - |
 | `ENV` | 環境識別子 | `development` / `production` |
 
 ### 16.2 環境ガード

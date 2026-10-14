@@ -184,8 +184,8 @@ sequenceDiagram
     FE->>FE: resetDetailPage_()
     FE-->>U: ローディングスピナー表示
 
-    FE->>BE: fetchInvoiceDetail(id)
-    BE->>BQ: fetchInvoiceDetailSummary_(id)
+    FE->>BE: fetchInvoiceDetail(id, wholesalerId)
+    BE->>BQ: fetchInvoiceDetailSummary_(id, wholesalerId)
     BQ-->>BE: summary data
     BE->>BQ: fetchInvoiceDetailStores_(id)
     BQ-->>BE: stores data
@@ -311,7 +311,7 @@ sequenceDiagram
 
     U->>FE: 「変更なしで再請求」押下
     FE->>FE: 合意事項チェック
-    FE->>BE: resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover)
+    FE->>BE: resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, wholesalerId)
     BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='PENDING_REVIEW'<br/>WHERE id=? AND wholesaler_id=?
     BQ-->>BE: OK
     BE-->>FE: success
@@ -617,37 +617,37 @@ stateDiagram-v2
 
 ## 11. BE API 仕様
 
-### 11.1 `fetchInvoiceDetail(invoiceId)`
+### 11.1 `fetchInvoiceDetail(invoiceId, wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
-| 引数 | `invoiceId`: `wholesaler_invoice_id` |
+| 引数 | `invoiceId`: `wholesaler_invoice_id`, `wholesalerId`: 操作対象の卸ID（検証あり） |
 | 処理 | `fetchInvoiceDetailSummary_` + `fetchStoreInvoicesByParent_` |
 | 戻り値 | `{ data: { summary, stores } }`（該当なしは `{ data: null }`） |
 | IDOR保護 | `wholesaler_id` フィルタリング |
 
-### 11.2 `getInvoiceLinesByStore(storeInvoiceId)`
+### 11.2 `getInvoiceLinesByStore(storeInvoiceId, wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
-| 引数 | `storeInvoiceId`: `store_invoices.id` |
+| 引数 | `storeInvoiceId`: `store_invoices.id`, `wholesalerId`: 操作対象の卸ID（検証あり） |
 | 処理 | `fetchInvoiceLinesByStore_(storeInvoiceId, wholesalerId)`。アコーディオン展開時にオンデマンドで呼ばれる |
 | 戻り値 | `{ data: lines[] }`（最大1000件） |
 | IDOR保護 | `store_invoices` JOIN で `wholesaler_id` を検証 |
 
-### 11.2 `resubmitInvoiceData(rawCsv, utf8Csv, summaryData, remarks, parentId, storeId, handover)`
+### 11.2 `resubmitInvoiceData(rawCsv, utf8Csv, fileName, summaryData, remarks, parentId, storeId, handover, wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
 | 処理 | CSV → Drive保存 → BQ Load → 差額計算 → トランザクション |
 | トランザクション | 新 `store_invoices` INSERT + 旧 `is_latest=FALSE` + `wholesaler_invoices` 金額更新 |
 
-### 11.3 `resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover)`
+### 11.3 `resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
 | 処理 | `backoffice_review_status` → `PENDING_REVIEW` に更新 |
-| 条件 | RETURNED または (MCR + DISPUTED) のレコードのみ |
+| 条件 | RETURNED（APPROVED / WITHDRAWN の最終状態を除く）または (MCR + DISPUTED) のレコードのみ |
 | 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証。UPDATE が0行（並行更新・画面表示後の状態変化）なら `RAISE` + `ROLLBACK` し、BE側で `error_()`（業務エラー）に変換して返す（本チェックが無いと、対象0件でも画面上は成功トーストが出てしまう） |
 
 ### 11.4 `withdrawStoreInvoice(storeInvoiceId, parentInvoiceId)`
