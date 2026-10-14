@@ -1471,3 +1471,52 @@ test('resubmitInvoiceData: 取引終了(end)店舗への再請求は、旧レコ
   );
   assert.equal(sandbox.__runTransactionSqlCalls.length, 0, 'SQL は実行されないこと');
 });
+
+// =============================================================================
+// 一括再請求の is_latest UPDATE は、対象加盟店数と更新件数が完全一致しない場合に競合として扱う
+// =============================================================================
+
+test('bulkResubmitInvoiceData: 差し戻し2件の is_latest 更新は件数完全一致を検証する', () => {
+  const storeRows = [
+    makeStoreRow('CUST001', 'MALL-C001', 'SI-C001-OLD'),
+    makeStoreRow('CUST003', 'MALL-C003', 'SI-C003-OLD'),
+  ];
+  const actionRequiredRows = [
+    { mall_code: 'MALL-C001', invoice_status: '' },
+    { mall_code: 'MALL-C003', invoice_status: '' },
+  ];
+  const sandbox = createSandbox({ storeRows: storeRows, actionRequiredRows: actionRequiredRows });
+  const csvText = buildCsvText([
+    'CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,',
+    'CUST003,2026/07/01,テスト商品,1,2000,10,2000,200,',
+  ]);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 3300 },
+    merchantTotals: [
+      { customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 },
+      { customerCode: 'CUST003', totalAmount: 2200, subtotalAmount: 2000, taxAmount: 200, exTax10: 2000, tax10: 200, exTax8: 0, tax8: 0 },
+    ],
+  };
+
+  const result = sandbox.bulkResubmitInvoiceData(
+    'dummy-raw-csv-base64', csvText, 'test.csv', summaryData, {}, PARENT_INVOICE_ID, {}, 'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success');
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("mall_code IN ('MALL-C001', 'MALL-C003')"), '差し戻し対象のmall_codeを絞り込むこと');
+  assert.ok(sql.includes('IF @@row_count != 2 THEN'), '対象数と更新件数が一致しない場合はロールバックすること');
+  assert.ok(!sql.includes('IF @@row_count = 0 THEN'), '0件のみの検知にしないこと');
+});
+
+test('resubmitWithoutChanges: UPDATE の SET 句がカンマで区切られている', () => {
+  const sandbox = createSandbox();
+
+  const result = sandbox.resubmitWithoutChanges(
+    '55555555-5555-5555-5555-555555555555', PARENT_INVOICE_ID, null, 'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success');
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes('wholesaler_handover = wholesaler_handover,\n  final_updated_by = @final_updated_by'));
+});
