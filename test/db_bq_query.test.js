@@ -101,7 +101,7 @@ test('switchWholesaler_: 選択した卸IDでTOP画面を開く', () => {
   );
 });
 
-test('getConfig_: development で WEB_APP_URL 未設定なら local GAS URL を返す', () => {
+test('getConfig_: development で WEB_APP_URL 未設定なら空を返す（doGet が現在のサービスURLを使う）', () => {
   const properties = {
     DRIVE_ROOT_FOLDER_ID: 'folder',
     GCP_PROJECT_ID: 'usenpay-connect-dev',
@@ -119,10 +119,7 @@ test('getConfig_: development で WEB_APP_URL 未設定なら local GAS URL を�
   vm.runInContext(CONFIG_SOURCE, sandbox, { filename: 'be_config.js' });
 
   const config = JSON.parse(vm.runInContext('JSON.stringify(getConfig_())', sandbox));
-  assert.equal(
-    config.webAppUrl,
-    'https://script.google.com/a/macros/unext-hd.jp/s/AKfycbyjIJwPzy1esRyPWEUmWFrThvyF4l7SbZIp_kVKlPdpeFYySbvqcOHBxGMpjrLhVVfc/exec'
-  );
+  assert.equal(config.webAppUrl, '');
 });
 
 function createEnsureSandbox(opts) {

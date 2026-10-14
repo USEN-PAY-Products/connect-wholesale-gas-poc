@@ -21,8 +21,6 @@
 //   設定変更は GAS の UI（プロジェクトの設定 → スクリプト プロパティ）から行う。
 // =============================================================================
 
-const DEFAULT_WEB_APP_URL_DEV = 'https://script.google.com/a/macros/unext-hd.jp/s/AKfycbyjIJwPzy1esRyPWEUmWFrThvyF4l7SbZIp_kVKlPdpeFYySbvqcOHBxGMpjrLhVVfc/exec';
-
 function getConfig_() {
   const props = PropertiesService.getScriptProperties();
   const driveFolderId = props.getProperty('DRIVE_ROOT_FOLDER_ID');
@@ -42,9 +40,10 @@ function getConfig_() {
   // script.google.com の exec URL 形式のみ許可（誤設定時の任意サイトへの誘導防止）
   const webAppUrlPattern = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/(exec|dev)$/;
   const rawWebAppUrl = (props.getProperty('WEB_APP_URL') || '').trim();
+  // 未設定・不正値は空にし、doGet 側で現在のサービスURL（ScriptApp.getService().getUrl()）にフォールバックする
   const webAppUrl = webAppUrlPattern.test(rawWebAppUrl)
     ? rawWebAppUrl
-    : (env === 'development' ? DEFAULT_WEB_APP_URL_DEV : '');
+    : '';
   const rawBackOfficeUrl = (props.getProperty('BACKOFFICE_URL') || '').trim();
   const backOfficeUrl = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test(rawBackOfficeUrl)
     ? rawBackOfficeUrl
