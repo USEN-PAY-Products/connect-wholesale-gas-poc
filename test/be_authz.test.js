@@ -42,3 +42,9 @@ test('requireAuthorizedOperator_: メールが空・取得失敗は UNAUTHORIZED
   s.Session.getActiveUser = () => { throw new Error('x'); };
   assert.throws(() => s.requireAuthorizedOperator_(), /^Error: UNAUTHORIZED:/);
 });
+
+test('requireAuthorizedOperator_: 許可リスト・メールの大文字小文字を区別しない', () => {
+  const cfg = { allowedDomains: ['Example.com'], allowedEmails: ['Staff@Example.com'] };
+  assert.equal(loadAuthz('staff@example.com', cfg).requireAuthorizedOperator_(), 'staff@example.com');
+  assert.equal(loadAuthz('STAFF@EXAMPLE.COM', cfg).requireAuthorizedOperator_(), 'STAFF@EXAMPLE.COM');
+});

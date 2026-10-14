@@ -337,9 +337,11 @@ function truncateWholesalerNameForHeader_(name) {
 /**
  * アカウント情報APIのレスポンスを SessionStorage に保存する。
  * @param {Object} data - getAccountInfo() のレスポンス data フィールド
+ * @returns {boolean} SessionStorage への保存に成功したか
  */
 function saveAccountInfo(data) {
   clearWholesalerContext_();
+  let saved = false;
   try {
     sessionStorage.setItem('shiire_wholesaler_id',        String(data.wholesaler_id        ?? ''));
     sessionStorage.setItem('shiire_wholesaler_user_id',   String(data.wholesaler_user_id   ?? ''));
@@ -350,6 +352,7 @@ function saveAccountInfo(data) {
     sessionStorage.setItem('shiire_merchant_mappings',    JSON.stringify(data.merchant_mappings  || []));
     sessionStorage.setItem('shiire_csv_format_rules',     JSON.stringify(data.csv_format_rules   || null));
     console.log('[account] SessionStorage に卸情報を保存しました:', data.wholesaler_name);
+    saved = true;
   } catch (e) {
     console.warn('[account] SessionStorage への保存に失敗しました:', e);
     // 部分保存による卸コンテキストの不整合を避けるため、保存済みの項目を破棄する
@@ -370,6 +373,7 @@ function saveAccountInfo(data) {
   } catch (e) {
     console.warn('[account] ヘッダー企業名の更新に失敗しました:', e);
   }
+  return saved;
 }
 
 /**
@@ -429,10 +433,15 @@ document.addEventListener('DOMContentLoaded', function () {
     google.script.run
       .withSuccessHandler(function (result) {
         if (result && result.data && String(result.data.wholesaler_id) === getWholesalerId_()) {
-          saveAccountInfo(result.data);
-          enableUploadUi_();
-          // スケジュールデータをプリフェッチ（カレンダーを開く前にデータを準備）
-          loadScheduleData_();
+          if (saveAccountInfo(result.data)) {
+            enableUploadUi_();
+            // スケジュールデータをプリフェッチ（カレンダーを開く前にデータを準備）
+            loadScheduleData_();
+          } else {
+            // 保存失敗のままアップロードUIを有効化すると復旧できなくなるため、システムエラーにする
+            showErrorPage_('system');
+            location.hash = '#error';
+          }
         } else {
           console.error('[account] getAccountInfo のレスポンスが不正です:', result);
           showErrorPage_('system');

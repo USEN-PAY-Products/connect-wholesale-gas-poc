@@ -34,9 +34,11 @@ function requireAuthorizedOperator_() {
   if (!email) throw new Error('UNAUTHORIZED: ユーザーを識別できません。Googleアカウントでアクセスしてください。');
 
   const cfg = getConfig_();
+  // ドメイン・メールアドレスは大文字小文字を区別しないため、双方を小文字へ正規化して比較する
+  const lower = function (v) { return String(v).trim().toLowerCase(); };
   const domain = (email.split('@')[1] || '').toLowerCase();
-  const domainOk = cfg.allowedDomains.length === 0 || cfg.allowedDomains.indexOf(domain) !== -1;
-  const emailOk  = cfg.allowedEmails.length  === 0 || cfg.allowedEmails.indexOf(email)  !== -1;
+  const domainOk = cfg.allowedDomains.length === 0 || cfg.allowedDomains.map(lower).indexOf(domain) !== -1;
+  const emailOk  = cfg.allowedEmails.length  === 0 || cfg.allowedEmails.map(lower).indexOf(email.toLowerCase()) !== -1;
   if (!domainOk || !emailOk) throw new Error('FORBIDDEN: このアカウントにはアクセス権がありません。');
   return email;
 }
