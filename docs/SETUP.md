@@ -62,6 +62,7 @@ GitHub Actions の Web アプリデプロイ処理は一時停止中のため、
 | `ALLOWED_DOMAINS` | prd では必須運用 | 許可するメールドメインのカンマ区切り。未設定時は制限なし |
 | `ALLOWED_EMAILS` | 任意 | 許可するメールアドレスのカンマ区切り。未設定時は制限なし |
 | `BACKOFFICE_URL` | いいえ | ヘッダーから BackOffice へ戻るリンク。`https://script.google.com/.../exec` 形式のみ有効 |
+| `WEB_APP_URL` | いいえ | 卸切替後に開く Web アプリ URL。local GAS の `/exec` URL を明示する場合に設定。未設定時は `ScriptApp.getService().getUrl()` を使用 |
 
 許可リストはドメインとメールアドレスの両方を設定した場合、**両方の条件を満たすユーザーのみ**許可します。PoC 仕様上、両方未設定ならドメイン内を含む全ユーザーを許可するため、本番では `ALLOWED_DOMAINS` または `ALLOWED_EMAILS` の少なくとも一方を必ず設定してください。
 

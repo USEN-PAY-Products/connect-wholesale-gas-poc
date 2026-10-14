@@ -10,6 +10,14 @@ const SOURCE = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'db_bq_query.js'),
   'utf8'
 );
+const FE_COMMON_SOURCE = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'fe_js_common.html'),
+  'utf8'
+);
+const CONFIG_SOURCE = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'be_config.js'),
+  'utf8'
+);
 
 function createSandbox(rows) {
   const queryCalls = [];
@@ -68,4 +76,51 @@ test('fetchWholesalerNameById_: 該当する卸がない場合はnullを返す',
   const sandbox = createSandbox([]);
 
   assert.equal(sandbox.fetchWholesalerNameById_('789'), null);
+});
+
+test('switchWholesaler_: 選択した卸IDでTOP画面を開く', () => {
+  const switchFunction = FE_COMMON_SOURCE.match(/function switchWholesaler_\([\s\S]*?\n\}/);
+  assert.ok(switchFunction, 'switchWholesaler_ should exist');
+
+  const sandbox = {
+    window: {
+      __WEB_APP_URL__: 'https://script.google.com/macros/s/test-deployment/exec',
+      top: { location: { href: '' } },
+    },
+    getWholesalerId_: function () { return ''; },
+    clearWholesalerContext_: function () {},
+    showToast: function () {},
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(switchFunction[0], sandbox, { filename: 'fe_js_common.html' });
+  vm.runInContext("switchWholesaler_('42')", sandbox);
+
+  assert.equal(
+    sandbox.window.top.location.href,
+    'https://script.google.com/macros/s/test-deployment/exec?wholesalerId=42#home'
+  );
+});
+
+test('getConfig_: development で WEB_APP_URL 未設定なら local GAS URL を返す', () => {
+  const properties = {
+    DRIVE_ROOT_FOLDER_ID: 'folder',
+    GCP_PROJECT_ID: 'usenpay-connect-dev',
+    BQ_DATASET_ID: 'connect_db',
+    ENV: 'development',
+  };
+  const sandbox = {
+    PropertiesService: {
+      getScriptProperties: function () {
+        return { getProperty: function (key) { return properties[key] || ''; } };
+      },
+    },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(CONFIG_SOURCE, sandbox, { filename: 'be_config.js' });
+
+  const config = JSON.parse(vm.runInContext('JSON.stringify(getConfig_())', sandbox));
+  assert.equal(
+    config.webAppUrl,
+    'https://script.google.com/a/macros/unext-hd.jp/s/AKfycbyjIJwPzy1esRyPWEUmWFrThvyF4l7SbZIp_kVKlPdpeFYySbvqcOHBxGMpjrLhVVfc/exec'
+  );
 });

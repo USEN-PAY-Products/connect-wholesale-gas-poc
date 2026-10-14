@@ -10,6 +10,7 @@
 //   ALLOWED_DOMAINS      … 許可するドメイン（カンマ区切り。未設定＝制限なし）
 //   ALLOWED_EMAILS       … 許可するメールアドレス（カンマ区切り。未設定＝制限なし）
 //   BACKOFFICE_URL       … BackOffice へ戻るリンクの遷移先（script.google.com の exec URL のみ）
+//   WEB_APP_URL          … 卸切替後に開く Web アプリ URL（exec / dev。未設定時は ScriptApp の URL）
 //   FAVICON_URL          … ファビコン画像の公開URL（https のみ。未設定＝ファビコンなし）
 //
 // 設定方法（GASエディタ）:
@@ -19,6 +20,8 @@
 //   executeAs: USER_DEPLOYING では操作者権限でプロパティを書き換えられてしまうため。
 //   設定変更は GAS の UI（プロジェクトの設定 → スクリプト プロパティ）から行う。
 // =============================================================================
+
+const DEFAULT_WEB_APP_URL_DEV = 'https://script.google.com/a/macros/unext-hd.jp/s/AKfycbyjIJwPzy1esRyPWEUmWFrThvyF4l7SbZIp_kVKlPdpeFYySbvqcOHBxGMpjrLhVVfc/exec';
 
 function getConfig_() {
   const props = PropertiesService.getScriptProperties();
@@ -37,6 +40,11 @@ function getConfig_() {
   };
 
   // script.google.com の exec URL 形式のみ許可（誤設定時の任意サイトへの誘導防止）
+  const webAppUrlPattern = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/(exec|dev)$/;
+  const rawWebAppUrl = (props.getProperty('WEB_APP_URL') || '').trim();
+  const webAppUrl = webAppUrlPattern.test(rawWebAppUrl)
+    ? rawWebAppUrl
+    : (env === 'development' ? DEFAULT_WEB_APP_URL_DEV : '');
   const rawBackOfficeUrl = (props.getProperty('BACKOFFICE_URL') || '').trim();
   const backOfficeUrl = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test(rawBackOfficeUrl)
     ? rawBackOfficeUrl
@@ -50,6 +58,7 @@ function getConfig_() {
     env,
     allowedDomains: splitCsv(props.getProperty('ALLOWED_DOMAINS')),
     allowedEmails:  splitCsv(props.getProperty('ALLOWED_EMAILS')),
+    webAppUrl,
     backOfficeUrl,
   };
 }

@@ -305,7 +305,7 @@ function switchWholesaler_(id) {
   const wholesalerId = String(id == null ? '' : id);
   const base = String(window.__WEB_APP_URL__ || '');
   if (!/^\d{1,15}$/.test(wholesalerId) ||
-      !/^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/.test(base)) {
+      !/^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/(exec|dev)$/.test(base)) {
     showToast('卸の切替先を確認できません。ページを再読み込みしてください。', 'error');
     return;
   }

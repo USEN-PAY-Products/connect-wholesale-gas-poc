@@ -44,8 +44,9 @@ function doGet(e) {
   template.isDev         = isDev;
   template.wholesalerId  = wholesalerId;
   template.operatorEmail = operatorEmail;
-  template.webAppUrl     = ScriptApp.getService().getUrl(); // 卸切替（top 遷移）のベース URL
-  template.backOfficeUrl = getConfig_().backOfficeUrl;      // https のみ許可済み
+  const config = getConfig_();
+  template.webAppUrl     = config.webAppUrl || ScriptApp.getService().getUrl(); // 卸切替の遷移先
+  template.backOfficeUrl = config.backOfficeUrl;                                // https のみ許可済み
 
   const output = template
     .evaluate()
