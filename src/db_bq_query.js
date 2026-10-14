@@ -773,6 +773,7 @@ function hasCurrentMonthInvoice_(wholesalerId) {
   const sql =
     'SELECT COUNT(*) AS cnt FROM ' + tbl + ' ' +
     'WHERE wholesaler_id = @wholesaler_id ' +
+    '  AND wholesaler_invoice_id IS NULL ' +
     '  AND created_at >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE(\'Asia/Tokyo\'), MONTH), \'Asia/Tokyo\') ' +
     '  AND created_at < TIMESTAMP(DATE_ADD(DATE_TRUNC(CURRENT_DATE(\'Asia/Tokyo\'), MONTH), INTERVAL 1 MONTH), \'Asia/Tokyo\')';
 

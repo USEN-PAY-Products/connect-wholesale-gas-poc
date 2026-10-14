@@ -1536,3 +1536,17 @@ test('bulkResubmitInvoiceData: RETURNED+DISPUTED も否認側の is_latest 更�
   const sql = sandbox.__runTransactionSqlCalls[0].sql;
   assert.ok(sql.includes("backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')\n  AND invoice_status = 'DISPUTED'"), 'RETURNED+DISPUTED も否認側の更新対象にすること');
 });
+
+test('resubmitInvoiceData: 個別再請求の is_latest 更新は再請求可能な状態の組み合わせに限定される', () => {
+  const sandbox = createSandbox({ storeRows: [makeStoreRow('CUST001', 'MALL-C001', '33333333-3333-3333-3333-333333333333')] });
+  const csvText = buildCsvText(['CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,']);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 1100 },
+    merchantTotals: [{ customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 }],
+  };
+  sandbox.resubmitInvoiceData('dummy-raw-csv-base64', csvText, 'test.csv', summaryData, {}, PARENT_INVOICE_ID,
+    '33333333-3333-3333-3333-333333333333', '合意済み', 'dummy-session-token');
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("(backoffice_review_status = 'RETURNED' AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN'))"));
+  assert.ok(sql.includes("OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED')"));
+});
