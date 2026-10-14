@@ -239,10 +239,10 @@ sequenceDiagram
     FE->>FE: DOMContentLoaded
     FE->>FE: showLoadingOverlay('読み込み中...')
 
-    FE->>BE: google.script.run.getAccountInfo()
-    BE->>BE: Session.getActiveUser().getEmail()
-    BE->>BQ: fetchAccountInfoByEmail_(email)
-    Note over BQ: wholesaler_user テーブルを起点に<br/>JOIN でアカウント情報を取得<br/>wholesaler_status は active / end を許容
+    FE->>BE: google.script.run.getAccountInfo(wholesalerId)
+    BE->>BE: requireAuthorizedOperator_()（ALLOWED_DOMAINS / ALLOWED_EMAILS）
+    BE->>BQ: fetchAccountInfoByWholesalerId_(wholesalerId, operatorEmail)
+    Note over BQ: 卸IDで wholesalers を検証（形式・実在・active/end）<br/>操作者の wholesaler_user 行を特定、無ければ自動登録
 
     alt アカウント情報取得成功
         BQ-->>BE: accountInfo
@@ -555,10 +555,10 @@ BE では BigQuery の単一引用符リテラルに安全に埋め込むため�
 
 | 対策 | 実装箇所 |
 |------|---------|
-| `wholesaler_id` をサーバー側で確定 | `getServerAccountInfo_()` でログインユーザーのメールから取得 |
+| 操作者の認可と卸IDのサーバー側検証 | `getServerAccountInfo_(wholesalerId)` が `requireAuthorizedOperator_()` で操作者を認可し、卸IDの形式・実在・ステータスを毎回再検証する |
 | 全API に `wholesaler_id` フィルタ | `fetchInvoices`, `fetchInvoiceDetail`, `resubmitInvoiceData` 等 |
 | 明細取得に `store_invoices` JOIN | `fetchInvoiceDetailLines_` で `wholesaler_id` を検証 |
-| フロントから `wholesaler_id` を送らない | 引数としてフロントから渡さない設計 |
+| フロントから渡す `wholesalerId` は信頼しない | BackOffice のリンクまたは卸切替で明示指定された卸IDを引数で渡すが、全APIでサーバー側が再検証する（BackOffice 運用者が卸を切り替えて代行登録する方式） |
 
 ---
 

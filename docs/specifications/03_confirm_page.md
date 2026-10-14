@@ -232,9 +232,9 @@ sequenceDiagram
     FE->>FE: 金額桁数バリデーション
     FE->>FE: setSubmitLoading() + showLoadingOverlay()
 
-    FE->>BE: sendInvoiceData(rawCsv, utf8Csv, summaryData, remarks)
+    FE->>BE: sendInvoiceData(rawCsv, utf8Csv, fileName, summaryData, remarks, wholesalerId)
 
-    BE->>BE: getServerAccountInfo_()
+    BE->>BE: getServerAccountInfo_(wholesalerId)（操作者認可＋卸ID検証）
     BE->>BE: validateCsvHeader_() / validateCsvHeaderByRules_()
 
     BE->>GD: CSV を Drive に保存

@@ -30,7 +30,8 @@ function doGet(e) {
   // ── wholesalerId の取得（不正値は未指定扱い）───────────────────────────
   const raw = String((e && e.parameter && e.parameter.wholesalerId) || '').trim();
   // 不正な指定を未選択状態に丸めず、サーバー検証で WHOLESALER_INVALID とする。
-  const wholesalerId = raw === '' ? '' : (/^\d{1,15}$/.test(raw) ? raw : '__invalid__');
+  // 先頭ゼロは正規化する（API応答の wholesaler_id との文字列照合を一致させるため）。
+  const wholesalerId = raw === '' ? '' : (/^\d{1,15}$/.test(raw) ? String(Number(raw)) : '__invalid__');
 
   // ── 環境判定 ─────────────────────────────────────────────────────────────
   let isDev = false;

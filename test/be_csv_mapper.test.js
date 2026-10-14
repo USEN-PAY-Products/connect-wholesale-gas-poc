@@ -524,3 +524,73 @@ test('buildMappedBulkResubmitTransactionSql_: 加盟店ごとのinvoice_status/i
     'UPDATE文がCOMMITより前（同一トランザクション内）にあること');
 });
 
+
+// =============================================================================
+// マップ形式ビルダーの競合検知・当月重複ガードの回帰テスト
+// =============================================================================
+
+function mappedSummary(customerCodes) {
+  return {
+    wholesalerTotal: { totalAmount: 1100 * customerCodes.length, subtotalAmount: 1000 * customerCodes.length, taxAmount: 100 * customerCodes.length, exTax10: 1000 * customerCodes.length, tax10: 100 * customerCodes.length, exTax8: 0, tax8: 0 },
+    merchantTotals: customerCodes.map(function (c) {
+      return { customerCode: c, totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 };
+    }),
+  };
+}
+
+const MAPPED_COMMON = function () {
+  return {
+    stagingId: 'staging_test_0001',
+    remarks: {},
+    accountInfo: RESUBMIT_ACCOUNT_INFO,
+    csvUrl: 'https://example.test/dummy.csv',
+    projectId: 'test-project',
+    datasetId: 'test_dataset',
+    csvFormatRules: { has_header: true, columns: buildBaseColumns() },
+  };
+};
+
+test('buildMappedTransactionSql_: 当月重複ガードは再請求版を除外する（wholesaler_invoice_id IS NULL）', () => {
+  const sandbox = createSandbox();
+  const sql = sandbox.buildMappedTransactionSql_(Object.assign(MAPPED_COMMON(), {
+    invoiceUuid: INVOICE_UUID,
+    summaryData: mappedSummary(['CUST001']),
+    mallCodeMap: { CUST001: 'MALL-C001' },
+  }));
+  assert.ok(sql.includes('AND wholesaler_invoice_id IS NULL'));
+});
+
+test('buildMappedResubmitTransactionSql_: 個別再請求の更新条件は再請求可能な状態の組み合わせに限定され、当月重複ガードは再請求版を除外する', () => {
+  const sandbox = createSandbox();
+  const sql = sandbox.buildMappedResubmitTransactionSql_(Object.assign(MAPPED_COMMON(), {
+    parentInvoiceId: INVOICE_UUID,
+    storeInvoiceId: '22222222-2222-2222-2222-222222222222',
+    summaryData: mappedSummary(['CUST001']),
+    wholesalerHandover: null,
+    storeDisputedReason: null,
+    mallCodeMap: { CUST001: 'MALL-C001' },
+    latestWi: RESUBMIT_LATEST_WI,
+    oldStoreAmounts: RESUBMIT_OLD_STORE_AMOUNTS,
+  }));
+  assert.ok(sql.includes("(backoffice_review_status = 'RETURNED' AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN'))"));
+  assert.ok(sql.includes("OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED')"));
+});
+
+test('buildMappedBulkResubmitTransactionSql_: 差し戻し・否認ごとに更新件数の完全一致を検証し、RETURNED+DISPUTEDも否認側で更新できる', () => {
+  const sandbox = createSandbox();
+  const sql = sandbox.buildMappedBulkResubmitTransactionSql_(Object.assign(MAPPED_COMMON(), {
+    parentInvoiceId: INVOICE_UUID,
+    summaryData: mappedSummary(['CUST001', 'CUST002', 'CUST003']),
+    handovers: {},
+    disputedReasons: {},
+    invoiceStatuses: { CUST003: 'DISPUTED' },
+    mallCodeMap: { CUST001: 'MALL-C001', CUST002: 'MALL-C002', CUST003: 'MALL-C003' },
+    latestWi: RESUBMIT_LATEST_WI,
+    oldStoreAmounts: RESUBMIT_OLD_STORE_AMOUNTS,
+  }));
+  assert.ok(sql.includes("mall_code IN ('MALL-C001', 'MALL-C002')"), '差し戻し側の対象');
+  assert.ok(sql.includes("mall_code IN ('MALL-C003')"), '否認側の対象');
+  assert.ok(sql.includes('IF @@row_count != 2 THEN'), '差し戻し側は件数完全一致');
+  assert.ok(sql.includes('IF @@row_count != 1 THEN'), '否認側は件数完全一致');
+  assert.ok(sql.includes("backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')\n  AND invoice_status = 'DISPUTED'"));
+});

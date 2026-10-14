@@ -100,10 +100,10 @@ sequenceDiagram
 
     Note over U,FE: DOMContentLoaded 発火
     FE->>FE: showLoadingOverlay('読み込み中...')
-    FE->>BE: getAccountInfo()
-    BE->>BE: Session.getActiveUser().getEmail()
-    BE->>BQ: fetchAccountInfoByEmail_(email)
-    BQ-->>BE: アカウント情報
+    FE->>BE: getAccountInfo(wholesalerId)
+    BE->>BE: requireAuthorizedOperator_()（操作者の認可）
+    BE->>BQ: fetchAccountInfoByWholesalerId_(wholesalerId, operatorEmail)
+    BQ-->>BE: アカウント情報（卸の実在確認・操作者の wholesaler_user 特定／自動登録）
     BE-->>FE: { status: 'success', data: accountInfo }
 
     FE->>FE: saveAccountInfo(data)
@@ -305,7 +305,7 @@ flowchart TD
 
 | エラーケース | 挙動 |
 |-------------|------|
-| `getAccountInfo()` 失敗（UNAUTHORIZED） | `#error` 画面に遷移（アカウント未登録メッセージ） |
+| `getAccountInfo()` 失敗（UNAUTHORIZED / FORBIDDEN / WHOLESALER_*） | `#error` 画面に遷移（種別ごとのメッセージ。卸ID未指定は卸選択の案内） |
 | `getAccountInfo()` 失敗（システムエラー） | `#error` 画面に遷移（`system`。バナー・本文はアカウント未登録時と同一の案内を表示） |
 | `fetchInvoices()` 失敗 | 空の請求履歴を表示（UIが空白にならないよう `renderBillingHistory([])` を呼ぶ） |
 | `fetchScheduleData()` 失敗 | `_scheduleLoaded = false` にして再取得可能にする |
