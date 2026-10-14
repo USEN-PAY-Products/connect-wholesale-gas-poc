@@ -804,6 +804,67 @@ test('resubmitInvoiceData: 旧レコードの否認理由(store_disputed_reason)
 });
 
 // =============================================================================
+// 検証: resubmitWithoutChanges の wholesaler_remark 更新分岐
+// =============================================================================
+
+const RESUBMIT_WITHOUT_STORE_INVOICE_ID = '55555555-5555-5555-5555-555555555555';
+
+test('resubmitWithoutChanges: wholesalerRemark が未指定(null)の場合は既存値維持のSET句になる', () => {
+  const sandbox = createSandbox();
+
+  const result = sandbox.resubmitWithoutChanges(
+    RESUBMIT_WITHOUT_STORE_INVOICE_ID,
+    PARENT_INVOICE_ID,
+    null,
+    null,
+    'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1, 'UPDATEが1回実行されること');
+
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("SET backoffice_review_status = 'PENDING_REVIEW',"), '再請求ステータス更新を含むこと');
+  assert.ok(sql.includes('wholesaler_remark = wholesaler_remark'), 'wholesalerRemark未指定時は既存値維持になること');
+});
+
+test('resubmitWithoutChanges: wholesalerRemark が空文字の場合はNULLクリアのSET句になる', () => {
+  const sandbox = createSandbox();
+
+  const result = sandbox.resubmitWithoutChanges(
+    RESUBMIT_WITHOUT_STORE_INVOICE_ID,
+    PARENT_INVOICE_ID,
+    null,
+    '',
+    'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1, 'UPDATEが1回実行されること');
+
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes('wholesaler_remark = NULL'), 'wholesalerRemark空文字時はNULLクリアになること');
+});
+
+test('resubmitWithoutChanges: wholesalerRemark に値がある場合はその値で更新するSET句になる', () => {
+  const sandbox = createSandbox();
+
+  const result = sandbox.resubmitWithoutChanges(
+    RESUBMIT_WITHOUT_STORE_INVOICE_ID,
+    PARENT_INVOICE_ID,
+    null,
+    '請求書備考の更新テキスト',
+    'dummy-session-token'
+  );
+
+  assert.equal(result.status, 'success');
+  assert.equal(sandbox.__runTransactionSqlCalls.length, 1, 'UPDATEが1回実行されること');
+
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("wholesaler_remark = '請求書備考の更新テキスト'"), 'wholesalerRemark値あり時はその値で更新すること');
+});
+
+// =============================================================================
 // 検証12〜14: cancelWithdrawRequest（取り下げ依頼の取り消し）
 //
 // 背景:

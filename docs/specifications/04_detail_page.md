@@ -300,6 +300,8 @@ flowchart TD
     BQ_UPDATE -->|失敗| ALERT["alert エラー"]
 ```
 
+> BE呼び出し時、合意事項（`wholesalerHandover`）に加えて、アコーディオン内の請求書備考欄（`.remarks-input`）で編集された内容（`wholesalerRemark`）も送信され、`wholesaler_remark` が更新される。備考欄を編集していない場合は既存値がそのまま維持される。
+
 #### 変更なし再請求 シーケンス図
 
 ```mermaid
@@ -311,8 +313,8 @@ sequenceDiagram
 
     U->>FE: 「変更なしで再請求」押下
     FE->>FE: 合意事項チェック
-    FE->>BE: resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover)
-    BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='PENDING_REVIEW'<br/>WHERE id=? AND wholesaler_id=?
+    FE->>BE: resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, wholesalerRemark)
+    BE->>BQ: UPDATE store_invoices<br/>SET backoffice_review_status='PENDING_REVIEW', wholesaler_handover=?, wholesaler_remark=?<br/>WHERE id=? AND wholesaler_id=?
     BQ-->>BE: OK
     BE-->>FE: success
     FE->>FE: initDetailPage(id)
@@ -642,11 +644,11 @@ stateDiagram-v2
 | 処理 | CSV → Drive保存 → BQ Load → 差額計算 → トランザクション |
 | トランザクション | 新 `store_invoices` INSERT + 旧 `is_latest=FALSE` + `wholesaler_invoices` 金額更新 |
 
-### 11.3 `resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover)`
+### 11.3 `resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover, wholesalerRemark)`
 
 | 項目 | 内容 |
 |------|------|
-| 処理 | `backoffice_review_status` → `PENDING_REVIEW` に更新 |
+| 処理 | `backoffice_review_status` → `PENDING_REVIEW` に更新。合併して `wholesaler_handover`（合意内容）と `wholesaler_remark`（請求書備考、アコーディオン内で編集可能）も更新。いずれも null/未指定の場合は既存値を維持 |
 | 条件 | RETURNED または (MCR + DISPUTED) のレコードのみ |
 | 実行方法 | `BEGIN TRANSACTION` 〜 `COMMIT` + `@@row_count = 0` 検証。UPDATE が0行（並行更新・画面表示後の状態変化）なら `RAISE` + `ROLLBACK` し、BE側で `error_()`（業務エラー）に変換して返す（本チェックが無いと、対象0件でも画面上は成功トーストが出てしまう） |
 
