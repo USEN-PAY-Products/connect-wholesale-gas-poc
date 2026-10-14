@@ -352,6 +352,8 @@ function saveAccountInfo(data) {
     console.log('[account] SessionStorage に卸情報を保存しました:', data.wholesaler_name);
   } catch (e) {
     console.warn('[account] SessionStorage への保存に失敗しました:', e);
+    // 部分保存による卸コンテキストの不整合を避けるため、保存済みの項目を破棄する
+    clearWholesalerContext_();
   }
   // DOM更新は sessionStorage 保存の成否に関わらず実行する
   try {
