@@ -188,3 +188,47 @@ test('ensureOperatorWholesalerUser_: ロック取得失敗は SYSTEM エラー�
     assert.equal(s.__calls.released, 0);
   });
 });
+
+function createAccountSandbox(rows) {
+  const s = createEnsureSandbox({});
+  const calls = { ensure: [], queries: [] };
+  s.runQuery_ = (proj, sql, params) => { calls.queries.push({ sql, params }); return rows; };
+  s.ensureOperatorWholesalerUser_ = (id, email) => { calls.ensure.push([id, email]); return 'user-uuid'; };
+  s.__acct = calls;
+  return s;
+}
+
+const WS_ROW = { wholesaler_id: '7', wholesaler_name: '卸A', wholesaler_status: 'active', fee_rate: '3', tax_rounding_method: 'round', csv_format_rules: null };
+
+test('fetchAccountInfoByWholesalerId_: 卸が存在しなければ null を返し操作者を登録しない', () => {
+  const s = createAccountSandbox([]);
+  assert.equal(s.fetchAccountInfoByWholesalerId_(7, 'op@example.com'), null);
+  assert.equal(s.__acct.ensure.length, 0);
+  assert.equal(s.__acct.queries[0].params[0].parameterValue.value, '7');
+});
+
+test('fetchAccountInfoByWholesalerId_: マッピング0件（LEFT JOIN で NULL 行のみ）でも卸情報を返す', () => {
+  const s = createAccountSandbox([Object.assign({}, WS_ROW, { customer_code: null, mall_code: null, store_name: null })]);
+  const info = s.fetchAccountInfoByWholesalerId_(7, 'op@example.com');
+  assert.equal(info.wholesaler_id, 7);
+  assert.equal(info.wholesaler_user_id, 'user-uuid');
+  assert.equal(info.fee_rate, 3);
+  assert.deepEqual(JSON.parse(JSON.stringify(info.merchant_mappings)), []);
+  assert.deepEqual(s.__acct.ensure[0], [7, 'op@example.com']);
+});
+
+test('fetchAccountInfoByWholesalerId_: inactive は WHOLESALER_INACTIVE で操作者を登録しない', () => {
+  const s = createAccountSandbox([Object.assign({}, WS_ROW, { wholesaler_status: 'suspended' })]);
+  assert.throws(() => s.fetchAccountInfoByWholesalerId_(7, 'op@example.com'), /WHOLESALER_INACTIVE/);
+  assert.equal(s.__acct.ensure.length, 0);
+});
+
+test('fetchAccountInfoByWholesalerId_: end は許容し、store_name のあるマッピングのみ含める', () => {
+  const s = createAccountSandbox([
+    Object.assign({}, WS_ROW, { wholesaler_status: 'end', customer_code: 'C1', mall_code: 'M1', store_name: '店1' }),
+    Object.assign({}, WS_ROW, { wholesaler_status: 'end', customer_code: 'C2', mall_code: 'M2', store_name: null }),
+  ]);
+  const info = s.fetchAccountInfoByWholesalerId_(7, 'op@example.com');
+  assert.equal(info.wholesaler_status, 'end');
+  assert.deepEqual(JSON.parse(JSON.stringify(info.merchant_mappings)), [{ customer_code: 'C1', mall_code: 'M1', store_name: '店1' }]);
+});

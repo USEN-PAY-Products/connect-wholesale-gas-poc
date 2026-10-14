@@ -1558,3 +1558,47 @@ test('resubmitInvoiceData: 個別再請求の is_latest 更新は再請求可能
   assert.ok(sql.includes("(backoffice_review_status = 'RETURNED' AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN'))"));
   assert.ok(sql.includes("OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED')"));
 });
+
+function withLockStub_(sandbox, opts) {
+  const state = { released: 0 };
+  sandbox.LockService = {
+    getScriptLock: function () {
+      return {
+        tryLock: function () { if (opts.throws) throw new Error('timeout'); return opts.ok; },
+        releaseLock: function () { state.released += 1; },
+      };
+    },
+  };
+  return state;
+}
+
+test('withInvoiceScriptLock_: 取得成功時はコールバックの戻り値を返しロックを解放する', () => {
+  const sandbox = createSandbox();
+  const state = withLockStub_(sandbox, { ok: true });
+  assert.equal(sandbox.withInvoiceScriptLock_(function () { return 'done'; }), 'done');
+  assert.equal(state.released, 1);
+});
+
+test('withInvoiceScriptLock_: 取得失敗時はコールバックを実行せずエラーにする', () => {
+  const sandbox = createSandbox();
+  const state = withLockStub_(sandbox, { ok: false });
+  let called = false;
+  assert.throws(function () { sandbox.withInvoiceScriptLock_(function () { called = true; }); }, /他の担当者が処理中/);
+  assert.equal(called, false);
+  assert.equal(state.released, 0);
+});
+
+test('withInvoiceScriptLock_: tryLock が例外でも同じエラーにし、コールバックは実行しない', () => {
+  const sandbox = createSandbox();
+  withLockStub_(sandbox, { throws: true });
+  let called = false;
+  assert.throws(function () { sandbox.withInvoiceScriptLock_(function () { called = true; }); }, /他の担当者が処理中/);
+  assert.equal(called, false);
+});
+
+test('withInvoiceScriptLock_: コールバックが例外でもロックを解放する', () => {
+  const sandbox = createSandbox();
+  const state = withLockStub_(sandbox, { ok: true });
+  assert.throws(function () { sandbox.withInvoiceScriptLock_(function () { throw new Error('boom'); }); }, /boom/);
+  assert.equal(state.released, 1);
+});
