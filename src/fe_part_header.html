@@ -21,12 +21,19 @@
         <span class="visually-hidden">アカウントメニュー</span>
         <i class="fa-solid fa-chevron-down header-store-chevron" aria-hidden="true"></i>
       </button>
-      <!-- ログアウト ドロップダウン -->
+      <!-- 操作者・卸切替メニュー -->
       <div class="header-store-dropdown hidden" id="headerStoreDropdown">
+        <div class="header-store-dropdown__operator" id="headerOperatorEmail">―</div>
         <div class="header-store-dropdown__company" id="headerStoreDropdownCompanyName">―</div>
-        <button class="header-store-dropdown__item" id="btnLogout" type="button">
-          <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> ログアウト
-        </button>
+        <label class="wholesaler-search-label" for="wholesalerSearch">卸を切り替える</label>
+        <input id="wholesalerSearch" class="wholesaler-search" type="search"
+               placeholder="卸名・IDで検索" autocomplete="off">
+        <div id="wholesalerListStatus" class="wholesaler-list-status" aria-live="polite"></div>
+        <ul id="wholesalerList" class="wholesaler-list" aria-label="卸一覧"></ul>
+        <a class="header-store-dropdown__item hidden" id="btnBackToBackoffice"
+           target="_top" rel="noopener noreferrer">
+          <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> BackOffice へ戻る
+        </a>
       </div>
     </div>
   </div>

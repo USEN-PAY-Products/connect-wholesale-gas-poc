@@ -81,6 +81,7 @@
 | `ALLOWED_DOMAINS` | 追加 | カンマ区切り。コード上は未設定＝制限なし（D-9）だが、**prd では `ALLOWED_DOMAINS` か `ALLOWED_EMAILS` の少なくとも一方の設定を必須運用とする**（`listWholesalers` で卸一覧が広く見えるため）。`listWholesalers` 呼び出しは監査ログ（operator）に残す |
 | `ALLOWED_EMAILS` | 追加（任意） | カンマ区切り。未設定＝制限なし（D-9） |
 | `BACKOFFICE_URL` | 追加（✅ §14-4 承認済み） | ヘッダー「BackOffice へ戻る」の遷移先。未設定ならメニュー項目を非表示<br>dev: `https://script.google.com/a/macros/unext-hd.jp/s/AKfycbz1ojp_1pyXyRC2PjN1w_tfzWgtSNAQTHKtzQ22kGn_QxnQT5frYplG2VVWXdhkWZQ4fA/exec`<br>prd: `https://script.google.com/a/macros/unext-hd.jp/s/AKfycbzTUhU6twsNdkzx2qHOm56nfuHK75-fJiIoUBNNOHBjfOxkNAXCFIzaxHyV-iOO0xZN/exec`（2026-10-09 確定） |
+| `WEB_APP_URL` | 任意 | 卸切替後の遷移先。未設定時は `ScriptApp.getService().getUrl()` を使用。local GAS は dev 環境の `/exec` URL を明示設定可能 |
 | `FAVICON_URL` | 既存 | LP フォールバックをやめ、設定があればそれのみ使用 |
 | その他（`DRIVE_ROOT_FOLDER_ID`、`GCP_PROJECT_ID`、`BQ_DATASET_ID`、`BQ_LOCATION`、`ENV`） | 変更なし | |
 

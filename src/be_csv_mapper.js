@@ -880,6 +880,17 @@ function buildMappedTransactionSql_(params) {
     ...declareBlock,
     'BEGIN TRANSACTION;',
     '',
+    '-- トランザクション内でも当月重複を確認し、ロック外の書込経路との競合を防ぐ',
+    'IF EXISTS (',
+    '  SELECT 1 FROM ' + invRef,
+    '  WHERE wholesaler_id = ' + wsId,
+    '    AND wholesaler_invoice_id IS NULL',
+    "    AND created_at >= TIMESTAMP(DATE_TRUNC(CURRENT_DATE('Asia/Tokyo'), MONTH), 'Asia/Tokyo')",
+    "    AND created_at < TIMESTAMP(DATE_ADD(DATE_TRUNC(CURRENT_DATE('Asia/Tokyo'), MONTH), INTERVAL 1 MONTH), 'Asia/Tokyo')",
+    ') THEN',
+    "  RAISE USING MESSAGE = '今月は既に新規の請求書が登録されています。差し戻しや否認の修正版のアップロードは詳細画面からアップロードしてください。';",
+    'END IF;',
+    '',
     ...validateBlock,
     '-- =========================================================',
     '-- 1. 子テーブル (store_invoices)',
@@ -1104,7 +1115,15 @@ function buildMappedResubmitTransactionSql_(params) {
     "WHERE id = '" + escSql_(storeInvoiceId) + "'",
     '  AND wholesaler_id = ' + wsId,
     "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
+    "  AND (",
+    "    (backoffice_review_status = 'RETURNED' AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN'))",
+    "    OR (backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED')",
+    '  )',
     '  AND is_latest = TRUE;',
+    'IF @@row_count = 0 THEN',
+    '  ROLLBACK TRANSACTION;',
+    "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+    'END IF;',
     '',
     '-- 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef + ' (',
@@ -1302,13 +1321,24 @@ function buildMappedBulkResubmitTransactionSql_(params) {
       ])
     : [];
 
-  // CSVに含まれる加盟店の mall_code リスト（is_latest UPDATE の対象絞り込み用）
-  const targetMallCodes = summaryData.merchantTotals
-    .map(function(m) { return escSql_(mallCodeMap[String(m.customerCode)] || ''); })
-    .filter(function(mc) { return mc !== ''; });
-  const mallCodeInClause = targetMallCodes.length > 0
-    ? targetMallCodes.map(function(mc) { return "'" + mc + "'"; }).join(', ')
-    : 'NULL';
+  // is_latest UPDATE の対象絞り込み用。差し戻し／否認ごとに加盟店(mall_code)を重複なく集め、
+  // 更新件数が対象数と完全一致しない場合（一部だけ並行更新された場合）も検知できるようにする。
+  const collectMallCodes_ = function (disputed) {
+    const codes = [];
+    summaryData.merchantTotals.forEach(function (m) {
+      const isDisputed = (_invoiceStatuses[String(m.customerCode)] || '') === 'DISPUTED';
+      const mc = escSql_(mallCodeMap[String(m.customerCode)] || '');
+      if (mc !== '' && isDisputed === disputed && codes.indexOf(mc) === -1) codes.push(mc);
+    });
+    return codes;
+  };
+  const toInClause_ = function (codes) {
+    return codes.length > 0 ? codes.map(function (mc) { return "'" + mc + "'"; }).join(', ') : 'NULL';
+  };
+  const returnedMallCodes = collectMallCodes_(false);
+  const disputedMallCodes = collectMallCodes_(true);
+  const returnedInClause = toInClause_(returnedMallCodes);
+  const disputedInClause = toInClause_(disputedMallCodes);
 
   const sqlLines = [
     ...declareBlock,
@@ -1320,20 +1350,32 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     'SET is_latest = FALSE',
     "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND wholesaler_id = ' + wsId,
-    '  AND mall_code IN (' + mallCodeInClause + ')',
+    '  AND mall_code IN (' + returnedInClause + ')',
     "  AND backoffice_review_status = 'RETURNED'",
     "  AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN')",
     '  AND is_latest = TRUE;',
+    ...(returnedMallCodes.length > 0 ? [
+      'IF @@row_count != ' + returnedMallCodes.length + ' THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+      'END IF;',
+    ] : []),
     '',
     '-- ② 否認 store_invoices を is_latest = FALSE に更新（CSVに含まれる加盟店のみ）',
     'UPDATE ' + storeRef,
     'SET is_latest = FALSE',
     "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND wholesaler_id = ' + wsId,
-    '  AND mall_code IN (' + mallCodeInClause + ')',
-    "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
+    '  AND mall_code IN (' + disputedInClause + ')',
+    "  AND backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',
+    ...(disputedMallCodes.length > 0 ? [
+      'IF @@row_count != ' + disputedMallCodes.length + ' THEN',
+      '  ROLLBACK TRANSACTION;',
+      "  RAISE USING MESSAGE = '他の操作と競合したため更新できませんでした。ページを再読み込みして再度お試しください。';",
+      'END IF;',
+    ] : []),
     '',
     '-- ③ 新しい store_invoices を INSERT',
     'INSERT INTO ' + storeRef + ' (',

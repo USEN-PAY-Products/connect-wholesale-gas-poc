@@ -245,6 +245,12 @@ btnFinalSubmit.addEventListener('click', () => {
     return;
   }
 
+  const wholesalerName = sessionStorage.getItem('shiire_wholesaler_name') || '';
+  const wholesalerId = getWholesalerId_();
+  if (!window.confirm(wholesalerName + '（ID:' + wholesalerId + '）として請求を登録します。よろしいですか？')) {
+    return;
+  }
+
   // ── 送信開始: UI をローディング状態に ─────────────────────────────────────
   setSubmitLoading();
   showLoadingOverlay('登録中...');
@@ -253,7 +259,6 @@ btnFinalSubmit.addEventListener('click', () => {
   // ── GAS バックエンドへ送信 ────────────────────────────────────────────────
   // google.script.run は GAS Webアプリ環境でのみ有効。
   // ローカル Live Server で動作確認する場合は下部の「ローカル確認用フォールバック」が使われる。
-  const wholesalerName = sessionStorage.getItem('shiire_wholesaler_name') || '';
   const summaryData    = collectSummaryData_();
   const remarks        = collectRemarks_();
 
@@ -389,7 +394,7 @@ btnFinalSubmit.addEventListener('click', () => {
           resetSubmitButton();
           showToast('登録に失敗しました: ' + (err.message || err), 'error');
         })
-        .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks, parentInvoiceId, handovers, getSessionToken_());
+        .bulkResubmitInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks, parentInvoiceId, handovers, getWholesalerId_());
     } else {
       console.warn('[bulkResubmit] google.script.run が利用できません（モック）');
       console.log('[resubmit] parentInvoiceId:', parentInvoiceId);
@@ -412,7 +417,7 @@ btnFinalSubmit.addEventListener('click', () => {
       .withFailureHandler(onSubmitFailure)
       // rawCsvBase64: Drive 保存用（元ファイルのバイト列そのまま）
       // utf8CsvBase64: BQ Load Job 用（UTF-8 に変換済み）
-      .sendInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks, getSessionToken_());
+      .sendInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks, getWholesalerId_());
   } else {
     // ── ローカル確認用フォールバック（GAS 環境外）────────────────────────
     console.warn('[submit] google.script.run が利用できません。モック送信を実行します。');
@@ -561,7 +566,7 @@ function renderConfirmPage() {
   const handoverRow  = document.getElementById('confirmHandoverRow');
   const handoverText = document.getElementById('confirmHandoverText');
   if (_isResubmitConfirm) {
-    const handoverMatter = sessionStorage.getItem('shiire_resubmit_handover_matter') || '';
+    const handoverMatter = sessionStorage.getItem('shiire_resubmit_handover_matter_' + getWholesalerId_()) || '';
     if (handoverRow)  handoverRow.classList.remove('hidden');
     if (handoverText) handoverText.value = handoverMatter;
   } else {

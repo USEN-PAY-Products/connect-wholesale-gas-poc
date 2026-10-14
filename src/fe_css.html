@@ -206,17 +206,25 @@ button { cursor: pointer; font-family: inherit; }
   position: absolute;
   top: calc(100% + 12px);
   right: 0;
-  width: 160px;
+  width: 360px;
+  max-width: calc(100vw - 24px);
   background: #fff;
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   z-index: 200;
-  padding: 4px 0;
+  padding: 4px 0 8px;
 }
 
-/* ドロップダウン内の会社名全文表示（現状の横幅を維持したまま折り返す） */
+/* ドロップダウン内の操作者・会社名 */
+.header-store-dropdown__operator {
+  padding: 10px 16px 4px;
+  color: #666;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .header-store-dropdown__company {
-  padding: 10px 16px;
+  padding: 4px 16px 10px;
   border-bottom: 1px solid #eee;
   color: #333;
   font-size: 14px;
@@ -226,6 +234,80 @@ button { cursor: pointer; font-family: inherit; }
   overflow-wrap: break-word;
   word-break: break-all;
 }
+
+.wholesaler-search-label {
+  display: block;
+  padding: 10px 16px 4px;
+  color: #555;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wholesaler-search {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 0 16px 6px;
+  padding: 8px 10px;
+  border: 1px solid #c8cdd2;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.wholesaler-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.wholesaler-list__button {
+  display: block;
+  width: 100%;
+  padding: 9px 16px;
+  border: 0;
+  background: #fff;
+  color: #333;
+  text-align: left;
+  font: inherit;
+}
+.wholesaler-list__button:hover,
+.wholesaler-list__button:focus-visible { background: #f2f6f9; }
+.wholesaler-list__button[aria-current="true"] {
+  background: #e8f1f7;
+  font-weight: 700;
+}
+.wholesaler-list__id {
+  margin-left: 6px;
+  color: #666;
+  font-size: 12px;
+}
+.wholesaler-list-status {
+  padding: 4px 16px;
+  color: #666;
+  font-size: 12px;
+}
+
+.operating-as-banner {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 10px 16px;
+  background: #fff4d6;
+  color: #5b4100;
+  text-align: center;
+  font-weight: 700;
+}
+.operating-as-banner i { margin-right: 6px; }
+
+.wholesaler-empty-state {
+  width: min(720px, calc(100% - 32px));
+  margin: 72px auto;
+  padding: 40px 24px;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+.wholesaler-empty-state h1 { margin-bottom: 12px; font-size: 22px; }
+.wholesaler-empty-state p { color: #555; }
 
 .header-store-dropdown__item {
   display: flex;

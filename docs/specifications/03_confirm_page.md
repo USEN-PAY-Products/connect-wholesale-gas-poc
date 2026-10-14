@@ -189,7 +189,7 @@ flowchart LR
 
 - ページタイトル: 「請求内容の確認」
 - USEN PAY社コメント欄: 非表示
-- 送信先API: `sendInvoiceData(rawCsv, utf8Csv, summaryData, remarks)`
+- 送信先API: `sendInvoiceData(rawCsv, utf8Csv, fileName, summaryData, remarks, wholesalerId)`
 
 ### 4.2 一括再送信モード
 
@@ -203,7 +203,7 @@ flowchart LR
 
 - ページタイトル: 「請求内容の確認（再申請）」
 - USEN PAY社コメント欄: 表示（`handover_matter` の内容）
-- 送信先API: `bulkResubmitInvoiceData(rawCsv, utf8Csv, summaryData, remarks, parentId, handovers)`
+- 送信先API: `bulkResubmitInvoiceData(rawCsv, utf8Csv, fileName, summaryData, remarks, parentId, handovers, wholesalerId)`
 - 「キャンセル」ボタン時の遷移先: `#detail?invoiceId={parentInvoiceId}`（アップロード画面ではなく詳細画面へ戻る）
 - 「一覧に戻る」ボタン時の遷移先: `#home`（TOP。再送信モードでも詳細画面ではなく TOP へ戻る）
 
@@ -232,9 +232,9 @@ sequenceDiagram
     FE->>FE: 金額桁数バリデーション
     FE->>FE: setSubmitLoading() + showLoadingOverlay()
 
-    FE->>BE: sendInvoiceData(rawCsv, utf8Csv, summaryData, remarks)
+    FE->>BE: sendInvoiceData(rawCsv, utf8Csv, fileName, summaryData, remarks, wholesalerId)
 
-    BE->>BE: getServerAccountInfo_()
+    BE->>BE: getServerAccountInfo_(wholesalerId)（操作者認可＋卸ID検証）
     BE->>BE: validateCsvHeader_() / validateCsvHeaderByRules_()
 
     BE->>GD: CSV を Drive に保存
@@ -272,7 +272,7 @@ sequenceDiagram
     FE->>FE: collectSummaryData_() + collectRemarks_()
     FE->>FE: _resubmitRemarks / _resubmitHandovers をマージ
 
-    FE->>BE: bulkResubmitInvoiceData(rawCsv, utf8Csv, summaryData, remarks, parentId, handovers)
+    FE->>BE: bulkResubmitInvoiceData(rawCsv, utf8Csv, fileName, summaryData, remarks, parentId, handovers, wholesalerId)
 
     BE->>GD: CSV → Drive 保存
     BE->>BQ: Load Job 投入 → 完了待ち
@@ -406,20 +406,20 @@ sequenceDiagram
 
 ## 10. BE API 仕様
 
-### 10.1 `sendInvoiceData(rawCsvBase64, utf8CsvBase64, summaryData, remarks)`
+### 10.1 `sendInvoiceData(rawCsvBase64, utf8CsvBase64, fileName, summaryData, remarks, wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
-| 引数 | 生CSVのBase64, UTF-8 CSVのBase64, 金額サマリー, 備考マップ |
+| 引数 | 生CSVのBase64, UTF-8 CSVのBase64, 元ファイル名, 金額サマリー, 備考マップ, 操作対象の卸ID |
 | 処理 | CSV保存 → BQ Load → トランザクション → Staging削除 |
 | トランザクション | `wholesaler_invoices` INSERT + `store_invoices` INSERT + `invoice_lines` INSERT |
 | 加盟店名 | `store_invoices.wholesaler_managed_store_name` に `summaryData.merchantTotals[].managedStoreName` を保存 |
-| IDOR保護 | サーバー側で `wholesaler_id` を確定（引数から渡さない） |
+| IDOR保護 | `getServerAccountInfo_(wholesalerId)` で操作者認可と卸ID（形式・実在・ステータス）を毎回再検証し、検証済みの `wholesaler_id` のみ使用 |
 
-### 10.2 `bulkResubmitInvoiceData(rawCsv, utf8Csv, summaryData, remarks, parentId, handovers)`
+### 10.2 `bulkResubmitInvoiceData(rawCsv, utf8Csv, fileName, summaryData, remarks, parentId, handovers, wholesalerId)`
 
 | 項目 | 内容 |
 |------|------|
-| 追加引数 | `parentInvoiceId`, `handovers`（合意事項マップ） |
+| 追加引数 | `fileName`, `parentInvoiceId`, `handovers`（合意事項マップ）, `wholesalerId`（操作対象の卸ID。末尾） |
 | 処理 | 新 `store_invoices` INSERT + 旧 `is_latest = FALSE` + `wholesaler_invoices` 金額差額更新 |
 | 加盟店名 | `wholesaler_managed_store_name` は**既存 DB 値を継承**（`fetchStoreInvoicesByParent_` で取得し、フロント送信値で上書きしない） |

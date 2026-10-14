@@ -13,15 +13,27 @@
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
         crossorigin="anonymous" />
   <?!= include('fe_css'); ?>
-  <!-- サーバーが判定した実行環境フラグ・セッショントークンをフロントへ公開 -->
+  <!-- サーバーが認可した操作者と卸コンテキストをフロントへ公開 -->
   <script>
     window.__APP_IS_DEV__ = ('<?= isDev ?>' === 'true');
-    window.__SESSION_TOKEN__ = '<?= sessionToken ?>';
+    window.__WHOLESALER_ID__ = <?!= JSON.stringify(wholesalerId) ?>;
+    window.__OPERATOR_EMAIL__ = <?!= JSON.stringify(operatorEmail) ?>;
+    window.__WEB_APP_URL__ = <?!= JSON.stringify(webAppUrl) ?>;
+    window.__BACKOFFICE_URL__ = <?!= JSON.stringify(backOfficeUrl) ?>;
   </script>
 </head>
 <body>
 
   <?!= include('fe_part_header'); ?>
+
+  <div class="operating-as-banner hidden" id="operatingAsBanner" role="status">
+    <i class="fa-solid fa-building" aria-hidden="true"></i>
+    <span id="operatingAsText"></span>
+  </div>
+  <main class="wholesaler-empty-state hidden" id="wholesalerEmptyState">
+    <h1>操作する卸を選択してください</h1>
+    <p>右上のメニューを開き、CSVを登録する卸を選択してください。</p>
+  </main>
 
   <!-- グローバル Toast: 全ページ共通 -->
   <div class="toast toast--error hidden" id="toast" role="alert">

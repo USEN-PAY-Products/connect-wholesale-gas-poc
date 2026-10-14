@@ -10,16 +10,16 @@
 //   docs/plan/runtime_error_slack_notification_tech_selection.md
 //
 // 公開関数:
-//   reportClientError(payload, sessionToken) ← フロントから google.script.run で呼ばれる
+//   reportClientError(payload, wholesalerId) ← フロントから google.script.run で呼ばれる
 //
 // 依存:
 //   be_utils.js … logError_(), success_()（reportClientError から使用）
+//   db_bq_query.js … fetchWholesalerNameById_()（FEエラーの卸名補完で使用）
 //
 // 【重要な設計条件】
-//   本ファイルの関数群は be_config.js の getConfig_() を一切経由しない。
-//   getConfig_() は無関係な必須プロパティ（DRIVE_ROOT_FOLDER_ID 等）が未設定だと
-//   例外を投げる仕様のため、これを経由すると「設定不備」と「Slack通知」が道連れで
-//   失敗する自己矛盾が生じる。そのため PropertiesService から直接値を読む。
+//   Slack通知自体は be_config.js の getConfig_() を必要としない。
+//   FEエラーの卸名補完で getConfig_() を経由する照会が失敗しても、その失敗は
+//   reportClientError() 内で補助情報として扱い、Slack通知は継続する。
 // =============================================================================
 
 // =============================================================================
@@ -287,8 +287,8 @@ function buildSlackCodeBlockText_(label, escapedValue) {
  * 構成にする。表示ラベルはすべて日本語。
  *
  * ctx.wholesalerId / ctx.wholesalerName は、be_invoice.js 等の BE 呼び出し元から
- * BigQuery 由来の accountInfo.wholesaler_name がそのまま渡ってくる経路と、
- * reportClientError() 経由で FE（ブラウザ改ざん可能な入力）から渡ってくる経路の
+ * BigQuery 由来の accountInfo.wholesaler_name が渡ってくる経路と、
+ * reportClientError() 経由で FE が送る卸IDを使ってサーバー側で卸名を取得する経路の
  * 両方が存在する。同様に message・err.message・err.stack、ctx[key]（invoiceUuid・
  * stagingId・storeInvoiceId・parentInvoiceId）、ctx.actionLabel・ctx.fileName も、
  * CSVアップロード内容（例: validateCsvHeader_ が実際のヘッダーセル値をそのまま Error に
@@ -320,6 +320,7 @@ function buildSlackBlocks_(tag, message, err, context) {
   if (ctx.wholesalerId)   whoParts.push('`wholesaler_id=' + escapeSlackText_(ctx.wholesalerId) + '`');
   if (ctx.wholesalerName) whoParts.push(escapeSlackText_(ctx.wholesalerName));
   const who = whoParts.length > 0 ? whoParts.join(' / ') : '-';
+  const operatorEmail = ctx.operatorEmail ? escapeSlackText_(ctx.operatorEmail) : '-';
 
   // ctx.actionLabel は現状すべてのBE呼び出し元で固定の日本語文言（例: '請求書登録'）だが、
   // 将来外部入力由来の値が渡された場合に備え、他フィールドと同じ方針でエスケープしておく。
@@ -374,6 +375,7 @@ function buildSlackBlocks_(tag, message, err, context) {
 
   const fields = [
     slackField_('対象卸', who),
+    slackField_('操作者', operatorEmail),
     slackField_('発生日時', now + ' (env=' + escapeSlackText_(env) + ')'),
     slackField_('操作', what),
     slackField_('発生箇所', String(tag || '不明') + ' / ' + safeMessage),
@@ -426,7 +428,7 @@ function buildSlackBlocks_(tag, message, err, context) {
   }
 
   // 通知プレビュー（Slackアプリの通知バナー等）用のフォールバックテキスト。
-  const text = [title, '対象卸: ' + who, '操作: ' + what].join(' / ');
+  const text = [title, '対象卸: ' + who, '操作者: ' + operatorEmail, '操作: ' + what].join(' / ');
 
   return { text: text, blocks: blocks };
 }
@@ -542,20 +544,16 @@ const CLIENT_ERROR_ID_PATTERN_ = /^[A-Za-z0-9_-]{1,32}$/;
  * 使う際も同じ理由でそちら側でエスケープすること。Cloud Logging 側の Logger.log
  * 出力（be_utils.js の logError_）にも生の値を残したいため、Slack向けエスケープは
  * Slack本文組み立て箇所だけに閉じ込める）。
- * 同様にブラウザ側は任意の長さの文字列を送信できるため、message/stack/url/ua に加え
- * wholesalerId/wholesalerName も、値がある場合のみ長さ上限（100文字）で切り詰めてから
- * context へ格納する（Slack Webhook送信ペイロードの肥大化による送信遅延・失敗を防ぐため）。
+ * 卸名はブラウザ送信値を信用せず、卸IDからサーバー側で検索する。
  * clientErrorId のみは他フィールドと異なり、切り詰めではなく CLIENT_ERROR_ID_PATTERN_ に
  * よる形式検証を行い、不一致の場合はサーバ側生成IDに全面的に差し替える（詳細は
  * CLIENT_ERROR_ID_PATTERN_ のJSDoc参照）。
  *
- * @param {{ clientErrorId?: string, message?: string, stack?: string, url?: string, ua?: string, wholesalerId?: string, wholesalerName?: string }} payload
- * @param {string} [sessionToken] - 現状は未使用（Who は FE(sessionStorage) 由来の値をそのまま使う。
- *   ここで sessionToken による再認証は行わない。再認証エラーが元のクライアントエラー通知を
- *   握りつぶしてしまうのを避けるため）。
+ * @param {{ clientErrorId?: string, message?: string, stack?: string, url?: string, ua?: string }} payload
+ * @param {string} [wholesalerId] - 卸名をサーバー側で検索するための卸ID
  * @returns {{ status: 'success', data: null }}
  */
-function reportClientError(payload, sessionToken) {
+function reportClientError(payload, wholesalerId) {
   try {
     const p = payload || {};
     // payload.clientErrorId はブラウザ側で自由な文字列に書き換え可能なため、
@@ -572,12 +570,21 @@ function reportClientError(payload, sessionToken) {
     const err = new Error(message);
     err.stack = String(p.stack || '').slice(0, 2000);
 
-    // wholesalerId/wholesalerName は message/stack/url/ua 同様、値がある場合のみ
-    // 長さ上限（100文字）で切り詰める。falsy値（未送信等）はそのまま null を維持し、
-    // buildSlackBlocks_ 側のtruthyチェックで「不明」表示にフォールバックさせる。
+    // FEから渡される卸IDは信用せず、形式を検証したうえでサーバーから名称を取得する。
+    // DB参照に失敗してもエラー通知自体は継続し、対象卸を未特定として記録する。
+    let wholesaler = null;
+    const requestedWholesalerId = String(wholesalerId || '').trim();
+    if (/^\d{1,15}$/.test(requestedWholesalerId)) {
+      try {
+        wholesaler = fetchWholesalerNameById_(requestedWholesalerId);
+      } catch (lookupErr) {
+        Logger.log('[WARN][FE] エラー通知用の卸情報を取得できませんでした: ' + lookupErr);
+      }
+    }
+
     const context = {
-      wholesalerId:   p.wholesalerId   ? String(p.wholesalerId).slice(0, 100)   : null,
-      wholesalerName: p.wholesalerName ? String(p.wholesalerName).slice(0, 100) : null,
+      wholesalerId:   wholesaler ? String(wholesaler.wholesaler_id) : null,
+      wholesalerName: wholesaler ? String(wholesaler.wholesaler_name).slice(0, 100) : null,
       actionLabel:    'フロントエンドエラー',
       url:            String(p.url || '').slice(0, 300),
       ua:             String(p.ua || '').slice(0, 300),

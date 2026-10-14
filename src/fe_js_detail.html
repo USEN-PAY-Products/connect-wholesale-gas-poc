@@ -75,7 +75,7 @@ function initDetailPage(invoiceId) {
         console.error('[detail] fetchInvoiceDetail failed:', err);
         renderDetailError_('データの取得中にエラーが発生しました: ' + String(err.message || err));
       })
-      .fetchInvoiceDetail(invoiceId, getSessionToken_());
+      .fetchInvoiceDetail(invoiceId, getWholesalerId_());
   } else {
     hideLoadingOverlay();
     renderDetailError_('GAS 環境外での実行は非対応です。');
@@ -752,7 +752,7 @@ function loadDetailInvoiceLines_(storeInvoiceId, container) {
         container.innerHTML =
           '<div class="dsl-lines-error"><i class="fa-solid fa-circle-exclamation"></i> 明細の取得に失敗しました。</div>';
       })
-      .getInvoiceLinesByStore(storeInvoiceId, getSessionToken_());
+      .getInvoiceLinesByStore(storeInvoiceId, getWholesalerId_());
   } else {
     container.innerHTML = '<div class="dsl-lines-error">GAS 環境外での実行は非対応です。</div>';
   }
@@ -1259,7 +1259,7 @@ function renderDetailLines_(lines, container) {
         // USEN PAY社からのコメントを保存
         const handoverTextarea = document.querySelector('#detailSummaryCard .detail-handover-textarea');
         if (handoverTextarea) {
-          sessionStorage.setItem('shiire_resubmit_handover_matter', handoverTextarea.value || '');
+          sessionStorage.setItem('shiire_resubmit_handover_matter_' + getWholesalerId_(), handoverTextarea.value || '');
         }
         closeModal();
         location.hash = '#confirm';
@@ -1654,7 +1654,7 @@ function renderDetailLines_(lines, container) {
           showToast('登録に失敗しました: ' + (err.message || err), 'error');
         })
         .resubmitInvoiceData(rawCsvBase64, utf8CsvBase64, selectedFileName, summaryData, remarks,
-                             parentInvoiceId, storeInvoiceId, handoverVal, getSessionToken_());
+                             parentInvoiceId, storeInvoiceId, handoverVal, getWholesalerId_());
     } else {
       console.warn('[modal-reupload-submit] google.script.run が利用できません（モック）');
       setTimeout(function () {
@@ -1754,7 +1754,7 @@ function renderDetailLines_(lines, container) {
             }
             withdrawBtn.innerHTML = '<i class="fa-regular fa-trash-can detail-action-btn__icon--danger"></i> 請求取り下げ';
           })
-          .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, getSessionToken_());
+          .withdrawStoreInvoice(storeInvoiceId, parentInvoiceId, getWholesalerId_());
       } else {
         alert('サーバーとの接続が確立できません。ページを再読み込みしてください。');
         if (actionsEl3) {
@@ -1824,7 +1824,7 @@ function renderDetailLines_(lines, container) {
             cancelWithdrawReqBtn.disabled = false;
             cancelWithdrawReqBtn.innerHTML = '<i class="fa-solid fa-rotate detail-action-btn__icon--primary"></i> 取り下げ依頼を取り消す';
           })
-          .cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, getSessionToken_());
+          .cancelWithdrawRequest(storeInvoiceId, parentInvoiceId, getWholesalerId_());
       } else {
         alert('サーバーとの接続が確立できません。ページを再読み込みしてください。');
         cancelWithdrawReqBtn.disabled = false;
@@ -1887,7 +1887,7 @@ function renderDetailLines_(lines, container) {
             hideLoadingOverlay();
             alert('再請求に失敗しました: ' + (err.message || err));
           })
-          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null, getSessionToken_());
+          .resubmitWithoutChanges(storeInvoiceId, parentInvoiceId, wholesalerHandover4 || null, getWholesalerId_());
       } else {
         console.warn('[resubmitWithoutChanges] google.script.run が利用できません（モック）');
         setTimeout(function () {

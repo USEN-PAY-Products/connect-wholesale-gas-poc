@@ -9,12 +9,31 @@
  * GAS Webアプリのエントリーポイント。
  * fe_index.html をテンプレートとして評価し、HTMLページを返す。
  *
- * 開発環境（ENV=development）のときだけタブタイトルとヘッダーのサービス名に
- * "(Dev)" を付与する（ヘッダー側の付与は fe_js_common.html が window.__APP_IS_DEV__ を参照）。
+ * 1. requireAuthorizedOperator_() で認可チェック（UNAUTHORIZED/FORBIDDEN→403）。
+ * 2. wholesalerId をクエリから取得し、テンプレートへ注入。
+ * 3. operatorEmail / webAppUrl / backOfficeUrl を注入。
  */
 function doGet(e) {
-  // 環境判定は既存ヘルパー getConfig_() を再利用する。
-  // 必須プロパティ未設定で throw しても画面表示を止めないよう、本番扱いにフォールバックする。
+  // ── 認可 ─────────────────────────────────────────────────────────────────
+  let operatorEmail = '';
+  try {
+    operatorEmail = requireAuthorizedOperator_();
+  } catch (err) {
+    // 403 にするのは UNAUTHORIZED / FORBIDDEN のみ。設定不備は GAS のエラー画面＋ログに出す
+    if (/^(UNAUTHORIZED|FORBIDDEN):/.test(String(err.message || ''))) {
+      return forbiddenPage_(err);
+    }
+    logError_('Auth', 'doGet', err, { actionLabel: '起動' });
+    throw err;
+  }
+
+  // ── wholesalerId の取得（不正値は未指定扱い）───────────────────────────
+  const raw = String((e && e.parameter && e.parameter.wholesalerId) || '').trim();
+  // 不正な指定を未選択状態に丸めず、サーバー検証で WHOLESALER_INVALID とする。
+  // 先頭ゼロは正規化する（API応答の wholesaler_id との文字列照合を一致させるため）。
+  const wholesalerId = raw === '' ? '' : (/^\d{1,15}$/.test(raw) ? String(Number(raw)) : '__invalid__');
+
+  // ── 環境判定 ─────────────────────────────────────────────────────────────
   let isDev = false;
   try {
     isDev = getConfig_().env === 'development';
@@ -22,22 +41,20 @@ function doGet(e) {
     console.warn('[doGet] 環境判定に失敗したため本番扱いにします: ' + err);
   }
 
-  // LP から ?token=xxx で渡されるセッショントークンを取得（iframe 内ではフラグメントが使えないため）
-  const sessionToken = (e && e.parameter && e.parameter.token) || '';
-
   const template = HtmlService.createTemplateFromFile('fe_index');
-  template.isDev = isDev; // fe_index.html で window.__APP_IS_DEV__ として公開
-  template.sessionToken = sessionToken; // フロント getSessionToken_() がテンプレート注入値を読む
+  template.isDev         = isDev;
+  template.wholesalerId  = wholesalerId;
+  template.operatorEmail = operatorEmail;
+  const config = getConfig_();
+  template.webAppUrl     = config.webAppUrl || ScriptApp.getService().getUrl(); // 卸切替の遷移先
+  template.backOfficeUrl = config.backOfficeUrl;                                // https のみ許可済み
 
   const output = template
     .evaluate()
     .setTitle(isDev ? '仕入れコネクト(Dev)' : '仕入れコネクト')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 
-  // ファビコン設定（任意）。
-  // 注意: setFaviconUrl は data URI(base64) を受け付けず例外になるため、
-  //       公開HTTPS URL（ログイン不要で画像が直接返るもの）のみ指定する。
-  //       設定失敗で画面表示を止めないよう try/catch でガードする。
+  // ── ファビコン設定（任意）───────────────────────────────────────────────
   const faviconUrl = getFaviconUrl_();
   if (faviconUrl) {
     try {
@@ -48,6 +65,20 @@ function doGet(e) {
   }
 
   return output;
+}
+
+/**
+ * 403 Forbidden ページを返す。
+ * UNAUTHORIZED / FORBIDDEN どちらも同じ 403 扱い（理由は表示しない）。
+ *
+ * @param {Error} err
+ * @returns {GoogleAppsScript.HTML.HtmlOutput}
+ */
+function forbiddenPage_(err) {
+  console.warn('[doGet] 403 Forbidden: ' + (err && err.message));
+  return HtmlService.createHtmlOutput(
+    '<h2>403 Forbidden</h2><p>アクセス権がありません。</p>'
+  );
 }
 
 /**

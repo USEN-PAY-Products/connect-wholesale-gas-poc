@@ -10,7 +10,7 @@ let calMonth = _today.getMonth(); // 0始まり
 
 /** スケジュールデータのキャッシュ（日付文字列 → オブジェクト配列） */
 let scheduleMap = {};
-let _scheduleLoaded = false;
+let _scheduleLoadedFor = null;
 
 /**
  * スケジュールデータを取得する。
@@ -19,9 +19,9 @@ let _scheduleLoaded = false;
  *    ※ キャッシュは当月分のみ保持（初期表示高速化目的）
  */
 function loadScheduleData_() {
-  if (_scheduleLoaded) return;
-  const wholesalerId = sessionStorage.getItem('shiire_wholesaler_id');
+  const wholesalerId = getWholesalerId_();
   if (!wholesalerId) return;
+  if (_scheduleLoadedFor === wholesalerId) return;
   const jst = jstNow_();
   const currentYM = jst.ym;
   const cacheKey = 'shiire_schedule_cache_' + wholesalerId + '_' + currentYM;
@@ -43,10 +43,11 @@ function loadScheduleData_() {
 
   // ② BQ から最新データを非同期取得
   if (typeof google === 'undefined' || !google.script || !google.script.run) return;
-  _scheduleLoaded = true;
+  _scheduleLoadedFor = wholesalerId;
 
   google.script.run
     .withSuccessHandler(function(result) {
+      if (getWholesalerId_() !== wholesalerId) return;
       const data = result && result.data ? result.data : [];
       // sessionStorage には当月分のみキャッシュ（初期表示高速化目的）
       try {
@@ -73,9 +74,9 @@ function loadScheduleData_() {
     })
     .withFailureHandler(function(err) {
       console.error('[calendar] fetchScheduleData failed:', err);
-      _scheduleLoaded = false; // 失敗時は再取得可能にする
+      if (getWholesalerId_() === wholesalerId) _scheduleLoadedFor = null;
     })
-    .fetchScheduleData(getSessionToken_());
+    .fetchScheduleData(wholesalerId);
 }
 
 // カレンダーモーダル: 開閉制御（ページに依存しないためグローバルで登録）

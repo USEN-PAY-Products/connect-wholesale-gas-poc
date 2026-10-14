@@ -31,9 +31,7 @@
 //  12. buildSlackBlocks_ が ctx.actionLabel もエスケープする
 //  13. notifySlackError_ は SLACK_WEBHOOK_URL 未設定時、重複抑制判定（Cacheへの書き込み）
 //      自体を行わない（Webhook設定確認 → 重複抑制判定 の順で処理する）
-//  14. reportClientError は wholesalerId/wholesalerName を message/stack/url/ua 同様
-//      長さ上限（100文字）で切り詰めてから context へ格納する（Slack Webhook送信ペイロード
-//      肥大化防止。falsy値はnullのまま維持される）
+//  14. reportClientError はクライアント送信の卸情報を信用せず、卸IDでサーバー照会する
 //  15. reportClientError は payload.clientErrorId が CLIENT_ERROR_ID_PATTERN_
 //      （英数字・ハイフン・アンダースコアのみ、1〜32文字）に一致しない場合
 //      （空白混入・Slack特殊記法・過剰な長さ等）、信用せずサーバ側生成IDに
@@ -77,10 +75,17 @@ function createSandbox(options) {
   const fetchCalls = [];
   const loggerLines = [];
   const cachePutCalls = [];
+  const wholesalerLookupCalls = [];
 
   const sandbox = {
     // Node 標準の console は GAS には存在しないが、テスト用に注入しても実害はない。
     console: console,
+
+    Session: {
+      getActiveUser: function () {
+        return { getEmail: function () { return opts.operatorEmail || ''; } };
+      },
+    },
 
     PropertiesService: {
       getScriptProperties: function () {
@@ -147,6 +152,15 @@ function createSandbox(options) {
       sandbox.__getConfigCalled = true;
       throw new Error('getConfig_ はこのテストでは呼ばれない想定です（呼ばれた場合は設計違反）');
     },
+
+    fetchWholesalerNameById_: function (wholesalerId) {
+      wholesalerLookupCalls.push(wholesalerId);
+      if (opts.wholesalerLookupThrows) throw new Error('卸情報の取得に失敗しました（テスト用）');
+      if (Object.prototype.hasOwnProperty.call(opts, 'wholesalerLookupResult')) {
+        return opts.wholesalerLookupResult;
+      }
+      return { wholesaler_id: Number(wholesalerId), wholesaler_name: 'DB由来の卸名' };
+    },
   };
 
   vm.createContext(sandbox);
@@ -164,6 +178,7 @@ function createSandbox(options) {
   sandbox.__loggerLines = loggerLines;
   sandbox.__scriptProps = scriptProps;
   sandbox.__cachePutCalls = cachePutCalls;
+  sandbox.__wholesalerLookupCalls = wholesalerLookupCalls;
   sandbox.__getConfigCalled = false;
 
   return sandbox;
@@ -462,8 +477,7 @@ test('notifySlackError_: FEタグでも rawMessage が異なれば別エラー�
 // message/stack 等の値に <!channel> や <@U...> のような Slack の
 // 特殊記法が含まれていても、Slack投稿時にメンション/リンクとして展開されないよう
 // escapeSlackText_() でエスケープしてから Error/context に格納されている必要がある。
-// wholesalerId/wholesalerName のエスケープは buildSlackBlocks_ 側で一元化されているため
-// （検証9で別途確認）、ここでは message/stack のエスケープを中心に検証する。
+// 卸情報は卸IDからサーバー側で取得し、ここでは message/stack のエスケープを中心に検証する。
 // =============================================================================
 
 test('escapeSlackText_: &, <, > をこの順序で正しくエスケープする（&を先に処理しないと二重エスケープする）', () => {
@@ -499,22 +513,24 @@ test('reportClientError: payload.message の <!channel> がエスケープされ
   assert.match(text, /&lt;!channel&gt;/, 'エスケープ済みの &lt;!channel&gt; が本文に含まれるべき');
 });
 
-test('reportClientError: payload.wholesalerName の <@U...> メンションがエスケープされる', () => {
+test('reportClientError: クライアント送信の卸名を採用せず、DBから取得した卸名を使う', () => {
   const sandbox = createSandbox({
     scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+    wholesalerLookupResult: { wholesaler_id: 123, wholesaler_name: 'DBの正規卸名' },
   });
 
   sandbox.reportClientError({
     clientErrorId: 'abcd1234',
     message: 'テストエラー',
     wholesalerName: '<@U12345|malicious>',
-  }, null);
+  }, '123');
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
   const text = allBlocksText(sentPayload);
-  assert.doesNotMatch(text, /<@U12345/, '生のユーザーメンション記法がSlack本文に含まれてはいけない');
-  assert.match(text, /&lt;@U12345\|malicious&gt;/);
+  assert.doesNotMatch(text, /U12345|malicious/, 'クライアント送信の卸名を採用してはいけない');
+  assert.match(text, /DBの正規卸名/);
+  assert.deepEqual(sandbox.__wholesalerLookupCalls, ['123']);
 });
 
 test('reportClientError: payload.stack に含まれる特殊記法もエスケープされる', () => {
@@ -538,6 +554,7 @@ test('reportClientError: payload.stack に含まれる特殊記法もエスケ�
 test('reportClientError: 特殊記法を含まない通常のペイロードは従来通り正常に通知される（回帰確認）', () => {
   const sandbox = createSandbox({
     scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+    wholesalerLookupResult: { wholesaler_id: 123, wholesaler_name: 'テスト卸' },
   });
 
   const result = sandbox.reportClientError({
@@ -546,7 +563,7 @@ test('reportClientError: 特殊記法を含まない通常のペイロードは�
     stack: 'TypeError: ...',
     wholesalerId: '123',
     wholesalerName: 'テスト卸',
-  }, null);
+  }, '123');
 
   assert.equal(result.status, 'success');
   assert.equal(result.data, null);
@@ -651,8 +668,7 @@ test('notifySlackError_: Cacheが正常な場合でも、messageが異なれば�
 // 卸名がDB上で任意の文字列になり得る前提に立つと、<!channel> や <@U...> のような
 // Slack特殊記法が卸名に含まれた場合、buildSlackBlocks_ 側でエスケープしなければ
 // 意図しないメンション/リンク展開（通知荒らし）が起き得る。
-// reportClientError（FEパス）は既にpayload側でmessage/stackをエスケープ済みだが、
-// wholesalerId/wholesalerNameは「呼び出し元では二重エスケープしない」設計に変更したため、
+// reportClientError（FEパス）でも卸名はサーバー取得値になる。
 // ここでは be_invoice.js 等と同様に notifySlackError_ を「BE呼び出し元」として直接叩き、
 // 生のcontextからでもエスケープされることを確認する。
 // =============================================================================
@@ -716,7 +732,7 @@ test('notifySlackError_: BE由来context の wholesalerId（数値）もエス�
   assert.match(text, /通常の卸名株式会社/);
 });
 
-test('reportClientError: wholesalerName のエスケープが二重に行われない（buildSlackBlocks_への一元化後の回帰確認）', () => {
+test('reportClientError: クライアント送信の卸名に依存せず卸情報のない通知を生成する', () => {
   const sandbox = createSandbox({
     scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
   });
@@ -730,10 +746,8 @@ test('reportClientError: wholesalerName のエスケープが二重に行われ�
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
   const text = allBlocksText(sentPayload);
-  // 二重エスケープされていれば "&amp;lt;" のような文字列になるはずだが、
-  // buildSlackBlocks_ による一元エスケープ（1回だけ）なのでそれは発生しないはず。
-  assert.doesNotMatch(text, /&amp;lt;/, 'wholesalerNameが二重エスケープされてはいけない（&amp;lt; になっていないこと）');
-  assert.match(text, /&lt;@U12345\|malicious&gt;/, '1回だけエスケープされた &lt;@U12345\|malicious&gt; が含まれるべき');
+  assert.doesNotMatch(text, /U12345|malicious/, 'クライアント送信の卸名を採用してはいけない');
+  assert.match(text, /\*対象卸:\*\n-/);
 });
 // =============================================================================
 // 検証10: エラー内容（message / err.message / err.stack）のエスケープ
@@ -1066,51 +1080,47 @@ test('notifySlackError_: Webhook設定済みの場合の判定順序は従来通
 });
 
 // =============================================================================
-// 検証14: reportClientError の wholesalerId/wholesalerName 長さ上限
-//
-// reportClientError は message/stack/url/ua をそれぞれ 500/2000/300/300文字で
-// 切り詰めていたが、wholesalerId/wholesalerName にはこれまで長さ上限がなかった。
-// これらは payload 同様ブラウザ側で自由に書き換え・送信できる値のため、極端に長い
-// 文字列を送られると Slack Webhook 送信ペイロードが肥大化し、送信遅延・失敗を招き得る。
-// 他フィールドと同じ方針で、値がある場合のみ100文字に切り詰めることを確認する。
+// 検証14: reportClientError はクライアント送信の卸情報を信用せず、IDでサーバー照会する。
 // =============================================================================
 
-test('reportClientError: wholesalerId が長すぎる場合は100文字に切り詰められる', () => {
+test('reportClientError: 不正な卸IDは照会せず、クライアント送信の卸情報も表示しない', () => {
   const sandbox = createSandbox({
     scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
   });
-  const longWholesalerId = '1'.repeat(1000);
+  const invalidWholesalerId = '1'.repeat(1000);
 
   sandbox.reportClientError({
     clientErrorId: 'abcd1234',
     message: 'テストエラー',
-    wholesalerId: longWholesalerId,
-  }, null);
+    wholesalerId: invalidWholesalerId,
+    wholesalerName: '偽装卸名',
+  }, invalidWholesalerId);
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
   const text = allBlocksText(sentPayload);
-  assert.doesNotMatch(text, new RegExp('1'.repeat(101)), '1000文字のwholesalerIdがそのまま本文に含まれてはいけない');
-  assert.match(text, new RegExp('`wholesaler_id=' + '1'.repeat(100) + '(?!1)'), 'wholesalerIdは100文字に切り詰められて本文に含まれるべき');
+  assert.doesNotMatch(text, /偽装卸名|wholesaler_id=1/);
+  assert.deepEqual(sandbox.__wholesalerLookupCalls, [], '形式不正のIDでDB照会してはいけない');
 });
 
-test('reportClientError: wholesalerName が長すぎる場合は100文字に切り詰められる', () => {
+test('reportClientError: DB照会に失敗してもエラー通知は継続する', () => {
   const sandbox = createSandbox({
     scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+    wholesalerLookupThrows: true,
   });
-  const longWholesalerName = 'あ'.repeat(1000);
 
   sandbox.reportClientError({
     clientErrorId: 'abcd1234',
     message: 'テストエラー',
-    wholesalerName: longWholesalerName,
-  }, null);
+    wholesalerName: '偽装卸名',
+  }, '789');
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
   const text = allBlocksText(sentPayload);
-  assert.doesNotMatch(text, new RegExp('あ'.repeat(101)), '1000文字のwholesalerNameがそのまま本文に含まれてはいけない');
-  assert.match(text, new RegExp('あ'.repeat(100) + '(?!あ)'), 'wholesalerNameは100文字に切り詰められて本文に含まれるべき');
+  assert.match(text, /テストエラー/);
+  assert.doesNotMatch(text, /偽装卸名|wholesaler_id=789/);
+  assert.match(sandbox.__loggerLines.join('\n'), /卸情報を取得できませんでした/);
 });
 
 test('reportClientError: wholesalerId/wholesalerName が未送信（falsy）の場合はnullのまま維持され「不明」表示になる（回帰確認）', () => {
@@ -1126,9 +1136,10 @@ test('reportClientError: wholesalerId/wholesalerName が未送信（falsy）の�
   assert.match(text, /\*対象卸:\*\n-/, 'wholesalerId/wholesalerName未送信時は「-」表示になるべき（BOシステムのフォーマットに合わせた仕様変更）');
 });
 
-test('reportClientError: wholesalerId/wholesalerName が100文字以下の場合は切り詰められず従来通り表示される（回帰確認）', () => {
+test('reportClientError: 卸IDからサーバー照会した卸情報を表示する', () => {
   const sandbox = createSandbox({
     scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+    wholesalerLookupResult: { wholesaler_id: 789, wholesaler_name: '通常の卸名株式会社' },
   });
 
   sandbox.reportClientError({
@@ -1136,13 +1147,44 @@ test('reportClientError: wholesalerId/wholesalerName が100文字以下の場合
     message: 'テストエラー',
     wholesalerId: '789',
     wholesalerName: '通常の卸名株式会社',
-  }, null);
+  }, '789');
 
   assert.equal(sandbox.__fetchCalls.length, 1);
   const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
   const text = allBlocksText(sentPayload);
   assert.match(text, /wholesaler_id=789/);
   assert.match(text, /通常の卸名株式会社/);
+});
+
+test('buildSlackBlocks_: 認証済み操作者のメールを操作者項目に表示する', () => {
+  const sandbox = createSandbox();
+  const payload = sandbox.buildSlackBlocks_(
+    'Invoice',
+    '請求登録に失敗',
+    new Error('請求登録に失敗'),
+    { wholesalerId: '789', operatorEmail: 'staff@example.com', actionLabel: '新規請求登録' }
+  );
+
+  const text = allBlocksText(payload);
+  assert.match(text, /\*操作者:\*\nstaff@example\.com/);
+});
+
+test('logError_: context に操作者がない場合もサーバー側のログインユーザーを Slack 通知に含める', () => {
+  const sandbox = createSandbox({
+    operatorEmail: 'staff@example.com',
+    scriptProperties: { SLACK_WEBHOOK_URL: 'https://hooks.slack.test/dummy' },
+  });
+
+  sandbox.logError_(
+    'Invoice',
+    '請求登録に失敗',
+    new Error('テストエラー'),
+    { wholesalerId: '789', actionLabel: '新規請求登録' }
+  );
+
+  assert.equal(sandbox.__fetchCalls.length, 1);
+  const sentPayload = JSON.parse(sandbox.__fetchCalls[0].params.payload);
+  assert.match(allBlocksText(sentPayload), /\*操作者:\*\nstaff@example\.com/);
 });
 
 // =============================================================================
