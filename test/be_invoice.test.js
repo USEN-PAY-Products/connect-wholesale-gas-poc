@@ -1521,6 +1521,14 @@ test('resubmitWithoutChanges: UPDATE の SET 句がカンマで区切られて�
   assert.ok(sql.includes('wholesaler_handover = wholesaler_handover,\n  final_updated_by = @final_updated_by'));
 });
 
+test('resubmitWithoutChanges: RETURNED の最終状態（APPROVED/WITHDRAWN）は更新対象外で、MCR は DISPUTED のみ', () => {
+  const sandbox = createSandbox();
+  sandbox.resubmitWithoutChanges('55555555-5555-5555-5555-555555555555', PARENT_INVOICE_ID, null, 'dummy-session-token');
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("backoffice_review_status = 'RETURNED' AND COALESCE(invoice_status, '') NOT IN ('APPROVED', 'WITHDRAWN')"));
+  assert.ok(sql.includes("backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED' AND invoice_status = 'DISPUTED'"));
+});
+
 test('bulkResubmitInvoiceData: RETURNED+DISPUTED も否認側の is_latest 更新対象にする', () => {
   const storeRows = [makeStoreRow('CUST001', 'MALL-C001', 'SI-C001-OLD', { backoffice_review_status: 'RETURNED', invoice_status: 'DISPUTED' })];
   const sandbox = createSandbox({ storeRows: storeRows, actionRequiredRows: [{ mall_code: 'MALL-C001', invoice_status: 'DISPUTED' }] });

@@ -252,7 +252,9 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     '    ROW_NUMBER() OVER ( ' +
     '      PARTITION BY COALESCE(wholesaler_invoice_id, id) ' +
     '      ORDER BY created_at DESC ' +
-    '    ) AS rn ' +
+    '    ) AS rn, ' +
+    // 当月新規請求の重複判定用。再請求版ではなく系列の元の新規請求の作成日を保持する。
+    '    MIN(IF(wholesaler_invoice_id IS NULL, created_at, NULL)) OVER (PARTITION BY COALESCE(wholesaler_invoice_id, id)) AS root_created_at ' +
     '  FROM ' + tbl + '.wholesaler_invoices` ' +
     '  WHERE wholesaler_id = @wholesaler_id ' +
     '), ' +
@@ -275,6 +277,7 @@ function fetchInvoicesByWholesaler_(wholesalerId) {
     'SELECT ' +
     '  wi.id AS wholesaler_invoice_id, wi.root_id, wi.wholesaler_invoice_date, ' +
     '  FORMAT_TIMESTAMP(\'%Y/%m/%d\', wi.created_at, \'Asia/Tokyo\') AS created_at, ' +
+    '  FORMAT_TIMESTAMP(\'%Y/%m/%d\', wi.root_created_at, \'Asia/Tokyo\') AS root_created_at, ' +
     '  wi.wholesaler_total_amount, wi.wholesaler_subtotal_amount, wi.wholesaler_tax_amount, ' +
     '  wi.wholesaler_standard_tax_target_amount, wi.wholesaler_standard_tax_amount, ' +
     '  wi.wholesaler_reduced_tax_target_amount, wi.wholesaler_reduced_tax_amount, ' +
