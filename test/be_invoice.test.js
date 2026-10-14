@@ -1520,3 +1520,19 @@ test('resubmitWithoutChanges: UPDATE の SET 句がカンマで区切られて�
   const sql = sandbox.__runTransactionSqlCalls[0].sql;
   assert.ok(sql.includes('wholesaler_handover = wholesaler_handover,\n  final_updated_by = @final_updated_by'));
 });
+
+test('bulkResubmitInvoiceData: RETURNED+DISPUTED も否認側の is_latest 更新対象にする', () => {
+  const storeRows = [makeStoreRow('CUST001', 'MALL-C001', 'SI-C001-OLD', { backoffice_review_status: 'RETURNED', invoice_status: 'DISPUTED' })];
+  const sandbox = createSandbox({ storeRows: storeRows, actionRequiredRows: [{ mall_code: 'MALL-C001', invoice_status: 'DISPUTED' }] });
+  const csvText = buildCsvText(['CUST001,2026/07/01,テスト商品,1,1000,10,1000,100,']);
+  const summaryData = {
+    wholesalerTotal: { totalAmount: 1100 },
+    merchantTotals: [{ customerCode: 'CUST001', totalAmount: 1100, subtotalAmount: 1000, taxAmount: 100, exTax10: 1000, tax10: 100, exTax8: 0, tax8: 0 }],
+  };
+  const result = sandbox.bulkResubmitInvoiceData(
+    'dummy-raw-csv-base64', csvText, 'test.csv', summaryData, {}, PARENT_INVOICE_ID, { CUST001: '合意済み' }, 'dummy-session-token'
+  );
+  assert.equal(result.status, 'success');
+  const sql = sandbox.__runTransactionSqlCalls[0].sql;
+  assert.ok(sql.includes("backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')\n  AND invoice_status = 'DISPUTED'"), 'RETURNED+DISPUTED も否認側の更新対象にすること');
+});

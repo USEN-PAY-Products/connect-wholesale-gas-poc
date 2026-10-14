@@ -1114,6 +1114,7 @@ function buildMappedResubmitTransactionSql_(params) {
     "WHERE id = '" + escSql_(storeInvoiceId) + "'",
     '  AND wholesaler_id = ' + wsId,
     "  AND wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
+    "  AND backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')",
     '  AND is_latest = TRUE;',
     'IF @@row_count = 0 THEN',
     '  ROLLBACK TRANSACTION;',
@@ -1362,7 +1363,7 @@ function buildMappedBulkResubmitTransactionSql_(params) {
     "WHERE wholesaler_invoice_id IN (SELECT id FROM " + invRef + " WHERE id = '" + escSql_(parentInvoiceId) + "' OR wholesaler_invoice_id = '" + escSql_(parentInvoiceId) + "')",
     '  AND wholesaler_id = ' + wsId,
     '  AND mall_code IN (' + disputedInClause + ')',
-    "  AND backoffice_review_status = 'MERCHANT_CONFIRMATION_REQUESTED'",
+    "  AND backoffice_review_status IN ('RETURNED', 'MERCHANT_CONFIRMATION_REQUESTED')",
     "  AND invoice_status = 'DISPUTED'",
     '  AND is_latest = TRUE;',
     ...(disputedMallCodes.length > 0 ? [
